@@ -17,6 +17,8 @@ A customer-service assistant for a Latin American bank. You chat with it in **Sp
 | *Quiero hablar con una persona* | Transfers you to a human agent at once, with your case summarized |
 | Anything else (advice, other topics) | Answers briefly, says what it can help with, and offers a person |
 
+You can also **talk to it**: click the microphone next to the message box, say your question in Spanish or Portuguese, and click again to send it. What you said appears as your message. The two buttons at the top show what is allowed on this page: **Permitir micrófono** asks the browser for the microphone before your first message, and **Activar voz del agente** makes the assistant read its answers aloud, in your language. With the voice on, an answer is written on screen as it is read; **Mostrar todo** under it shows the whole text at once while the voice goes on. The voice is off every time the page loads; pressing the button again, the microphone or sending another message stops the reading and shows the rest of the text.
+
 Under each answer, a small line shows what the assistant used (for example `skill: balance_inquiry · tools: get_balances`) or whether you were transferred to a person.
 
 ## Your data and safety
