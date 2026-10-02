@@ -44,7 +44,11 @@ flowchart LR
   step-up authentication is required before any money-moving skill.
 - **Tracing:** Langfuse `CallbackHandler`, enabled when `LANGFUSE_*` keys are set (Cloud Run reads
   them from Secret Manager and sends to Langfuse Cloud). The session is `thread_id` and the user is
-  `customer_id`, so Langfuse groups a customer's whole conversation.
+  `customer_id`, so Langfuse groups a customer's whole conversation. Traces are masked inside the
+  API process before they are sent (the SDK's `mask` hook, `tracing.py`): long numbers (cards,
+  accounts, documents, phones) keep only their last 4 digits, emails are removed and the personal
+  columns of `core.customers` are redacted when they come as a named field. Known limit: a name
+  written in free text, or returned by SQL under another column alias, is not detected.
 - **Memory:** a LangGraph checkpointer keyed by `thread_id`. It is in-memory for now; the next
   step is a Postgres checkpointer.
 - **API:** `POST /api/chat {message, thread_id?}` (bearer token required outside local) →
