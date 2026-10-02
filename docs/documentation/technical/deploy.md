@@ -197,6 +197,13 @@ asking for a token. In Swagger (`$API/docs`) paste the token in **Authorize**.
   same process: chats and the handoff queue are lost when the instance stops (idle, or any deploy).
   It also needs the single instance. Real fix: write them to `ops.conversations`, `ops.messages` and
   `ops.handoff_cases`, which `schema.sql` already defines.
+- **Voice makes `factored-api` bigger and spoken turns slower.** The image carries faster-whisper
+  `small` and Kokoro (0.8 GB) and the service runs with `--memory 4Gi --cpu 4`: with both models
+  loaded the local container used 1.3 GiB, and 2.5 GiB while generating 73 s of audio in one
+  request. Measured locally (Ollama), the agent's answer to a spoken question is ready 20-28 s
+  after the microphone is released (about 4 s of transcription, the rest is the agent); with the
+  voice on, text and voice then start together about 2 s later. Both models are loaded while the
+  container starts (5-10 s), so that no spoken message waits for them.
 - **One shared operator key.** Whoever has `OPERATOR_KEY` reads every chat; there are no operator
   accounts. Telegram chats do not reach the console.
 - **The token endpoint is a test identity service.** It is public and password-less by design, but
