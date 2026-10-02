@@ -46,6 +46,12 @@ export default function Home() {
 
   const session = useRef<Session | null>(null);
   const operatorCursor = useRef(0); // how many messages of this thread were already checked
+  const list = useRef<HTMLElement>(null);
+
+  // Keep the newest message in view: nobody should have to scroll to notice a reply.
+  useEffect(() => {
+    list.current?.scrollTo({ top: list.current.scrollHeight, behavior: "smooth" });
+  }, [messages.length, pending]);
 
   // The customers offered here are the ones the API lets start a demo session (DEMO_CUSTOMER_IDS).
   useEffect(() => {
@@ -178,7 +184,7 @@ export default function Home() {
         </label>
       </header>
 
-      <section className="flex flex-1 flex-col gap-3 overflow-y-auto">
+      <section ref={list} className="flex flex-1 flex-col gap-3 overflow-y-auto">
         <AnimatePresence initial={false}>
           {messages.map((message, index) => (
             <motion.div

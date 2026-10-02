@@ -1,7 +1,7 @@
 "use client";
 
 import { Send } from "lucide-react";
-import { type FormEvent, useEffect, useState, useSyncExternalStore } from "react";
+import { type FormEvent, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Markdown from "react-markdown";
 
 import { Button } from "@/components/ui/button";
@@ -68,6 +68,14 @@ export default function Crm() {
   const [selected, setSelected] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [notice, setNotice] = useState("");
+  const list = useRef<HTMLDivElement>(null);
+  const open = conversations.find((c) => c.thread_key === selected);
+  const shown = open?.messages.length;
+
+  // Keep the newest message of the open chat in view, when the chat is opened and as it grows.
+  useEffect(() => {
+    list.current?.scrollTo({ top: list.current.scrollHeight, behavior: "smooth" });
+  }, [selected, shown]);
 
   // The console mirrors the API's memory: ask for every chat again every few seconds.
   useEffect(() => {
@@ -145,8 +153,6 @@ export default function Crm() {
     );
   }
 
-  const open = conversations.find((c) => c.thread_key === selected);
-
   return (
     <main className="mx-auto flex h-dvh w-full max-w-6xl flex-col gap-4 p-4 md:flex-row">
       <aside className="flex shrink-0 flex-col gap-2 overflow-y-auto md:w-80">
@@ -209,7 +215,7 @@ export default function Crm() {
             </Card>
           )}
 
-          <div className="flex flex-1 flex-col gap-3 overflow-y-auto">
+          <div ref={list} className="flex flex-1 flex-col gap-3 overflow-y-auto">
             {open.messages.map((message, index) => (
               <div key={index} className={message.role === "customer" ? "self-start max-w-[85%]" : "self-end max-w-[85%]"}>
                 <div
