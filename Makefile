@@ -1,7 +1,7 @@
 -include .env
 export
 
-.PHONY: build up smoke down logs llm setup data data-lite bronze sample fixtures silver db-up db-load demo-data dev web test lint docker telegram-local db-proxy db-load-cloud deploy-api deploy-web api-cors deploy telegram-webhook diagrams
+.PHONY: build up smoke down logs llm setup data data-lite bronze sample fixtures silver db-up db-load demo-data models dev web test lint docker telegram-local db-proxy db-load-cloud deploy-api deploy-web api-cors deploy telegram-webhook diagrams
 
 # Mirrors Settings.provider (app/config.py): Ollama unless LLM_PROVIDER says otherwise or APP_ENV isn't local.
 LLM_PROVIDER_RESOLVED := $(or $(LLM_PROVIDER),$(if $(filter local,$(or $(APP_ENV),local)),ollama,google_genai))
@@ -10,6 +10,7 @@ URL := http://localhost:8080
 WEB_URL := http://localhost:3000
 # Written only when `make llm` starts Ollama, so `make down` never kills an Ollama you run yourself.
 OLLAMA_PID := /tmp/factored-ollama.pid
+KOKORO_FILES := https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0
 
 build:            ## Build the images (db, seed, app)
 	docker compose build
@@ -76,6 +77,12 @@ db-load:          ## Load silver + fixtures into Postgres core schema (idempoten
 
 demo-data: db-up silver db-load  ## One command from a fresh clone: Postgres with the mini-set
 
+models:           ## Download the speech models to ./models, for `make dev` (the image has its own)
+	mkdir -p models
+	curl -fL -o models/kokoro-v1.0.onnx $(KOKORO_FILES)/kokoro-v1.0.onnx
+	curl -fL -o models/voices-v1.0.bin $(KOKORO_FILES)/voices-v1.0.bin
+	uv run python -c "from faster_whisper import download_model; download_model('small', output_dir='models/whisper-small')"
+
 dev:              ## API with reload on :8080
 	uv run uvicorn app.adapters.inbound.http:app --reload --port 8080
 
@@ -119,7 +126,7 @@ deploy-api:       ## Build the API image and deploy factored-api (keeps CORS poi
 		--add-cloudsql-instances $(SQL_CONNECTION) \
 		--set-secrets DATABASE_URL=factored-database-url:latest,JWT_SECRET=jwt-secret:latest,OPERATOR_KEY=operator-key:latest,LANGFUSE_PUBLIC_KEY=langfuse-public-key:latest,LANGFUSE_SECRET_KEY=langfuse-secret-key:latest \
 		--set-env-vars "^;^APP_ENV=cloud;GOOGLE_GENAI_USE_VERTEXAI=true;GOOGLE_CLOUD_PROJECT=$(GCP_PROJECT_ID);GOOGLE_CLOUD_LOCATION=$(GCP_REGION);CORS_ORIGINS=$${web:-http://localhost:3000};DEMO_CUSTOMER_IDS=$(DEMO_CUSTOMER_IDS);LANGFUSE_BASE_URL=https://us.cloud.langfuse.com" \
-		--max-instances 1 --allow-unauthenticated
+		--memory 4Gi --cpu 4 --cpu-boost --max-instances 1 --allow-unauthenticated
 
 deploy-web:       ## Build the web against factored-api's URL, deploy factored-web, then allow it in CORS
 	api=$(call SERVICE_URL,factored-api); test -n "$$api" || { echo "deploy factored-api first"; exit 1; }; \
