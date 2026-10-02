@@ -259,6 +259,7 @@ def test_gemini_calls_have_bounded_retries_and_a_timeout(monkeypatch):
         database_url="postgresql://u:p@/agent?host=/cloudsql/x:y:z",
         llm_provider="google_genai",
         jwt_secret="x" * 32,
+        operator_key="x" * 32,
     )
     monkeypatch.setattr(llm, "get_settings", lambda: cloud)
     llm.chat_model.__wrapped__("fast")

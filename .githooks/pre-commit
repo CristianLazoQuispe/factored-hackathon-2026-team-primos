@@ -1,7 +1,12 @@
 #!/bin/sh
-# Same lint as the `test` job in .github/workflows/deploy.yml: a commit that would fail CI fails here.
+# Same checks as the `test` job in .github/workflows/deploy.yml: a commit that would fail CI fails here.
 # Enabled per clone by `make setup` (git config core.hooksPath .githooks).
 set -e
 cd "$(git rev-parse --show-toplevel)"
+email=$(git config user.email)
+grep -qxF "$email" .github/allowed-emails || {
+  echo "git user.email '$email' is not a team email (.github/allowed-emails)" >&2
+  exit 1
+}
 uv run ruff check app tests data_pipeline
 uv run ruff format --check app tests data_pipeline

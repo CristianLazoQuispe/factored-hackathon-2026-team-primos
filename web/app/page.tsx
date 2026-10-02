@@ -2,16 +2,19 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import { Send } from "lucide-react";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 
 import { Button } from "@/components/ui/button";
+import { type Speaker, SpeakerIcon, bubbleColor } from "@/components/speaker";
 import { Input } from "@/components/ui/input";
 
-type Message = { role: "user" | "assistant"; text: string; meta?: string };
+// `operator` is a person of the team answering from the console; `assistant` is the agent.
+type Message = { role: Speaker; text: string; meta?: string };
 
 type ChatResponse = {
-  reply: string;
+  reply: string | null; // null: a person has this chat and answers from the operator console
+
   thread_id: string;
   customer_id: string | null;
   skill: string | null;
@@ -44,6 +47,13 @@ export default function Home() {
   const [pending, setPending] = useState(false);
 
   const session = useRef<Session | null>(null);
+  const operatorCursor = useRef(0); // how many messages of this thread were already checked
+  const list = useRef<HTMLElement>(null);
+
+  // Keep the newest message in view: nobody should have to scroll to notice a reply.
+  useEffect(() => {
+    list.current?.scrollTo({ top: list.current.scrollHeight, behavior: "smooth" });
+  }, [messages.length, pending]);
 
   // The customers offered here are the ones the API lets start a demo session (DEMO_CUSTOMER_IDS).
   useEffect(() => {
@@ -60,10 +70,11 @@ export default function Home() {
     setCustomerId(value);
     setThreadId(newThread());
     setMessages([]);
+    operatorCursor.current = 0;
   }
 
   // Test identity service: the API signs a short-lived token for the chosen demo customer.
-  async function authHeader(customer: string, renew: boolean): Promise<Record<string, string>> {
+  const authHeader = useCallback(async (customer: string, renew: boolean): Promise<Record<string, string>> => {
     const current = session.current;
     if (!renew && current?.customer === customer && current.expiresAt - Date.now() > 30_000) {
       return { Authorization: `Bearer ${current.token}` };
@@ -79,7 +90,44 @@ export default function Home() {
     const data: { access_token: string; expires_in: number } = await response.json();
     session.current = { customer, token: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 };
     return { Authorization: `Bearer ${data.access_token}` };
-  }
+  }, []);
+
+  // Once the chat has started, ask every few seconds for what a person of the team wrote in it
+  // (they answer from /crm). The agent's own replies arrive with each POST, not here.
+  const started = messages.length > 0;
+  useEffect(() => {
+    if (!started) return;
+    let active = true;
+    let busy = false;
+    const timer = setInterval(async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const customer = customerId.trim();
+        const auth = customer ? await authHeader(customer, false) : {};
+        const response = await fetch(`${API_URL}/api/chat/${threadId}/operator?after=${operatorCursor.current}`, {
+          headers: auth,
+        });
+        if (!active || !response.ok) return;
+        const data: { next: number; messages: { text: string }[] } = await response.json();
+        operatorCursor.current = data.next;
+        if (data.messages.length) {
+          setMessages((prev) => [
+            ...prev,
+            ...data.messages.map((m) => ({ role: "operator" as const, text: m.text, meta: "Persona del equipo" })),
+          ]);
+        }
+      } catch {
+        // The API is unreachable right now: the next tick asks again.
+      } finally {
+        busy = false;
+      }
+    }, 3000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [started, threadId, customerId, authHeader]);
 
   async function post(text: string, renew: boolean) {
     const customer = customerId.trim();
@@ -96,7 +144,7 @@ export default function Home() {
     const text = draft.trim();
     if (!text || pending) return;
     setDraft("");
-    setMessages((prev) => [...prev, { role: "user", text }]);
+    setMessages((prev) => [...prev, { role: "customer", text }]);
     setPending(true);
     try {
       let response = await post(text, false);
@@ -104,7 +152,8 @@ export default function Home() {
       if (response.status === 401) throw new Error("Elige un ID de cliente para iniciar sesión");
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data: ChatResponse = await response.json();
-      setMessages((prev) => [...prev, { role: "assistant", text: data.reply, meta: describe(data) }]);
+      const reply = data.reply;
+      if (reply !== null) setMessages((prev) => [...prev, { role: "assistant", text: reply, meta: describe(data) }]);
     } catch (error) {
       setMessages((prev) => [...prev, { role: "assistant", text: `Error: ${(error as Error).message}` }]);
     } finally {
@@ -137,25 +186,30 @@ export default function Home() {
         </label>
       </header>
 
-      <section className="flex flex-1 flex-col gap-3 overflow-y-auto">
+      <section ref={list} className="flex flex-1 flex-col gap-3 overflow-y-auto">
         <AnimatePresence initial={false}>
           {messages.map((message, index) => (
             <motion.div
               key={index}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              className={message.role === "user" ? "self-end max-w-[85%]" : "self-start max-w-[85%]"}
+              className={`flex max-w-[85%] items-start gap-2 ${message.role === "customer" ? "flex-row-reverse self-end" : "self-start"}`}
             >
-              {message.role === "user" ? (
-                <div className="whitespace-pre-wrap rounded-2xl bg-primary px-4 py-2 text-primary-foreground">
-                  {message.text}
-                </div>
-              ) : (
-                <div className="rounded-2xl bg-muted px-4 py-2 [&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1 [&_strong]:font-semibold [&_ul]:list-disc [&_ul]:pl-5">
-                  <Markdown>{message.text}</Markdown>
-                </div>
-              )}
-              {message.meta && <p className="mt-1 px-2 text-xs text-muted-foreground">{message.meta}</p>}
+              <SpeakerIcon speaker={message.role} />
+              <div className="min-w-0">
+                {message.role === "customer" ? (
+                  <div className={`whitespace-pre-wrap rounded-2xl px-4 py-2 ${bubbleColor(message.role)}`}>
+                    {message.text}
+                  </div>
+                ) : (
+                  <div
+                    className={`rounded-2xl px-4 py-2 [&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1 [&_strong]:font-semibold [&_ul]:list-disc [&_ul]:pl-5 ${bubbleColor(message.role)}`}
+                  >
+                    <Markdown>{message.text}</Markdown>
+                  </div>
+                )}
+                {message.meta && <p className="mt-1 px-2 text-xs text-muted-foreground">{message.meta}</p>}
+              </div>
             </motion.div>
           ))}
           {pending && (

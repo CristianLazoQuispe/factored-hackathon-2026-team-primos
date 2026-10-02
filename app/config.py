@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     jwt_secret: str = "change-me-local-only-not-for-production"
     access_token_ttl_minutes: int = 15
+    operator_key: str = "change-me-local-only-operator-key"  # opens the operator console (/crm)
     demo_customer_ids: str = ""  # comma-separated; offered in the UI and can start a demo session
     public_base_url: str = "http://localhost:8080"
     cors_origins: str = "http://localhost:3000"  # comma-separated origins of the web
@@ -72,15 +73,17 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def secret_is_real_outside_local(self) -> "Settings":
-        """A signing key nobody chose would let anyone mint tokens."""
-        if self.app_env != "local" and (
-            self.jwt_secret.startswith("change-me") or len(self.jwt_secret) < MIN_SECRET_LENGTH
-        ):
-            raise ValueError(
-                f"JWT_SECRET must be a random string of at least {MIN_SECRET_LENGTH} characters "
-                "outside APP_ENV=local (for example: openssl rand -hex 32)."
-            )
+    def secrets_are_real_outside_local(self) -> "Settings":
+        """A signing key nobody chose would let anyone mint tokens; an operator key nobody chose
+        would let anyone read every chat."""
+        for name, secret in (("JWT_SECRET", self.jwt_secret), ("OPERATOR_KEY", self.operator_key)):
+            if self.app_env != "local" and (
+                secret.startswith("change-me") or len(secret) < MIN_SECRET_LENGTH
+            ):
+                raise ValueError(
+                    f"{name} must be a random string of at least {MIN_SECRET_LENGTH} characters "
+                    "outside APP_ENV=local (for example: openssl rand -hex 32)."
+                )
         return self
 
     @property
