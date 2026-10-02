@@ -1,6 +1,8 @@
-"""FastAPI entrypoint: the chat API and the Telegram webhook. The web is a separate service."""
+"""FastAPI entrypoint: the chat API, the operator console's API and the Telegram webhook. The web
+is a separate service."""
 
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 from typing import Annotated
 from uuid import uuid4
 
@@ -10,7 +12,8 @@ from pydantic import BaseModel
 from telegram import Update
 
 from app.adapters.inbound.agent import reply
-from app.adapters.inbound.auth import issue_token, token_customer
+from app.adapters.inbound.auth import issue_token, operator, token_customer
+from app.adapters.inbound.conversations import Conversation, conversations
 from app.adapters.inbound.telegram import build_application
 from app.adapters.outbound import llm, postgres
 from app.adapters.outbound.postgres.accounts import list_customers
@@ -48,7 +51,7 @@ class ChatRequest(BaseModel):
 
 
 class ChatResponse(BaseModel):
-    reply: str
+    reply: str | None  # None: a person has this chat and answers through the operator console
     thread_id: str
     customer_id: str | None
     skill: str | None
@@ -135,16 +138,90 @@ def resolve_customer(proven: str | None, claimed: str | None) -> str | None:
     raise HTTPException(401, "Bearer token required.", headers={"WWW-Authenticate": "Bearer"})
 
 
+def thread_key(customer_id: str | None, thread_id: str) -> str:
+    """The conversation key includes the customer: nobody can continue someone else's thread."""
+    return f"{customer_id}:{thread_id}" if customer_id else thread_id
+
+
 @app.post("/api/chat")
 async def chat(
     request: ChatRequest, token_customer_id: Annotated[str | None, Depends(token_customer)]
 ) -> ChatResponse:
     customer_id = resolve_customer(token_customer_id, request.customer_id)
     thread_id = request.thread_id or uuid4().hex
-    # The conversation key includes the customer: nobody can continue someone else's thread.
-    thread_key = f"{customer_id}:{thread_id}" if customer_id else thread_id
-    result = await reply(request.message, thread_key, customer_id)
+    key = thread_key(customer_id, thread_id)
+    conversation = conversations.setdefault(key, Conversation(key, customer_id))
+    conversation.add("customer", request.message)
+    if conversation.status != "bot":  # a person has this chat: the agent stays out of it
+        return ChatResponse(
+            reply=None,
+            thread_id=thread_id,
+            customer_id=customer_id,
+            skill=None,
+            tools_used=[],
+            handoff=None,
+        )
+    result = await reply(request.message, key, customer_id)
+    conversation.customer_id = result["customer_id"]
+    conversation.add("assistant", result["reply"])
+    if result["handoff"]:
+        conversation.status, conversation.case_file = "waiting", result["handoff"]
     return ChatResponse(thread_id=thread_id, **result)
+
+
+@app.get("/api/chat/{thread_id}/operator")
+def operator_messages(
+    thread_id: str,
+    token_customer_id: Annotated[str | None, Depends(token_customer)],
+    after: int = 0,
+) -> dict:
+    """What the operator wrote in the customer's own chat since message number `after`. The web
+    polls it; `next` is the `after` of its next call."""
+    key = thread_key(resolve_customer(token_customer_id, None), thread_id)
+    messages = conversations[key].messages if key in conversations else []
+    return {
+        "next": len(messages),
+        "messages": [m for m in messages[after:] if m["role"] == "operator"],
+    }
+
+
+@app.get("/api/crm/conversations", dependencies=[Depends(operator)])
+def crm_conversations() -> list[dict]:
+    """Every chat this instance has seen, newest first, the ones waiting for a person on top."""
+    newest_first = reversed(conversations.values())
+    return [asdict(c) for c in sorted(newest_first, key=lambda c: c.status != "waiting")]
+
+
+class OperatorReply(BaseModel):
+    thread_key: str
+    text: str
+
+
+class Release(BaseModel):
+    thread_key: str
+
+
+def known_conversation(key: str) -> Conversation:
+    if key not in conversations:  # the instance restarted since the console loaded its list
+        raise HTTPException(404, "This chat is no longer in memory.")
+    return conversations[key]
+
+
+@app.post("/api/crm/reply", dependencies=[Depends(operator)])
+def crm_reply(request: OperatorReply) -> dict:
+    """The operator answers the customer and, by doing so, takes the chat from the agent."""
+    conversation = known_conversation(request.thread_key)
+    conversation.add("operator", request.text)
+    conversation.status = "human"
+    return asdict(conversation)
+
+
+@app.post("/api/crm/release", dependencies=[Depends(operator)])
+def crm_release(request: Release) -> dict:
+    """The operator gives the chat back to the agent."""
+    conversation = known_conversation(request.thread_key)
+    conversation.status = "bot"
+    return asdict(conversation)
 
 
 @app.post("/telegram/webhook")

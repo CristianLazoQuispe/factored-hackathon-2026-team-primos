@@ -7,9 +7,11 @@ description: Use when committing, splitting work into commits, naming a branch, 
 
 ## Identity in this tree
 
-This is a hackathon repo shared by four people on GitHub (`CristianLazoQuispe/Factored2026`).
+This is a hackathon repo shared by four people on GitHub
+(`CristianLazoQuispe/factored-hackathon-2026-team-primos`).
 **Every member commits and pushes with their own personal account** (personal GitHub user and
-personal email).
+personal email). CI and the pre-commit hook reject any email missing from `.github/allowed-emails`:
+add yours there in a PR.
 
 Set it per repo before the first commit and check it:
 

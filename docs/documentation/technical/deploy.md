@@ -21,7 +21,12 @@ anywhere. Settings live in repository *variables*; there are no GitHub secrets.
   `make db-load-cloud`**: it drops `core` (`schema.sql` starts with `DROP SCHEMA core CASCADE`).
 - Runtime account `factored-api@…` with `cloudsql.client`, `secretmanager.secretAccessor` and
   `aiplatform.user` (so it can read every secret and call Gemini through Vertex AI: no API key).
-- Secrets `factored-database-url`, `factored-db-password` and `jwt-secret` (signs the bearer tokens).
+- Secrets `factored-database-url`, `factored-db-password`, `jwt-secret` (signs the bearer tokens) and
+  `operator-key` (opens the operator console; read it with
+  `gcloud secrets versions access latest --secret operator-key`).
+- Secrets `langfuse-public-key` and `langfuse-secret-key`: the API keys of the team's project in
+  Langfuse Cloud (US region, `https://us.cloud.langfuse.com`), where the agent's traces go. To use
+  another Langfuse project, add a new version to both secrets and redeploy.
 
 ## One-time setup (done on 2026-09-30; kept for the next repository)
 
@@ -30,7 +35,7 @@ Run with `gcloud` logged in as an owner of the project. Confirm the project firs
 
 ```bash
 export PROJECT_ID=factored-510201   REGION=us-central1
-export GH_REPO=CristianLazoQuispe/Factored2026          # the repo allowed to deploy
+export GH_REPO=CristianLazoQuispe/factored-hackathon-2026-team-primos   # the repo allowed to deploy
 export DEPLOYER_SA=gh-deployer@$PROJECT_ID.iam.gserviceaccount.com
 export API_SA=factored-api@$PROJECT_ID.iam.gserviceaccount.com
 export WEB_SA=531756916664-compute@developer.gserviceaccount.com   # factored-web's current account
@@ -38,12 +43,15 @@ gcloud config set project $PROJECT_ID
 gcloud services enable sts.googleapis.com cloudresourcemanager.googleapis.com
 ```
 
-**1. The key that signs the API's bearer tokens.** The API refuses to start without it.
+**1. The key that signs the API's bearer tokens, and the key of the operator console.** The API
+refuses to start without either.
 
 ```bash
-gcloud secrets describe jwt-secret >/dev/null 2>&1 \
-  && echo "jwt-secret already exists" \
-  || (openssl rand -hex 32 | tr -d '\n' | gcloud secrets create jwt-secret --data-file=-)
+for secret in jwt-secret operator-key; do
+  gcloud secrets describe $secret >/dev/null 2>&1 \
+    && echo "$secret already exists" \
+    || (openssl rand -hex 32 | tr -d '\n' | gcloud secrets create $secret --data-file=-)
+done
 ```
 
 **2. The account GitHub deploys as.**
@@ -74,16 +82,16 @@ gcloud iam service-accounts add-iam-policy-binding $DEPLOYER_SA \
 echo "GCP_WIF_PROVIDER=projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github-provider"
 ```
 
-The final repository for the submission (`factored-hackathon-2026-<team>`) will have another name:
-repeat the last `add-iam-policy-binding` with the new `GH_REPO`, and update the provider condition
-with `gcloud iam workload-identity-pools providers update-oidc github-provider --location=global
---workload-identity-pool=github --attribute-condition="assertion.repository=='NEW/REPO'"`.
+The pool was created for the working repository (`CristianLazoQuispe/Factored2026`). To move the deploy
+to another repository, repeat the last `add-iam-policy-binding` with the new `GH_REPO`, and update the
+provider condition with `gcloud iam workload-identity-pools providers update-oidc github-provider
+--location=global --workload-identity-pool=github --attribute-condition="assertion.repository=='NEW/REPO'"`.
 
 **4. GitHub variables.** Six of them. With the GitHub CLI (needs `brew install gh` and `gh auth login`;
 repository admin rights):
 
 ```bash
-R=CristianLazoQuispe/Factored2026
+R=CristianLazoQuispe/factored-hackathon-2026-team-primos
 gh variable set GCP_PROJECT_ID     --repo $R --body "factored-510201"
 gh variable set GCP_REGION         --repo $R --body "us-central1"
 gh variable set CLOUD_SQL_INSTANCE --repo $R --body "factored-db"
@@ -98,9 +106,11 @@ deployed UI. Use only synthetic customers that exist in the Cloud SQL data.
 
 ## Day to day
 
-1. Work on a branch, open a PR to `dev` (lint + tests run), then a PR from `dev` to `main`.
+1. Work on your `dev-<name>` branch (only its owner can push to it), open a PR to `dev` (lint + tests
+   run), then a PR from `dev` to `main`. Repository rulesets reject direct pushes to `dev` and `main`
+   and require a green `test`.
 2. Merging into `main` deploys: `test` → `deploy-api` → `deploy-web`, about 5 minutes. Follow it with
-   `gh run watch --repo CristianLazoQuispe/Factored2026`; re-run it without a commit with
+   `gh run watch --repo CristianLazoQuispe/factored-hackathon-2026-team-primos`; re-run it without a commit with
    `gh workflow run "CI and deploy to Cloud Run" --ref main`.
 3. Do not run `make deploy`, `deploy-api` or `deploy-web` by hand: the last deploy wins and can bring
    back an old image.
@@ -109,7 +119,7 @@ What a deploy does **not** do:
 
 - It does not touch the database. A change in `schema.sql` is applied by hand (it starts with
   `DROP SCHEMA core CASCADE`: coordinate first).
-- It does not create secrets such as `jwt-secret`.
+- It does not create secrets such as `jwt-secret` or `operator-key`.
 - It **replaces** every environment variable of `factored-api`. A variable added by hand in the console
   is lost on the next deploy: add it to `.github/workflows/deploy.yml`.
 - It deploys on every push to `main`, even a docs-only one, and `deploy-web` adds one more API revision
@@ -126,8 +136,6 @@ gcloud run services update-traffic factored-web --region us-central1 --to-revisi
 
 Still to do (not applied yet):
 
-- **Protect `main`** (repo owner): Settings → Branches → require a pull request and the `test` check.
-  Until then a direct push deploys straight to production.
 - **Let only `main` deploy:** add `&& assertion.ref=='refs/heads/main'` to the provider condition with
   `gcloud iam workload-identity-pools providers update-oidc github-provider --location=global
   --workload-identity-pool=github --attribute-condition="assertion.repository=='<repo>' &&
@@ -185,6 +193,12 @@ asking for a token. In Swagger (`$API/docs`) paste the token in **Authorize**.
 
 - **`--max-instances 1`.** Conversation memory is an in-process `InMemorySaver`: with two instances a
   customer's thread would vanish between requests. Real fix: a Postgres checkpointer.
+- **The operator console forgets.** `/crm` on the web shows a mirror of the chats that lives in the
+  same process: chats and the handoff queue are lost when the instance stops (idle, or any deploy).
+  It also needs the single instance. Real fix: write them to `ops.conversations`, `ops.messages` and
+  `ops.handoff_cases`, which `schema.sql` already defines.
+- **One shared operator key.** Whoever has `OPERATOR_KEY` reads every chat; there are no operator
+  accounts. Telegram chats do not reach the console.
 - **The token endpoint is a test identity service.** It is public and password-less by design, but
   only for customers in `DEMO_CUSTOMER_IDS`. No rate limit. In production it is replaced by the
   bank's identity provider; the rest stays. The Telegram webhook has its own secret.
@@ -199,9 +213,9 @@ asking for a token. In Swagger (`$API/docs`) paste the token in **Authorize**.
   `GCP_WIF_PROVIDER`.
 - *Permission denied on deploy*: the deployer lacks `serviceAccountUser` on the account the service runs
   as, or (Cloud SQL) `roles/cloudsql.client` / `roles/cloudsql.viewer`.
-- *Revision fails to start*: read its logs. A `ValueError` mentioning `JWT_SECRET` means the secret
-  is missing or shorter than 32 characters; one mentioning `DATABASE_URL` means the secret points to a
-  local host.
+- *Revision fails to start*: read its logs. A `ValueError` mentioning `JWT_SECRET` or `OPERATOR_KEY`
+  means that secret is missing or shorter than 32 characters; one mentioning `DATABASE_URL` means the
+  secret points to a local host.
 - *The browser shows a CORS error*: `CORS_ORIGINS` on `factored-api` must list the URLs of
   `factored-web` (the workflow updates it after deploying the web), and the API must allow the
   `Authorization` header.
