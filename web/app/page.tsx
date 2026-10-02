@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import { Send } from "lucide-react";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input";
 type Message = { role: "user" | "assistant"; text: string; meta?: string };
 
 type ChatResponse = {
-  reply: string;
+  reply: string | null; // null: a person has this chat and answers from the operator console
+
   thread_id: string;
   customer_id: string | null;
   skill: string | null;
@@ -44,6 +45,7 @@ export default function Home() {
   const [pending, setPending] = useState(false);
 
   const session = useRef<Session | null>(null);
+  const operatorCursor = useRef(0); // how many messages of this thread were already checked
 
   // The customers offered here are the ones the API lets start a demo session (DEMO_CUSTOMER_IDS).
   useEffect(() => {
@@ -60,10 +62,11 @@ export default function Home() {
     setCustomerId(value);
     setThreadId(newThread());
     setMessages([]);
+    operatorCursor.current = 0;
   }
 
   // Test identity service: the API signs a short-lived token for the chosen demo customer.
-  async function authHeader(customer: string, renew: boolean): Promise<Record<string, string>> {
+  const authHeader = useCallback(async (customer: string, renew: boolean): Promise<Record<string, string>> => {
     const current = session.current;
     if (!renew && current?.customer === customer && current.expiresAt - Date.now() > 30_000) {
       return { Authorization: `Bearer ${current.token}` };
@@ -79,7 +82,44 @@ export default function Home() {
     const data: { access_token: string; expires_in: number } = await response.json();
     session.current = { customer, token: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 };
     return { Authorization: `Bearer ${data.access_token}` };
-  }
+  }, []);
+
+  // Once the chat has started, ask every few seconds for what a person of the team wrote in it
+  // (they answer from /crm). The agent's own replies arrive with each POST, not here.
+  const started = messages.length > 0;
+  useEffect(() => {
+    if (!started) return;
+    let active = true;
+    let busy = false;
+    const timer = setInterval(async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const customer = customerId.trim();
+        const auth = customer ? await authHeader(customer, false) : {};
+        const response = await fetch(`${API_URL}/api/chat/${threadId}/operator?after=${operatorCursor.current}`, {
+          headers: auth,
+        });
+        if (!active || !response.ok) return;
+        const data: { next: number; messages: { text: string }[] } = await response.json();
+        operatorCursor.current = data.next;
+        if (data.messages.length) {
+          setMessages((prev) => [
+            ...prev,
+            ...data.messages.map((m) => ({ role: "assistant" as const, text: m.text, meta: "Persona del equipo" })),
+          ]);
+        }
+      } catch {
+        // The API is unreachable right now: the next tick asks again.
+      } finally {
+        busy = false;
+      }
+    }, 3000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [started, threadId, customerId, authHeader]);
 
   async function post(text: string, renew: boolean) {
     const customer = customerId.trim();
@@ -104,7 +144,8 @@ export default function Home() {
       if (response.status === 401) throw new Error("Elige un ID de cliente para iniciar sesión");
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data: ChatResponse = await response.json();
-      setMessages((prev) => [...prev, { role: "assistant", text: data.reply, meta: describe(data) }]);
+      const reply = data.reply;
+      if (reply !== null) setMessages((prev) => [...prev, { role: "assistant", text: reply, meta: describe(data) }]);
     } catch (error) {
       setMessages((prev) => [...prev, { role: "assistant", text: `Error: ${(error as Error).message}` }]);
     } finally {
