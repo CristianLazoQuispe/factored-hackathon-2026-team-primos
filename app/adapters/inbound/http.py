@@ -1,6 +1,7 @@
-"""FastAPI entrypoint: the chat API, the operator console's API and the Telegram webhook. The web
-is a separate service."""
+"""FastAPI entrypoint: the chat API and its speech routes, the operator console's API and the
+Telegram webhook. The web is a separate service."""
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -8,6 +9,7 @@ from typing import Annotated
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from telegram import Update
@@ -16,7 +18,7 @@ from app.adapters.inbound.agent import reply
 from app.adapters.inbound.auth import issue_token, operator, token_customer
 from app.adapters.inbound.conversations import Conversation, conversations
 from app.adapters.inbound.telegram import build_application
-from app.adapters.outbound import llm, postgres
+from app.adapters.outbound import llm, postgres, speech
 from app.adapters.outbound.postgres.accounts import list_customers
 from app.adapters.outbound.postgres.readonly import ReadOnlyPostgres
 from app.application.run_sql import run_scoped_sql
@@ -30,6 +32,10 @@ logging.getLogger("app").setLevel(get_settings().log_level)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    # Voice: load both models before taking traffic, or the first spoken message waits about ten
+    # seconds for each. There are none where voice is not installed (CI, no `make models`).
+    if speech.MODELS.exists():
+        await asyncio.gather(run_in_threadpool(speech.whisper), run_in_threadpool(speech.kokoro))
     app.state.telegram = None
     if settings.telegram_bot_token:
         app.state.telegram = build_application()
@@ -172,6 +178,36 @@ async def chat(
     if result["handoff"]:
         conversation.status, conversation.case_file = "waiting", result["handoff"]
     return ChatResponse(thread_id=thread_id, **result)
+
+
+class Transcript(BaseModel):
+    text: str
+    language: str  # the one Whisper heard: `es`, `pt`, ...
+
+
+@app.post("/api/speech/transcribe")
+async def transcribe(
+    request: Request, token_customer_id: Annotated[str | None, Depends(token_customer)]
+) -> Transcript:
+    """What the customer said into the microphone: the body is the recording. The web then sends
+    the text through /api/chat, like a typed message."""
+    resolve_customer(token_customer_id, None)
+    text, language = await run_in_threadpool(speech.transcribe, await request.body())
+    return Transcript(text=text, language=language)
+
+
+class SpeechRequest(BaseModel):
+    text: str
+    language: str
+
+
+@app.post("/api/speech/synthesize")
+def synthesize(
+    request: SpeechRequest, token_customer_id: Annotated[str | None, Depends(token_customer)]
+) -> Response:
+    """The agent's reply read aloud (WAV), in the language the customer spoke."""
+    resolve_customer(token_customer_id, None)
+    return Response(speech.synthesize(request.text, request.language), media_type="audio/wav")
 
 
 @app.get("/api/chat/{thread_id}/operator")
