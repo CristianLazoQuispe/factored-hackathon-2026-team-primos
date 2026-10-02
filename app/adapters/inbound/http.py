@@ -1,6 +1,7 @@
 """FastAPI entrypoint: the chat API, the operator console's API and the Telegram webhook. The web
 is a separate service."""
 
+import logging
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import Annotated
@@ -20,6 +21,10 @@ from app.adapters.outbound.postgres.accounts import list_customers
 from app.adapters.outbound.postgres.readonly import ReadOnlyPostgres
 from app.application.run_sql import run_scoped_sql
 from app.config import get_settings
+
+# Our own loggers at LOG_LEVEL; libraries stay at the default (warnings and errors).
+logging.basicConfig(format="%(levelname)s:     %(name)s: %(message)s")
+logging.getLogger("app").setLevel(get_settings().log_level)
 
 
 @asynccontextmanager
