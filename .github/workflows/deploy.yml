@@ -1,0 +1,148 @@
+name: CI and deploy to Cloud Run
+
+# Pull requests: lint + tests. Push to main: lint + tests, then deploy factored-api and factored-web,
+# the same steps as `make deploy-api` / `make deploy-web` (Makefile), but automatic.
+# Config: repository *variables* (Settings > Secrets and variables > Actions > Variables).
+# GCP access: Workload Identity Federation, no stored key. Setup: docs/documentation/technical/deploy.md
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/factored
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run ruff check app tests data_pipeline
+      - run: uv run ruff format --check app tests data_pipeline
+      # Tests that need the demo Postgres skip themselves when it is not running.
+      - run: uv run pytest -q
+
+  deploy-api:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # Workload Identity Federation
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+    env:
+      PROJECT: ${{ vars.GCP_PROJECT_ID }}
+      REGION: ${{ vars.GCP_REGION }}
+      SQL_INSTANCE: ${{ vars.CLOUD_SQL_INSTANCE }}
+      DEMO_IDS: ${{ vars.DEMO_CUSTOMER_IDS }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: tag
+        run: echo "value=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.REGISTRY }}/api:${{ steps.tag.outputs.value }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,scope=api,mode=max
+      - id: deploy
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          # CORS must allow every URL of factored-web (Cloud Run gives each service two).
+          web=$(gcloud run services describe factored-web --project "$PROJECT" --region "$REGION" \
+            --format='value(metadata.annotations."run.googleapis.com/urls")' 2>/dev/null | tr -d '[]" ' || true)
+          gcloud run deploy factored-api --project "$PROJECT" --region "$REGION" \
+            --image "$REGISTRY/api:$TAG" \
+            --service-account "factored-api@${PROJECT}.iam.gserviceaccount.com" \
+            --add-cloudsql-instances "${PROJECT}:${REGION}:${SQL_INSTANCE}" \
+            --set-secrets "DATABASE_URL=factored-database-url:latest,JWT_SECRET=jwt-secret:latest" \
+            --set-env-vars "^;^APP_ENV=cloud;GOOGLE_GENAI_USE_VERTEXAI=true;GOOGLE_CLOUD_PROJECT=${PROJECT};GOOGLE_CLOUD_LOCATION=${REGION};CORS_ORIGINS=${web:-http://localhost:3000};DEMO_CUSTOMER_IDS=${DEMO_IDS}" \
+            --max-instances 1 --allow-unauthenticated
+          url=$(gcloud run services describe factored-api --project "$PROJECT" --region "$REGION" --format='value(status.url)')
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+      - name: Smoke test
+        env:
+          URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            if curl -fsS "$URL/health"; then exit 0; fi
+            sleep 10
+          done
+          echo "factored-api did not answer /health at $URL" >&2
+          exit 1
+
+  deploy-web:
+    needs: deploy-api
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PROJECT: ${{ vars.GCP_PROJECT_ID }}
+      REGION: ${{ vars.GCP_REGION }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: tag
+        run: echo "value=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: web
+          push: true
+          # The API URL is baked into the static bundle at build time.
+          build-args: NEXT_PUBLIC_API_URL=${{ needs.deploy-api.outputs.url }}
+          tags: ${{ env.REGISTRY }}/web:${{ steps.tag.outputs.value }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,scope=web,mode=max
+      - id: deploy
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          gcloud run deploy factored-web --project "$PROJECT" --region "$REGION" \
+            --image "$REGISTRY/web:$TAG" --port 8080 --allow-unauthenticated
+          url=$(gcloud run services describe factored-web --project "$PROJECT" --region "$REGION" --format='value(status.url)')
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          # First deploy of the web (or a new URL): let the API accept it.
+          web=$(gcloud run services describe factored-web --project "$PROJECT" --region "$REGION" \
+            --format='value(metadata.annotations."run.googleapis.com/urls")' | tr -d '[]" ')
+          gcloud run services update factored-api --project "$PROJECT" --region "$REGION" \
+            --update-env-vars "^;^CORS_ORIGINS=$web"
+      - name: Smoke test
+        env:
+          URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            if curl -fsS -o /dev/null "$URL/"; then exit 0; fi
+            sleep 10
+          done
+          echo "factored-web did not answer at $URL" >&2
+          exit 1

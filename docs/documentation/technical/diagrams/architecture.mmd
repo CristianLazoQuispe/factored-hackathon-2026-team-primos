@@ -1,0 +1,76 @@
+%% Component view of the system (not a flow). Solid = built, dashed = planned.
+%% Edit this file, then run `make diagrams` to regenerate architecture.svg / architecture.png.
+flowchart LR
+    subgraph channels["Channels"]
+        web["Web chat<br/><small>Next.js</small>"]
+        telegram["Telegram"]
+        voice["Voice<br/><small>speech-to-text / text-to-speech</small>"]
+    end
+
+    subgraph backend["Backend · FastAPI"]
+        api["Chat API"]
+        agent["Agent<br/><small>LangGraph · skills (SKILL.md)</small>"]
+        human["Human agent console"]
+    end
+
+    subgraph tools["Tools · MCP servers"]
+        accounts["accounts<br/><small>balances</small>"]
+        disputes["disputes"]
+        cards["cards"]
+        documents["documents<br/><small>OCR</small>"]
+    end
+
+    subgraph models["AI models"]
+        gemini["Gemini<br/><small>cloud</small>"]
+        ollama["Ollama<br/><small>local</small>"]
+        vision["Gemini vision<br/><small>OCR</small>"]
+        speech["Speech models<br/><small>STT / TTS</small>"]
+    end
+
+    subgraph data["Data"]
+        postgres[("Postgres<br/><small>core · ops</small>")]
+        pipeline["Data pipeline<br/><small>S3 → DuckDB/Parquet</small>"]
+    end
+
+    subgraph observability["Observability"]
+        langfuse["Langfuse<br/><small>LLM traces</small>"]
+        phoenix["Arize Phoenix<br/><small>traces · evals</small>"]
+        grafana["Grafana<br/><small>logs · metrics</small>"]
+    end
+
+    subgraph legend["Legend"]
+        builtKey["Built"]
+        plannedKey["Planned"]
+        builtKey ~~~ plannedKey
+    end
+
+    web --> api
+    telegram -.-> api
+    voice -.-> api
+    api --> agent
+    agent --> accounts
+    agent -.-> disputes
+    agent -.-> cards
+    agent -.-> documents
+    agent --> gemini
+    agent --> ollama
+    agent -.-> human
+    documents -.-> vision
+    voice -.-> speech
+    accounts --> postgres
+    disputes -.-> postgres
+    cards -.-> postgres
+    pipeline --> postgres
+    agent -.-> observability
+
+    classDef built fill:#eef4fc,stroke:#2a78d6,stroke-width:1.5px,color:#0b0b0b
+    classDef planned fill:#ffffff,stroke:#898781,stroke-width:1.5px,stroke-dasharray:5 4,color:#52514e
+    class builtKey,web,api,agent,accounts,gemini,ollama,postgres,pipeline built
+    class plannedKey,langfuse,phoenix,grafana,telegram,voice,human,disputes,cards,documents,vision,speech planned
+    style channels fill:#f7f7f5,stroke:#d0cfc9
+    style backend fill:#f7f7f5,stroke:#d0cfc9
+    style tools fill:#f7f7f5,stroke:#d0cfc9
+    style models fill:#f7f7f5,stroke:#d0cfc9
+    style data fill:#f7f7f5,stroke:#d0cfc9
+    style observability fill:#f7f7f5,stroke:#d0cfc9
+    style legend fill:#ffffff,stroke:#d0cfc9,stroke-dasharray:2 2

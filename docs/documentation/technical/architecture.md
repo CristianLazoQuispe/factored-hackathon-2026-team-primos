@@ -1,0 +1,141 @@
+# Architecture
+
+> Status: **draft**. This will be refined as components are built.
+
+## Components
+
+![Component architecture](diagrams/architecture.svg)
+
+Solid boxes are **built**; dashed boxes are **planned**. Source: [`diagrams/architecture.mmd`](diagrams/architecture.mmd). Regenerate the SVG and the 300-dpi PNG with `make diagrams`.
+
+## Guiding principle
+
+**LLM where it helps, code where it must be guaranteed.** The model interprets language and writes replies. Deterministic code decides permissions, policy, and actions.
+
+## The agent (implemented)
+
+A LangGraph graph with deterministic nodes around one LLM node that uses **skills** and **MCP tools**.
+Code: `app/adapters/inbound/agent/`.
+
+```mermaid
+flowchart LR
+    S([request]) --> G["guard (code)<br/>customer ID validated by code<br/>asks for a person → handoff"]
+    G -- "no / unknown ID" --> ASK["ask for the customer ID"] --> E([reply])
+    G -- "asks for a person" --> H
+    G --> R["router (LLM, fast)<br/>sees only the skill catalog"]
+    R -- "off-scope / open question" --> E
+    R -- "use_skill(name)" --> K["skill_agent (LLM)<br/>SKILL.md + the skill's MCP tools,<br/>tool loop (create_agent)"]
+    R -- "request_human" --> H
+    K -- "request_human" --> H["handoff (code)<br/>case file for a human"] --> E
+    K --> E
+```
+
+- **Skills** are folders `agent/skills/<name>/SKILL.md` with frontmatter `name`, `description`
+  and `mcp` (the MCP server that holds the skill's tools), plus instructions. The router sees
+  only name and description; the body loads when the skill is used. Adding a skill means adding
+  a folder and an MCP server; the graph does not change.
+- **Persona and scope** live in `agent/AGENT.md`.
+- **MCP tools** (FastMCP, `app/adapters/inbound/mcp/`) run in-process through `fastmcp.Client`.
+  `agent/mcp_bridge.py` turns them into LangChain tools, so every call is traced.
+- **Identity:** tools never take `customer_id` as an argument. The graph sends the session customer
+  in the MCP request `_meta`, and tools read it with `session_customer(ctx)`. The LLM cannot see
+  or change it. If the tools are ever served over HTTP, this becomes a bearer token read with `get_access_token()`, which is
+  the MCP standard. At the HTTP edge the customer is the `sub` of a short-lived bearer JWT (see API authentication below); the UI gets that token from a **test identity service**, for synthetic data;
+  step-up authentication is required before any money-moving skill.
+- **Tracing:** Langfuse `CallbackHandler`, enabled when `LANGFUSE_*` keys are set. The session is
+  `thread_id` and the user is `customer_id`.
+- **Memory:** a LangGraph checkpointer keyed by `thread_id`. It is in-memory for now; the next
+  step is a Postgres checkpointer.
+- **API:** `POST /api/chat {message, thread_id?}` (bearer token required outside local) →
+  `{reply, thread_id, customer_id, skill, tools_used, handoff}`.
+
+## Component detail (original draft)
+
+```
+   ┌──────────── Chat UI (ES/PT) ────────────┐    ┌─ Human-agent console ─┐
+   │ test login → session token (JWT)        │    │ handoff JSON + traces │
+   └───────────────────┬─────────────────────┘    └──────────▲────────────┘
+                       │                                     │
+          ┌────────────▼─────────────┐                       │
+          │ Orchestrator             │── handoff ────────────┘
+          │ (deterministic state     │
+          │  machine)                │
+          └──┬──────────┬─────────┬──┘
+   NLU       │          │         │   Response generation (LLM)
+   (LLM /    │  Policy engine     │   grounded in verified facts,
+   classifier)  (versioned rules  │   with citations
+   intent,   │   in code)         │
+   slots,    │          │         │
+   language  │          │         │
+          ┌──▼──────────▼─────────▼──┐
+          │ Tool layer with authz    │  customer_id ALWAYS from the token,
+          │ get_transactions,        │  never from the prompt · read-back
+          │ create_dispute,          │  verification · bounded retries ·
+          │ block_card, …            │  safe fallback
+          │ over DuckDB / Postgres   │
+          └────────────┬─────────────┘
+                       │
+   ┌───────────────────▼─────────────────────────────────────┐
+   │ Data pipeline: S3 → bronze → silver → gold              │
+   │ contracts (pandera), dedup, late arrivals, lineage,     │
+   │ freshness policy                                        │
+   └─────────────────────────────────────────────────────────┘
+   Tracing (Langfuse / OpenTelemetry) on every step · execution logs = audit trail
+```
+
+## Key decisions (to become ADRs)
+
+- **Permissions and policy stay out of the LLM.** The model proposes an intent and slots; code validates them and decides.
+- **Confirm before acting, verify after acting.** Sensitive actions (create dispute, block card) require explicit customer confirmation. After the action, a read-back check confirms it happened before the system tells the customer.
+- **Structural prompt-injection defense.** The LLM has no direct tool access and never sees or sets `customer_id`. Its outputs are validated against a schema.
+- **Structured handoff payload:** `request`, `verified_facts`, `actions_taken`, `evidence` (transaction and policy IDs), `open_questions`, `language`, `priority`, `escalation_reason`.
+- **Synthetic policy base:** dispute deadlines, amount thresholds, and requirements are documented and clearly **labeled as synthetic**.
+- **Audit trail:** explanations come from sources, policy rules, and execution records, never from hidden chain-of-thought.
+
+## The data warehouse lookups (implemented)
+
+Two skills read the bank's data. In both, the model proposes and code decides.
+
+| Skill | What the model does | What code guarantees |
+|---|---|---|
+| `charge_investigation` | Calls `investigate_charges` once: code finds the matching charges and investigates each | Reviewed SQL (duplicate, pending/reversed, FX). A failed lookup is `unavailable`, never "no" |
+| `data_lookup` | Writes one `SELECT` and calls `run_sql` | `app/domain/sql_scope.py` parses it, refuses anything but a read-only SELECT over the allowlisted `core` tables, and rewrites every customer table into a subquery filtered to the session customer. The database is a second wall: role `dwh_reader` (SELECT on `core` only), read-only transaction, 3 s timeout, 100 rows |
+
+- The customer comes from the session (`session_customer(ctx)`), never from a tool argument, and
+  never from the model. Each `run_sql` and `investigate_charge` call is written to `ops.decision_log`.
+- Unknown functions are refused by default: that is what stops `query_to_xml('select ...')`,
+  which would run SQL from a string and skip the scoping.
+- The scoping lives in the domain on purpose: it does not depend on Postgres features, so it
+  carries over to another backend (DuckDB, a `.db` file) unchanged.
+- Test it without an LLM: `POST /api/dev/dwh/sql {customer_id, sql}` (only when `APP_ENV=local`).
+- Known limits: the scoping is one parser's view of the SQL (mitigated by executing the SQL the
+  parser regenerated, not the original text); `customers` exposes the customer's own document
+  number to a query; there is no RLS yet.
+
+## API authentication (implemented)
+
+Outside `APP_ENV=local`, `POST /api/chat` needs `Authorization: Bearer <jwt>`. The customer is the
+token's `sub`, never the request body: no token gets 401 and a body `customer_id` that differs from the
+token gets 403. Tokens are HS256, last 15 minutes and are signed with `JWT_SECRET` (the app refuses a
+weak secret outside local). `POST /api/auth/token` is a **test identity service**: outside local it only
+issues tokens for `DEMO_CUSTOMER_IDS`, so a visitor can be a demo customer and nobody else. In
+production the bank's identity provider replaces it; `customer_from_token` is what stays. Conversations
+are keyed `customer:thread`, so nobody can continue another customer's thread.
+Code: `app/adapters/inbound/auth.py`, `http.py`. Tests: `tests/test_auth.py`.
+
+## Reliability safeguards (implemented)
+
+- **Routing safety net.** The LLM router decides first. If it picks no skill (prose, an empty reply or a
+  permission question), `app/domain/routing.py` matches obvious Spanish and Portuguese requests and routes
+  them in code. Text that looks like a tool call is never shown to the customer.
+- **Model or tool outage.** The turn returns a safe message in both languages plus a handoff
+  (`reason: assistant_error`), never a bare 500. Gemini calls use 2 retries and a 30 s timeout.
+- **Configuration guard.** `app/config.py` refuses to start with `APP_ENV=local` on a remote database,
+  with a cloud environment on a local one, or with a weak `JWT_SECRET` outside local.
+
+## Deployment (implemented)
+
+Two Cloud Run services, `factored-api` (FastAPI + agent, root `Dockerfile`) and `factored-web` (static
+Next.js on nginx, `web/Dockerfile`), Cloud SQL (Postgres 16) through the Cloud SQL connector, and Gemini on
+Vertex AI. GitHub Actions tests and deploys on every push to `main`, authenticating with Workload
+Identity Federation (no stored key). Runbook, rollback and limits: [deploy.md](deploy.md).

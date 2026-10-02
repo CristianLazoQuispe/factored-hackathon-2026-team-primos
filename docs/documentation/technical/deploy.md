@@ -1,0 +1,208 @@
+# Deploy: GitHub Actions → Cloud Run
+
+Every push to `main` runs lint and tests, then deploys the two Cloud Run services that the team
+already uses, with the same steps as `make deploy-api` and `make deploy-web`:
+
+| Service | Image | What it is |
+|---|---|---|
+| `factored-api` | `factored/api:<git sha>` | FastAPI + agent. Talks to Cloud SQL, Gemini on Vertex AI |
+| `factored-web` | `factored/web:<git sha>` | Next.js static export served by nginx. The API URL is baked in at build time |
+
+Pull requests run lint and tests only. Workflow: `.github/workflows/deploy.yml`.
+
+GitHub authenticates to GCP with **Workload Identity Federation**: there is no service-account key
+anywhere. Settings live in repository *variables*; there are no GitHub secrets.
+
+## What already exists in `factored-510201` (reused, not recreated)
+
+- Region `us-central1`; Artifact Registry repo `factored`.
+- Cloud SQL `factored-510201:us-central1:factored-db` (Postgres 16), database and user `agent`.
+  It is already loaded: `core` (10 tables), `ops`, the `dwh_reader` role. **Do not run
+  `make db-load-cloud`**: it drops `core` (`schema.sql` starts with `DROP SCHEMA core CASCADE`).
+- Runtime account `factored-api@…` with `cloudsql.client`, `secretmanager.secretAccessor` and
+  `aiplatform.user` (so it can read every secret and call Gemini through Vertex AI: no API key).
+- Secrets `factored-database-url`, `factored-db-password` and `jwt-secret` (signs the bearer tokens).
+
+## One-time setup (done on 2026-09-30; kept for the next repository)
+
+Run with `gcloud` logged in as an owner of the project. Confirm the project first:
+`gcloud config get-value project` must print `factored-510201`.
+
+```bash
+export PROJECT_ID=factored-510201   REGION=us-central1
+export GH_REPO=CristianLazoQuispe/Factored2026          # the repo allowed to deploy
+export DEPLOYER_SA=gh-deployer@$PROJECT_ID.iam.gserviceaccount.com
+export API_SA=factored-api@$PROJECT_ID.iam.gserviceaccount.com
+export WEB_SA=531756916664-compute@developer.gserviceaccount.com   # factored-web's current account
+gcloud config set project $PROJECT_ID
+gcloud services enable sts.googleapis.com cloudresourcemanager.googleapis.com
+```
+
+**1. The key that signs the API's bearer tokens.** The API refuses to start without it.
+
+```bash
+gcloud secrets describe jwt-secret >/dev/null 2>&1 \
+  && echo "jwt-secret already exists" \
+  || (openssl rand -hex 32 | tr -d '\n' | gcloud secrets create jwt-secret --data-file=-)
+```
+
+**2. The account GitHub deploys as.**
+
+```bash
+gcloud iam service-accounts create gh-deployer --display-name="GitHub deployer"
+gcloud projects add-iam-policy-binding $PROJECT_ID --member=serviceAccount:$DEPLOYER_SA --role=roles/run.admin
+gcloud projects add-iam-policy-binding $PROJECT_ID --member=serviceAccount:$DEPLOYER_SA --role=roles/artifactregistry.writer
+for sa in $API_SA $WEB_SA; do
+  gcloud iam service-accounts add-iam-policy-binding $sa \
+    --member=serviceAccount:$DEPLOYER_SA --role=roles/iam.serviceAccountUser
+done
+```
+
+**3. Let GitHub (only this repository) become that account.**
+
+```bash
+gcloud iam workload-identity-pools create github --location=global --display-name="GitHub"
+gcloud iam workload-identity-pools providers create-oidc github-provider \
+  --location=global --workload-identity-pool=github \
+  --issuer-uri="https://token.actions.githubusercontent.com" \
+  --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository" \
+  --attribute-condition="assertion.repository=='$GH_REPO'"
+PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
+gcloud iam service-accounts add-iam-policy-binding $DEPLOYER_SA \
+  --role=roles/iam.workloadIdentityUser \
+  --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/attribute.repository/$GH_REPO"
+echo "GCP_WIF_PROVIDER=projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github-provider"
+```
+
+The final repository for the submission (`factored-hackathon-2026-<team>`) will have another name:
+repeat the last `add-iam-policy-binding` with the new `GH_REPO`, and update the provider condition
+with `gcloud iam workload-identity-pools providers update-oidc github-provider --location=global
+--workload-identity-pool=github --attribute-condition="assertion.repository=='NEW/REPO'"`.
+
+**4. GitHub variables.** Six of them. With the GitHub CLI (needs `brew install gh` and `gh auth login`;
+repository admin rights):
+
+```bash
+R=CristianLazoQuispe/Factored2026
+gh variable set GCP_PROJECT_ID     --repo $R --body "factored-510201"
+gh variable set GCP_REGION         --repo $R --body "us-central1"
+gh variable set CLOUD_SQL_INSTANCE --repo $R --body "factored-db"
+gh variable set GCP_DEPLOYER_SA    --repo $R --body "gh-deployer@factored-510201.iam.gserviceaccount.com"
+gh variable set GCP_WIF_PROVIDER   --repo $R --body "projects/531756916664/locations/global/workloadIdentityPools/github/providers/github-provider"
+gh variable set DEMO_CUSTOMER_IDS  --repo $R --body "DEMO-MX-DUPLICATE,DEMO-CO-PENDING,DEMO-MX-FX,DEMO-BR-PORTUGUESE,DEMO-AR-FRAUD,CLI-J0N40EZVP1P6,CLI-XKD238N6EUVH,CLI-AGDPF9SUW2Q4"
+gh variable list --repo $R
+```
+
+`DEMO_CUSTOMER_IDS` is the allowlist for `POST /api/auth/token`: empty means nobody can log in to the
+deployed UI. Use only synthetic customers that exist in the Cloud SQL data.
+
+## Day to day
+
+1. Work on a branch, open a PR to `dev` (lint + tests run), then a PR from `dev` to `main`.
+2. Merging into `main` deploys: `test` → `deploy-api` → `deploy-web`, about 5 minutes. Follow it with
+   `gh run watch --repo CristianLazoQuispe/Factored2026`; re-run it without a commit with
+   `gh workflow run "CI and deploy to Cloud Run" --ref main`.
+3. Do not run `make deploy`, `deploy-api` or `deploy-web` by hand: the last deploy wins and can bring
+   back an old image.
+
+What a deploy does **not** do:
+
+- It does not touch the database. A change in `schema.sql` is applied by hand (it starts with
+  `DROP SCHEMA core CASCADE`: coordinate first).
+- It does not create secrets such as `jwt-secret`.
+- It **replaces** every environment variable of `factored-api`. A variable added by hand in the console
+  is lost on the next deploy: add it to `.github/workflows/deploy.yml`.
+- It deploys on every push to `main`, even a docs-only one, and `deploy-web` adds one more API revision
+  (it refreshes `CORS_ORIGINS`).
+- If `deploy-api` succeeds and `deploy-web` fails, the API is new and the web old until it is fixed.
+
+Roll back (both services together; run `--to-latest` on each once it is fixed):
+
+```bash
+gcloud run revisions list --service factored-api --region us-central1 --limit 5
+gcloud run services update-traffic factored-api --region us-central1 --to-revisions=<previous>=100
+gcloud run services update-traffic factored-web --region us-central1 --to-revisions=<previous>=100
+```
+
+Still to do (not applied yet):
+
+- **Protect `main`** (repo owner): Settings → Branches → require a pull request and the `test` check.
+  Until then a direct push deploys straight to production.
+- **Let only `main` deploy:** add `&& assertion.ref=='refs/heads/main'` to the provider condition with
+  `gcloud iam workload-identity-pools providers update-oidc github-provider --location=global
+  --workload-identity-pool=github --attribute-condition="assertion.repository=='<repo>' &&
+  assertion.ref=='refs/heads/main'"`.
+- **A budget alert** in Billing: the public endpoints can call Gemini on Vertex AI.
+
+## First deploy, by hand, with a canary (how it was done the first time)
+
+Build the API image, deploy it **without traffic** under a tag, test it on its own URL, and only then
+move traffic. Nobody is affected until the last step.
+
+```bash
+export PROJECT=factored-510201 REGION=us-central1 TAG=$(git rev-parse --short HEAD)
+export REGISTRY=$REGION-docker.pkg.dev/$PROJECT/factored
+gcloud builds submit --project $PROJECT --region $REGION --tag $REGISTRY/api:$TAG .
+gcloud run deploy factored-api ... --no-traffic --tag canary      # same flags as `make deploy-api`
+curl -s https://canary---factored-api-<hash>-uc.a.run.app/health
+```
+
+Then build the web against the API URL, deploy it with `--no-traffic --tag canary`, and switch both
+services in a row: `update-traffic --to-revisions=<new>=100` (API) and `--to-tags canary=100` (web),
+followed by `--to-latest` and `--remove-tags canary` so later deploys go live on their own.
+Roll back with `update-traffic --to-revisions=<previous revision>=100` on **both** services.
+
+## Gotchas we hit
+
+- **zsh and colons:** write `"${PROJECT}:${REGION}:factored-db"` with braces. `$REGION:factored-db`
+  is read as a path modifier and produces a malformed Cloud SQL instance.
+- **Define the variables in the same terminal** before running a block; an empty `$PROJECT` produces
+  misleading errors (`argument --project: expected one argument`).
+- **New service accounts take a few seconds to propagate:** if `add-iam-policy-binding` says the
+  account does not exist right after creating it, run the command again.
+- **Do not paste trailing `# comments` in zsh:** the shell passes them as arguments.
+- **A wrong provider condition fails silently:** verify it with
+  `gcloud iam workload-identity-pools providers describe github-provider --location=global
+  --workload-identity-pool=github --format="value(attributeCondition)"`.
+- **Never run `make db-load-cloud` on the shared database:** it drops `core`. It is already loaded.
+
+## Using the deployed API
+
+Every protected call needs `Authorization: Bearer <jwt>`. The token lives 15 minutes.
+
+```bash
+API=$(gcloud run services describe factored-api --region us-central1 --format='value(status.url)')
+TOKEN=$(curl -s $API/api/auth/token -H 'content-type: application/json' \
+  -d '{"customer_id":"DEMO-MX-DUPLICATE"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
+curl -s $API/api/chat -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"message":"no reconozco un cargo de Uber"}'
+```
+
+Without a token `/api/chat` answers `401`; a customer outside `DEMO_CUSTOMER_IDS` gets `403` when
+asking for a token. In Swagger (`$API/docs`) paste the token in **Authorize**.
+
+## Known limits (state them in the submission)
+
+- **`--max-instances 1`.** Conversation memory is an in-process `InMemorySaver`: with two instances a
+  customer's thread would vanish between requests. Real fix: a Postgres checkpointer.
+- **The token endpoint is a test identity service.** It is public and password-less by design, but
+  only for customers in `DEMO_CUSTOMER_IDS`. No rate limit. In production it is replaced by the
+  bank's identity provider; the rest stays. The Telegram webhook has its own secret.
+- **Conversations are keyed by customer**, so nobody can continue another customer's thread.
+- **`/docs` (Swagger) is public.**
+- **Cloud SQL has a public IP** (`ipv4Enabled`); the app reaches it through the Cloud SQL socket.
+- **Cold start.** With no minimum instances, the first request after idle is slow.
+
+## Troubleshooting
+
+- *`unauthorized_client` in Actions*: wrong `GH_REPO` in the provider condition, or wrong
+  `GCP_WIF_PROVIDER`.
+- *Permission denied on deploy*: the deployer lacks `serviceAccountUser` on the account the service runs
+  as, or (Cloud SQL) `roles/cloudsql.client` / `roles/cloudsql.viewer`.
+- *Revision fails to start*: read its logs. A `ValueError` mentioning `JWT_SECRET` means the secret
+  is missing or shorter than 32 characters; one mentioning `DATABASE_URL` means the secret points to a
+  local host.
+- *The browser shows a CORS error*: `CORS_ORIGINS` on `factored-api` must list the URLs of
+  `factored-web` (the workflow updates it after deploying the web), and the API must allow the
+  `Authorization` header.
+- *`/health/ready` says `db: error`*: the Cloud SQL instance is not attached to the service.

@@ -1,0 +1,36 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git commit *)",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.githooks/pre-commit >&2 || exit 2",
+            "timeout": 60,
+            "statusMessage": "Linting before commit..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/lint-on-write.py",
+            "timeout": 30,
+            "statusMessage": "Linting the file just written..."
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/overengineering-sniffer.py",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,71 @@
+# Whole stack in one command: `make up` (stop with `make down`).
+#   db    Postgres, the agent's operational store
+#   seed  one-shot job: data/sample -> silver -> Postgres (idempotent, reruns on every `up`)
+#   app   FastAPI agent API, on http://localhost:8080
+#   web   Next.js static build on nginx, on http://localhost:3000 (calls the API on :8080)
+x-env: &env
+  env_file:
+    - path: .env
+      required: false
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: agent
+      POSTGRES_PASSWORD: agent
+      POSTGRES_DB: agent
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent -d agent"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  seed:
+    build: .
+    <<: *env
+    environment:
+      DATABASE_URL: postgresql://agent:agent@db:5432/agent
+      DATA_DIR: /app/data
+    volumes:
+      - ./data:/app/data
+    command: ["sh", "-c", "python -m data_pipeline.silver --source sample && python -m data_pipeline.load"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    build: .
+    <<: *env
+    environment:
+      DATABASE_URL: postgresql://agent:agent@db:5432/agent
+      OLLAMA_BASE_URL: http://host.docker.internal:11434  # Ollama runs natively on the host (GPU)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: ./web
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8080
+    ports:
+      - "3000:8080"
+    depends_on:
+      - app
+
+volumes:
+  pgdata:
