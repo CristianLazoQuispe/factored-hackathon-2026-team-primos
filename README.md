@@ -38,6 +38,7 @@ The **Customer ID** field lists the customers in `DEMO_CUSTOMER_IDS` (`.env`); c
 | `quiero hablar con una persona` | Handoff to a human, decided by code with no LLM call |
 | `¿me recomiendas una hipoteca?` | Short out-of-scope answer |
 | Empty Customer ID | The agent asks for it and validates it against the database |
+| Click the **microphone**, speak in Spanish or Portuguese, click again | faster-whisper transcribes it and the agent answers as above. With **Activar voz del agente** pressed, Kokoro also reads the answer aloud |
 
 The API is `POST /api/chat {message, thread_id?}`. Outside `APP_ENV=local` it needs `Authorization: Bearer <token>` (from `POST /api/auth/token`, demo customers only) and the customer is the token's, never the body's. Locally it still accepts `customer_id` in the body, so `curl` works without a token. Swagger: http://localhost:8080/docs.
 
@@ -55,7 +56,7 @@ The API is `POST /api/chat {message, thread_id?}`. Outside `APP_ENV=local` it ne
 ## More
 
 - **Use Gemini locally** (e.g. for evals): in `.env` set `LLM_PROVIDER=google_genai` and `GOOGLE_API_KEY`. In the cloud it's Gemini by default.
-- **Code without Docker** (needs [uv](https://docs.astral.sh/uv/) and Node 24+): `make setup`, `make db-up db-load`, `make dev` (API :8080), `make web` (UI :3000), `make test`. `make setup` also enables a git pre-commit hook that runs the CI lint (`.githooks/pre-commit`).
+- **Code without Docker** (needs [uv](https://docs.astral.sh/uv/) and Node 24+): `make setup`, `make db-up db-load`, `make dev` (API :8080), `make web` (UI :3000), `make test`. For the microphone, `make models` downloads the speech models (about 0.8 GB) to `./models`; the Docker image has its own. `make setup` also enables a git pre-commit hook that runs the CI lint (`.githooks/pre-commit`).
 - **Full dataset** (S3 keys from the data dictionary PDF): `make data-lite`, `make bronze`. See [data_pipeline.md](docs/documentation/technical/data_pipeline.md).
 - **Telegram**: put a [@BotFather](https://t.me/BotFather) token in `TELEGRAM_BOT_TOKEN`, then `make telegram-local`.
 - **Deploy** (GCP): two Cloud Run services, `factored-api` and `factored-web`, and Cloud SQL. See [Deploy to GCP](#deploy-to-gcp).

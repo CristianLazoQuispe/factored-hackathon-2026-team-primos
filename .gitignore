@@ -228,4 +228,6 @@ data/**
 web/node_modules/
 web/.next/
 web/out/
+# Speech models: `make models`
+models/
 .DS_Store
