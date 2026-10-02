@@ -30,7 +30,7 @@ Run with `gcloud` logged in as an owner of the project. Confirm the project firs
 
 ```bash
 export PROJECT_ID=factored-510201   REGION=us-central1
-export GH_REPO=CristianLazoQuispe/Factored2026          # the repo allowed to deploy
+export GH_REPO=CristianLazoQuispe/factored-hackathon-2026-team-primos   # the repo allowed to deploy
 export DEPLOYER_SA=gh-deployer@$PROJECT_ID.iam.gserviceaccount.com
 export API_SA=factored-api@$PROJECT_ID.iam.gserviceaccount.com
 export WEB_SA=531756916664-compute@developer.gserviceaccount.com   # factored-web's current account
@@ -74,16 +74,16 @@ gcloud iam service-accounts add-iam-policy-binding $DEPLOYER_SA \
 echo "GCP_WIF_PROVIDER=projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github-provider"
 ```
 
-The final repository for the submission (`factored-hackathon-2026-<team>`) will have another name:
-repeat the last `add-iam-policy-binding` with the new `GH_REPO`, and update the provider condition
-with `gcloud iam workload-identity-pools providers update-oidc github-provider --location=global
---workload-identity-pool=github --attribute-condition="assertion.repository=='NEW/REPO'"`.
+The pool was created for the working repository (`CristianLazoQuispe/Factored2026`). To move the deploy
+to another repository, repeat the last `add-iam-policy-binding` with the new `GH_REPO`, and update the
+provider condition with `gcloud iam workload-identity-pools providers update-oidc github-provider
+--location=global --workload-identity-pool=github --attribute-condition="assertion.repository=='NEW/REPO'"`.
 
 **4. GitHub variables.** Six of them. With the GitHub CLI (needs `brew install gh` and `gh auth login`;
 repository admin rights):
 
 ```bash
-R=CristianLazoQuispe/Factored2026
+R=CristianLazoQuispe/factored-hackathon-2026-team-primos
 gh variable set GCP_PROJECT_ID     --repo $R --body "factored-510201"
 gh variable set GCP_REGION         --repo $R --body "us-central1"
 gh variable set CLOUD_SQL_INSTANCE --repo $R --body "factored-db"
@@ -98,9 +98,11 @@ deployed UI. Use only synthetic customers that exist in the Cloud SQL data.
 
 ## Day to day
 
-1. Work on a branch, open a PR to `dev` (lint + tests run), then a PR from `dev` to `main`.
+1. Work on your `dev-<name>` branch (only its owner can push to it), open a PR to `dev` (lint + tests
+   run), then a PR from `dev` to `main`. Repository rulesets reject direct pushes to `dev` and `main`
+   and require a green `test`.
 2. Merging into `main` deploys: `test` → `deploy-api` → `deploy-web`, about 5 minutes. Follow it with
-   `gh run watch --repo CristianLazoQuispe/Factored2026`; re-run it without a commit with
+   `gh run watch --repo CristianLazoQuispe/factored-hackathon-2026-team-primos`; re-run it without a commit with
    `gh workflow run "CI and deploy to Cloud Run" --ref main`.
 3. Do not run `make deploy`, `deploy-api` or `deploy-web` by hand: the last deploy wins and can bring
    back an old image.
@@ -126,8 +128,6 @@ gcloud run services update-traffic factored-web --region us-central1 --to-revisi
 
 Still to do (not applied yet):
 
-- **Protect `main`** (repo owner): Settings → Branches → require a pull request and the `test` check.
-  Until then a direct push deploys straight to production.
 - **Let only `main` deploy:** add `&& assertion.ref=='refs/heads/main'` to the provider condition with
   `gcloud iam workload-identity-pools providers update-oidc github-provider --location=global
   --workload-identity-pool=github --attribute-condition="assertion.repository=='<repo>' &&
