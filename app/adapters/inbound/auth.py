@@ -10,6 +10,7 @@ real identity provider; `customer_from_token` is what stays.
 """
 
 from datetime import UTC, datetime, timedelta
+from secrets import compare_digest
 from typing import Annotated
 
 import jwt
@@ -73,3 +74,12 @@ def token_customer(
             detail=error.reason,
             headers={"WWW-Authenticate": f'Bearer error="{error.reason}"'},
         ) from None
+
+
+def operator(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
+) -> None:
+    """FastAPI dependency for the operator console: the bearer must be the shared OPERATOR_KEY."""
+    key = get_settings().operator_key.encode()
+    if credentials is None or not compare_digest(credentials.credentials.encode(), key):
+        raise HTTPException(401, "Operator key required.", headers={"WWW-Authenticate": "Bearer"})

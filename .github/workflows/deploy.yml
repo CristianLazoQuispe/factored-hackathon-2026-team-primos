@@ -85,8 +85,8 @@ jobs:
             --image "$REGISTRY/api:$TAG" \
             --service-account "factored-api@${PROJECT}.iam.gserviceaccount.com" \
             --add-cloudsql-instances "${PROJECT}:${REGION}:${SQL_INSTANCE}" \
-            --set-secrets "DATABASE_URL=factored-database-url:latest,JWT_SECRET=jwt-secret:latest" \
-            --set-env-vars "^;^APP_ENV=cloud;GOOGLE_GENAI_USE_VERTEXAI=true;GOOGLE_CLOUD_PROJECT=${PROJECT};GOOGLE_CLOUD_LOCATION=${REGION};CORS_ORIGINS=${web:-http://localhost:3000};DEMO_CUSTOMER_IDS=${DEMO_IDS}" \
+            --set-secrets "DATABASE_URL=factored-database-url:latest,JWT_SECRET=jwt-secret:latest,OPERATOR_KEY=operator-key:latest,LANGFUSE_PUBLIC_KEY=langfuse-public-key:latest,LANGFUSE_SECRET_KEY=langfuse-secret-key:latest" \
+            --set-env-vars "^;^APP_ENV=cloud;GOOGLE_GENAI_USE_VERTEXAI=true;GOOGLE_CLOUD_PROJECT=${PROJECT};GOOGLE_CLOUD_LOCATION=${REGION};CORS_ORIGINS=${web:-http://localhost:3000};DEMO_CUSTOMER_IDS=${DEMO_IDS};LANGFUSE_BASE_URL=https://us.cloud.langfuse.com" \
             --max-instances 1 --allow-unauthenticated
           url=$(gcloud run services describe factored-api --project "$PROJECT" --region "$REGION" --format='value(status.url)')
           echo "url=$url" >> "$GITHUB_OUTPUT"

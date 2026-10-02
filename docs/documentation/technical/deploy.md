@@ -21,7 +21,12 @@ anywhere. Settings live in repository *variables*; there are no GitHub secrets.
   `make db-load-cloud`**: it drops `core` (`schema.sql` starts with `DROP SCHEMA core CASCADE`).
 - Runtime account `factored-api@…` with `cloudsql.client`, `secretmanager.secretAccessor` and
   `aiplatform.user` (so it can read every secret and call Gemini through Vertex AI: no API key).
-- Secrets `factored-database-url`, `factored-db-password` and `jwt-secret` (signs the bearer tokens).
+- Secrets `factored-database-url`, `factored-db-password`, `jwt-secret` (signs the bearer tokens) and
+  `operator-key` (opens the operator console; read it with
+  `gcloud secrets versions access latest --secret operator-key`).
+- Secrets `langfuse-public-key` and `langfuse-secret-key`: the API keys of the team's project in
+  Langfuse Cloud (US region, `https://us.cloud.langfuse.com`), where the agent's traces go. To use
+  another Langfuse project, add a new version to both secrets and redeploy.
 
 ## One-time setup (done on 2026-09-30; kept for the next repository)
 
@@ -38,12 +43,15 @@ gcloud config set project $PROJECT_ID
 gcloud services enable sts.googleapis.com cloudresourcemanager.googleapis.com
 ```
 
-**1. The key that signs the API's bearer tokens.** The API refuses to start without it.
+**1. The key that signs the API's bearer tokens, and the key of the operator console.** The API
+refuses to start without either.
 
 ```bash
-gcloud secrets describe jwt-secret >/dev/null 2>&1 \
-  && echo "jwt-secret already exists" \
-  || (openssl rand -hex 32 | tr -d '\n' | gcloud secrets create jwt-secret --data-file=-)
+for secret in jwt-secret operator-key; do
+  gcloud secrets describe $secret >/dev/null 2>&1 \
+    && echo "$secret already exists" \
+    || (openssl rand -hex 32 | tr -d '\n' | gcloud secrets create $secret --data-file=-)
+done
 ```
 
 **2. The account GitHub deploys as.**
@@ -111,7 +119,7 @@ What a deploy does **not** do:
 
 - It does not touch the database. A change in `schema.sql` is applied by hand (it starts with
   `DROP SCHEMA core CASCADE`: coordinate first).
-- It does not create secrets such as `jwt-secret`.
+- It does not create secrets such as `jwt-secret` or `operator-key`.
 - It **replaces** every environment variable of `factored-api`. A variable added by hand in the console
   is lost on the next deploy: add it to `.github/workflows/deploy.yml`.
 - It deploys on every push to `main`, even a docs-only one, and `deploy-web` adds one more API revision
@@ -185,6 +193,12 @@ asking for a token. In Swagger (`$API/docs`) paste the token in **Authorize**.
 
 - **`--max-instances 1`.** Conversation memory is an in-process `InMemorySaver`: with two instances a
   customer's thread would vanish between requests. Real fix: a Postgres checkpointer.
+- **The operator console forgets.** `/crm` on the web shows a mirror of the chats that lives in the
+  same process: chats and the handoff queue are lost when the instance stops (idle, or any deploy).
+  It also needs the single instance. Real fix: write them to `ops.conversations`, `ops.messages` and
+  `ops.handoff_cases`, which `schema.sql` already defines.
+- **One shared operator key.** Whoever has `OPERATOR_KEY` reads every chat; there are no operator
+  accounts. Telegram chats do not reach the console.
 - **The token endpoint is a test identity service.** It is public and password-less by design, but
   only for customers in `DEMO_CUSTOMER_IDS`. No rate limit. In production it is replaced by the
   bank's identity provider; the rest stays. The Telegram webhook has its own secret.
@@ -199,9 +213,9 @@ asking for a token. In Swagger (`$API/docs`) paste the token in **Authorize**.
   `GCP_WIF_PROVIDER`.
 - *Permission denied on deploy*: the deployer lacks `serviceAccountUser` on the account the service runs
   as, or (Cloud SQL) `roles/cloudsql.client` / `roles/cloudsql.viewer`.
-- *Revision fails to start*: read its logs. A `ValueError` mentioning `JWT_SECRET` means the secret
-  is missing or shorter than 32 characters; one mentioning `DATABASE_URL` means the secret points to a
-  local host.
+- *Revision fails to start*: read its logs. A `ValueError` mentioning `JWT_SECRET` or `OPERATOR_KEY`
+  means that secret is missing or shorter than 32 characters; one mentioning `DATABASE_URL` means the
+  secret points to a local host.
 - *The browser shows a CORS error*: `CORS_ORIGINS` on `factored-api` must list the URLs of
   `factored-web` (the workflow updates it after deploying the web), and the API must allow the
   `Authorization` header.
