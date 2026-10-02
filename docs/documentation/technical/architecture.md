@@ -53,6 +53,27 @@ flowchart LR
   step is a Postgres checkpointer.
 - **API:** `POST /api/chat {message, thread_id?}` (bearer token required outside local) →
   `{reply, thread_id, customer_id, skill, tools_used, handoff}`.
+- **Voice (web chat):** two open-source models on the API's CPU, loaded from `models/` on first use
+  (`app/adapters/outbound/speech.py`). `POST /api/speech/transcribe` takes the recording as the
+  request body and answers `{text, language}` with faster-whisper (`small`, int8).
+  `POST /api/speech/synthesize {text, language}` answers a WAV read by Kokoro (`ef_dora` in
+  Spanish, `pf_dora` in Brazilian Portuguese). Both need the same bearer token as the chat. The
+  agent is not involved: the web sends the transcript through `POST /api/chat` like a typed
+  message, so identity, handoff and tracing are the same for both. The voice is off on every page
+  load until the customer presses **Activar voz del agente**; then replies to spoken messages are
+  read aloud, in the language Whisper heard. That click is also what lets the page make sound:
+  Safari refuses audio that does not start from a click, so the click opens a Web Audio context
+  and every line plays through it. The web asks for the audio one line at a time, the next line
+  while the current one plays, and writes the reply on screen at the pace of the voice: nothing is
+  shown until the first line's audio is ready (about two seconds, "Generando la voz…"), then each
+  line appears word by word while it sounds. Kokoro gives no word times, so
+  `web/components/spoken.ts` estimates them from the line's known duration: a digit weighs 8
+  letters, a spelled acronym 5 per letter, punctuation adds a pause. Those weights were fitted on
+  15 real reply lines timed with Whisper and put word starts within 0.1 s on average (0.6 s with
+  plain character counts). **Mostrar todo**, turning the voice off, the microphone or a new message
+  put the rest of the text on screen at once. The agent does not stream: `/api/chat` still returns
+  one complete reply. Both models are loaded when the API starts. Whisper runs with its silence
+  filter, because a silent recording otherwise takes most of a minute. The audio is never stored.
 
 ## Component detail (original draft)
 
