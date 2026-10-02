@@ -24,6 +24,9 @@ anywhere. Settings live in repository *variables*; there are no GitHub secrets.
 - Secrets `factored-database-url`, `factored-db-password`, `jwt-secret` (signs the bearer tokens) and
   `operator-key` (opens the operator console; read it with
   `gcloud secrets versions access latest --secret operator-key`).
+- Secrets `langfuse-public-key` and `langfuse-secret-key`: the API keys of the team's project in
+  Langfuse Cloud (US region, `https://us.cloud.langfuse.com`), where the agent's traces go. To use
+  another Langfuse project, add a new version to both secrets and redeploy.
 
 ## One-time setup (done on 2026-09-30; kept for the next repository)
 

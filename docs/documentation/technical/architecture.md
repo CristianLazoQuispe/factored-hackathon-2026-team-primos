@@ -42,8 +42,9 @@ flowchart LR
   or change it. If the tools are ever served over HTTP, this becomes a bearer token read with `get_access_token()`, which is
   the MCP standard. At the HTTP edge the customer is the `sub` of a short-lived bearer JWT (see API authentication below); the UI gets that token from a **test identity service**, for synthetic data;
   step-up authentication is required before any money-moving skill.
-- **Tracing:** Langfuse `CallbackHandler`, enabled when `LANGFUSE_*` keys are set. The session is
-  `thread_id` and the user is `customer_id`.
+- **Tracing:** Langfuse `CallbackHandler`, enabled when `LANGFUSE_*` keys are set (Cloud Run reads
+  them from Secret Manager and sends to Langfuse Cloud). The session is `thread_id` and the user is
+  `customer_id`, so Langfuse groups a customer's whole conversation.
 - **Memory:** a LangGraph checkpointer keyed by `thread_id`. It is in-memory for now; the next
   step is a Postgres checkpointer.
 - **API:** `POST /api/chat {message, thread_id?}` (bearer token required outside local) →
