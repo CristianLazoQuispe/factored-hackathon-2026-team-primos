@@ -117,8 +117,8 @@ deploy-api:       ## Build the API image and deploy factored-api (keeps CORS poi
 	$(GCLOUD) run deploy factored-api --image $(REGISTRY)/api:$(TAG) --region $(GCP_REGION) \
 		--service-account factored-api@$(GCP_PROJECT_ID).iam.gserviceaccount.com \
 		--add-cloudsql-instances $(SQL_CONNECTION) \
-		--set-secrets DATABASE_URL=factored-database-url:latest,JWT_SECRET=jwt-secret:latest,OPERATOR_KEY=operator-key:latest \
-		--set-env-vars "^;^APP_ENV=cloud;GOOGLE_GENAI_USE_VERTEXAI=true;GOOGLE_CLOUD_PROJECT=$(GCP_PROJECT_ID);GOOGLE_CLOUD_LOCATION=$(GCP_REGION);CORS_ORIGINS=$${web:-http://localhost:3000};DEMO_CUSTOMER_IDS=$(DEMO_CUSTOMER_IDS)" \
+		--set-secrets DATABASE_URL=factored-database-url:latest,JWT_SECRET=jwt-secret:latest,OPERATOR_KEY=operator-key:latest,LANGFUSE_PUBLIC_KEY=langfuse-public-key:latest,LANGFUSE_SECRET_KEY=langfuse-secret-key:latest \
+		--set-env-vars "^;^APP_ENV=cloud;GOOGLE_GENAI_USE_VERTEXAI=true;GOOGLE_CLOUD_PROJECT=$(GCP_PROJECT_ID);GOOGLE_CLOUD_LOCATION=$(GCP_REGION);CORS_ORIGINS=$${web:-http://localhost:3000};DEMO_CUSTOMER_IDS=$(DEMO_CUSTOMER_IDS);LANGFUSE_BASE_URL=https://us.cloud.langfuse.com" \
 		--max-instances 1 --allow-unauthenticated
 
 deploy-web:       ## Build the web against factored-api's URL, deploy factored-web, then allow it in CORS
