@@ -6,9 +6,11 @@ import { type FormEvent, useCallback, useEffect, useRef, useState } from "react"
 import Markdown from "react-markdown";
 
 import { Button } from "@/components/ui/button";
+import { SpeakerIcon } from "@/components/speaker-icon";
 import { Input } from "@/components/ui/input";
 
-type Message = { role: "user" | "assistant"; text: string; meta?: string };
+// `operator` is a person of the team answering from the console; `assistant` is the agent.
+type Message = { role: "user" | "assistant" | "operator"; text: string; meta?: string };
 
 type ChatResponse = {
   reply: string | null; // null: a person has this chat and answers from the operator console
@@ -112,7 +114,7 @@ export default function Home() {
         if (data.messages.length) {
           setMessages((prev) => [
             ...prev,
-            ...data.messages.map((m) => ({ role: "assistant" as const, text: m.text, meta: "Persona del equipo" })),
+            ...data.messages.map((m) => ({ role: "operator" as const, text: m.text, meta: "Persona del equipo" })),
           ]);
         }
       } catch {
@@ -198,11 +200,16 @@ export default function Home() {
                   {message.text}
                 </div>
               ) : (
-                <div className="rounded-2xl bg-muted px-4 py-2 [&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1 [&_strong]:font-semibold [&_ul]:list-disc [&_ul]:pl-5">
-                  <Markdown>{message.text}</Markdown>
+                <div className="flex items-start gap-2">
+                  <SpeakerIcon person={message.role === "operator"} />
+                  <div className="min-w-0">
+                    <div className="rounded-2xl bg-muted px-4 py-2 [&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1 [&_strong]:font-semibold [&_ul]:list-disc [&_ul]:pl-5">
+                      <Markdown>{message.text}</Markdown>
+                    </div>
+                    {message.meta && <p className="mt-1 px-2 text-xs text-muted-foreground">{message.meta}</p>}
+                  </div>
                 </div>
               )}
-              {message.meta && <p className="mt-1 px-2 text-xs text-muted-foreground">{message.meta}</p>}
             </motion.div>
           ))}
           {pending && (

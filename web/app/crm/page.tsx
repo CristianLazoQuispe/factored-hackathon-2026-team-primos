@@ -6,6 +6,7 @@ import Markdown from "react-markdown";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SpeakerIcon } from "@/components/speaker-icon";
 import { Input } from "@/components/ui/input";
 
 type Message = { role: "customer" | "assistant" | "operator"; text: string; at: string };
@@ -217,21 +218,31 @@ export default function Crm() {
 
           <div ref={list} className="flex flex-1 flex-col gap-3 overflow-y-auto">
             {open.messages.map((message, index) => (
-              <div key={index} className={message.role === "customer" ? "self-start max-w-[85%]" : "self-end max-w-[85%]"}>
-                <div
-                  className={
-                    message.role === "operator"
-                      ? "whitespace-pre-wrap rounded-2xl bg-primary px-4 py-2 text-primary-foreground"
-                      : message.role === "customer"
-                        ? "whitespace-pre-wrap rounded-2xl bg-muted px-4 py-2"
-                        : "rounded-2xl border px-4 py-2 [&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1 [&_strong]:font-semibold [&_ul]:list-disc [&_ul]:pl-5"
-                  }
-                >
-                  {message.role === "assistant" ? <Markdown>{message.text}</Markdown> : message.text}
+              <div
+                key={index}
+                className={
+                  message.role === "customer"
+                    ? "max-w-[85%] self-start"
+                    : "flex max-w-[85%] flex-row-reverse items-start gap-2 self-end"
+                }
+              >
+                {message.role !== "customer" && <SpeakerIcon person={message.role === "operator"} />}
+                <div className="min-w-0">
+                  <div
+                    className={
+                      message.role === "operator"
+                        ? "whitespace-pre-wrap rounded-2xl bg-primary px-4 py-2 text-primary-foreground"
+                        : message.role === "customer"
+                          ? "whitespace-pre-wrap rounded-2xl bg-muted px-4 py-2"
+                          : "rounded-2xl border px-4 py-2 [&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1 [&_strong]:font-semibold [&_ul]:list-disc [&_ul]:pl-5"
+                    }
+                  >
+                    {message.role === "assistant" ? <Markdown>{message.text}</Markdown> : message.text}
+                  </div>
+                  <p className="mt-1 px-2 text-xs text-muted-foreground">
+                    {SENDER[message.role]} · {time(message.at)}
+                  </p>
                 </div>
-                <p className="mt-1 px-2 text-xs text-muted-foreground">
-                  {SENDER[message.role]} · {time(message.at)}
-                </p>
               </div>
             ))}
           </div>
