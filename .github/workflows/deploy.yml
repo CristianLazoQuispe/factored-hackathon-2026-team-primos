@@ -26,6 +26,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the email check reads every commit
+      # Every commit carries a team email, as author and as committer. One line per email in
+      # .github/allowed-emails (noreply@github.com is the committer of merges made on github.com).
+      - run: |
+          ! git log --format='%ae%n%ce' ${{ github.event.pull_request.head.sha || github.sha }} \
+            | sort -u | grep -vxFf .github/allowed-emails
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
