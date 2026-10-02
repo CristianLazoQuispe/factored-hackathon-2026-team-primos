@@ -123,6 +123,28 @@ production the bank's identity provider replaces it; `customer_from_token` is wh
 are keyed `customer:thread`, so nobody can continue another customer's thread.
 Code: `app/adapters/inbound/auth.py`, `http.py`. Tests: `tests/test_auth.py`.
 
+## Operator console (implemented)
+
+A person of the team opens `/crm` on the web with the shared `OPERATOR_KEY` and sees every chat of
+the running instance: the full conversation, its status and, after a handoff, the case file.
+
+| Status | Meaning | Who answers the customer |
+|---|---|---|
+| `bot` | Normal chat | The agent |
+| `waiting` | The agent handed off | Nobody yet: the agent stays out |
+| `human` | The operator replied | The operator, until they give the chat back |
+
+- The operator's reply reaches the customer's chat because the web polls
+  `GET /api/chat/{thread_id}/operator` every 3 seconds. The console polls `GET /api/crm/conversations`.
+- While a chat is `waiting` or `human`, `POST /api/chat` stores the customer's message and returns
+  `reply: null` without calling the agent.
+- The chats are a mirror in the API's memory (`app/adapters/inbound/conversations.py`), not the
+  database: they are lost when the instance stops. The agent does not see what the operator wrote.
+- Telegram chats are not mirrored.
+
+Code: `app/adapters/inbound/conversations.py`, `http.py`, `auth.py`, `web/app/crm/page.tsx`.
+Tests: `tests/test_crm.py`.
+
 ## Reliability safeguards (implemented)
 
 - **Routing safety net.** The LLM router decides first. If it picks no skill (prose, an empty reply or a
@@ -131,7 +153,7 @@ Code: `app/adapters/inbound/auth.py`, `http.py`. Tests: `tests/test_auth.py`.
 - **Model or tool outage.** The turn returns a safe message in both languages plus a handoff
   (`reason: assistant_error`), never a bare 500. Gemini calls use 2 retries and a 30 s timeout.
 - **Configuration guard.** `app/config.py` refuses to start with `APP_ENV=local` on a remote database,
-  with a cloud environment on a local one, or with a weak `JWT_SECRET` outside local.
+  with a cloud environment on a local one, or with a weak `JWT_SECRET` or `OPERATOR_KEY` outside local.
 
 ## Deployment (implemented)
 
