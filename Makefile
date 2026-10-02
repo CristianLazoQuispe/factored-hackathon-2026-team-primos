@@ -117,7 +117,7 @@ deploy-api:       ## Build the API image and deploy factored-api (keeps CORS poi
 	$(GCLOUD) run deploy factored-api --image $(REGISTRY)/api:$(TAG) --region $(GCP_REGION) \
 		--service-account factored-api@$(GCP_PROJECT_ID).iam.gserviceaccount.com \
 		--add-cloudsql-instances $(SQL_CONNECTION) \
-		--set-secrets DATABASE_URL=factored-database-url:latest,JWT_SECRET=jwt-secret:latest \
+		--set-secrets DATABASE_URL=factored-database-url:latest,JWT_SECRET=jwt-secret:latest,OPERATOR_KEY=operator-key:latest \
 		--set-env-vars "^;^APP_ENV=cloud;GOOGLE_GENAI_USE_VERTEXAI=true;GOOGLE_CLOUD_PROJECT=$(GCP_PROJECT_ID);GOOGLE_CLOUD_LOCATION=$(GCP_REGION);CORS_ORIGINS=$${web:-http://localhost:3000};DEMO_CUSTOMER_IDS=$(DEMO_CUSTOMER_IDS)" \
 		--max-instances 1 --allow-unauthenticated
 

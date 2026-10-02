@@ -18,6 +18,12 @@ def clean_llm_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 CLOUD_SQL = "postgresql://app:s3cret@/agent?host=/cloudsql/proj:us-central1:main"
 SECRET = "x" * 32  # a signing key that is not the placeholder
+CLOUD = {
+    "app_env": "cloud",
+    "database_url": CLOUD_SQL,
+    "jwt_secret": SECRET,
+    "operator_key": SECRET,
+}  # a deployment that boots
 
 
 def settings(**overrides: str) -> Settings:
@@ -31,7 +37,7 @@ def test_local_defaults_to_ollama() -> None:
 
 
 def test_cloud_defaults_to_gemini_and_echoes_without_key() -> None:
-    s = settings(app_env="cloud", database_url=CLOUD_SQL, jwt_secret=SECRET)
+    s = settings(**CLOUD)
     assert (s.provider, s.model("fast")) == ("google_genai", "gemini-2.5-flash")
     assert not s.llm_configured
 
@@ -72,10 +78,8 @@ def test_cloud_refuses_the_local_default_and_never_prints_the_password() -> None
 
 
 def test_cloud_accepts_a_cloud_sql_socket_or_private_ip() -> None:
-    assert settings(app_env="cloud", database_url=CLOUD_SQL, jwt_secret=SECRET)
-    assert settings(
-        app_env="cloud", database_url="postgresql://u:p@10.1.2.3:5432/agent", jwt_secret=SECRET
-    )
+    assert settings(**CLOUD)
+    assert settings(**CLOUD | {"database_url": "postgresql://u:p@10.1.2.3:5432/agent"})
 
 
 def test_cloud_refuses_the_placeholder_or_a_short_signing_key() -> None:
@@ -83,3 +87,11 @@ def test_cloud_refuses_the_placeholder_or_a_short_signing_key() -> None:
         with pytest.raises(ValueError, match="JWT_SECRET must be a random string"):
             settings(app_env="cloud", database_url=CLOUD_SQL, jwt_secret=weak)
     settings(app_env="local")  # the placeholder is fine on a laptop
+
+
+def test_cloud_refuses_the_placeholder_or_a_short_operator_key() -> None:
+    for weak in ("change-me-local-only-operator-key", "short", "x" * 31):
+        with pytest.raises(ValueError, match="OPERATOR_KEY must be a random string"):
+            settings(app_env="cloud", database_url=CLOUD_SQL, jwt_secret=SECRET, operator_key=weak)
+    with pytest.raises(ValueError, match="OPERATOR_KEY must be a random string"):
+        settings(app_env="cloud", database_url=CLOUD_SQL, jwt_secret=SECRET)  # not set at all
