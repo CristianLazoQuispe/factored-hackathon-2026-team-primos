@@ -1,130 +1,94 @@
-@import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
-
-@custom-variant dark (&:is(.dark *));
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
-  --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
-  --color-card: var(--card);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
-}
+/* Quipu: tokens and base components (palette "Océano profundo"), from the design handoff's
+   quipu-tokens.css. Each screen adds its own rules in a `screen.css` scoped to its root class. */
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --q-abyss: #04141A;
+  --q-ocean: #071E26;
+  --q-panel-line: rgba(230, 244, 241, .08);
+  --q-mist: #E6F4F1;
+  --q-fog: #9DB8B5;
+  --q-muted: #5E7F7C;
+  --q-teal: #2EC4B6;
+  --q-sky: #5DA9E9;
+  --q-deep: #1B998B;
+  --q-amber-soft: #F2C27A;
+
+  /* spending categories, in this fixed order */
+  --q-cat-1: #1FA595;
+  --q-cat-2: #BF8218;
+  --q-cat-3: #3B82D6;
+  --q-cat-4: #CF5E8C;
+  --q-cat-5: #8B76DE;
+  --q-cat-other: #4F6B6A;
+
+  /* The Geist families come from next/font (app/layout.tsx). */
+  --q-font: var(--font-geist-sans), 'Helvetica Neue', sans-serif;
+  --q-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --q-radius: 12px;
+  --q-radius-panel: 18px;
 }
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
-}
+body { margin: 0; background: var(--q-abyss); color: var(--q-mist); font-family: var(--q-font); }
+a { color: var(--q-teal); }
+a:hover { color: var(--q-mist); }
 
-@layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
-  html {
-    @apply font-sans;
-  }
+.q-h1 { font-weight: 500; font-size: clamp(48px, 6.4vw, 88px); line-height: .95; letter-spacing: -.055em; margin: 0; }
+.q-h2 { font-weight: 500; font-size: clamp(34px, 4.2vw, 56px); line-height: 1.02; letter-spacing: -.045em; margin: 0; }
+.q-sub { color: var(--q-fog); font-size: 13px; }
+.q-mono { font-family: var(--q-mono); }
+
+.q-btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 48px; padding: 0 20px;
+  border-radius: var(--q-radius); border: none; font: 500 15px/1 var(--q-font); text-decoration: none; cursor: pointer;
+  transition: box-shadow .2s, background .2s; }
+.q-btn:disabled { opacity: .5; cursor: default; }
+.q-btn-primary { background: var(--q-mist); color: var(--q-abyss);
+  box-shadow: 0 0 0 1px rgba(230,244,241,.2), 0 8px 30px -8px rgba(46,196,182,.55); }
+.q-btn-primary:hover { background: #fff; color: var(--q-abyss); box-shadow: 0 0 0 4px rgba(46,196,182,.28), 0 8px 30px -8px rgba(46,196,182,.7); }
+.q-btn-ghost { background: rgba(230,244,241,.03); color: var(--q-mist); box-shadow: inset 0 0 0 1px rgba(230,244,241,.16); }
+.q-btn-ghost:hover { color: var(--q-mist); box-shadow: inset 0 0 0 1px var(--q-teal); background: rgba(46,196,182,.08); }
+/* The screens of the app (chat, console) use this smaller button; the landing uses the 48px one. */
+.q-btn-sm { min-height: 44px; padding: 0 16px; font-size: 14px; }
+
+.q-panel { background: var(--q-ocean); box-shadow: inset 0 0 0 1px var(--q-panel-line); border-radius: var(--q-radius-panel); padding: 20px; }
+.q-chip { display: inline-flex; align-items: center; min-height: 24px; padding: 0 9px; border-radius: 7px;
+  font: 12px var(--q-mono); color: var(--q-fog); box-shadow: inset 0 0 0 1px rgba(230,244,241,.12); }
+.q-chip-on { color: var(--q-abyss); background: var(--q-teal); box-shadow: none; }
+.q-tab { min-height: 38px; padding: 0 14px; border-radius: 9px; display: inline-flex; align-items: center; font-size: 14px; color: var(--q-fog); text-decoration: none; }
+.q-tab:hover { color: var(--q-mist); background: rgba(230,244,241,.05); }
+.q-tab-on { background: rgba(46,196,182,.14); color: var(--q-mist); box-shadow: inset 0 0 0 1px rgba(46,196,182,.4); }
+.q-grid-bg { background-image: radial-gradient(rgba(230,244,241,.09) 1px, transparent 1px); background-size: 28px 28px; }
+.q-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--q-teal); box-shadow: 0 0 10px var(--q-teal); animation: q-blink 2s ease-in-out infinite; }
+.q-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+/* Animation states of the small logo and of the author icons: put the class on a container. */
+.q-st-idle { --q-spd: 1; --q-amp: 1; }
+.q-st-listening { --q-spd: .75; --q-amp: 1.3; }
+.q-st-thinking { --q-spd: .5; --q-amp: .85; }
+.q-st-speaking { --q-spd: .32; --q-amp: 1.6; }
+
+@keyframes q-spin { to { transform: rotate(360deg); } }
+@keyframes q-breathe { 0%, 100% { transform: scale(.95); } 50% { transform: scale(calc(.99 + .04 * var(--q-amp, 1))); } }
+@keyframes q-lines { from { transform: scale(.97); } to { transform: scale(calc(1 + .05 * var(--q-amp, 1))); } }
+@keyframes q-dots { from { transform: scale(.97); } to { transform: scale(calc(1.02 + .09 * var(--q-amp, 1))); } }
+@keyframes q-ping { 0% { transform: scale(1); opacity: .7; } 100% { transform: scale(2.6); opacity: 0; } }
+@keyframes q-blink { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+@keyframes q-nod { from { transform: translateY(0); } to { transform: translateY(calc(-.7px * var(--q-amp, 1))); } }
+@keyframes q-mic { from { transform: scale(.8); } to { transform: scale(calc(1 + .35 * var(--q-amp, 1))); } }
+
+.q-ico { display: inline-grid; place-items: center; flex: 0 0 auto; border-radius: 10px; }
+.q-rot { animation: q-spin calc(40s * var(--q-spd, 1)) linear infinite; }
+.q-g { transform-box: view-box; transform-origin: 16px 16px; }
+.q-g-ring { animation: q-breathe calc(1.6s * var(--q-spd, 1)) ease-in-out infinite; }
+.q-g-lines { animation: q-lines calc(.9s * var(--q-spd, 1)) ease-in-out infinite alternate; }
+.q-g-dots { animation: q-dots calc(.9s * var(--q-spd, 1)) ease-in-out infinite alternate; animation-delay: calc(-.2s * var(--q-spd, 1)); }
+.q-g-ping { opacity: 0; }
+.q-st-listening .q-g-ping { animation: q-ping 1.6s ease-out infinite; }
+.q-st-thinking .q-g-dots { animation: q-spin calc(5s * var(--q-spd, 1)) linear infinite; }
+.q-st-idle .q-g-lines, .q-st-idle .q-g-dots { animation-duration: calc(2.4s * var(--q-spd, 1)); }
+.q-p-head { transform-box: view-box; transform-origin: 16px 12px; animation: q-nod calc(.9s * var(--q-spd, 1)) ease-in-out infinite alternate; }
+.q-st-idle .q-p-head { animation-duration: 2.4s; }
+.q-p-mic { transform-box: fill-box; transform-origin: center; animation: q-mic calc(.6s * var(--q-spd, 1)) ease-in-out infinite alternate; }
+
+@media (prefers-reduced-motion: reduce) {
+  .q-rot, .q-g, .q-g-ring, .q-g-lines, .q-g-dots, .q-g-ping, .q-p-head, .q-p-mic, .q-dot { animation: none !important; }
 }
