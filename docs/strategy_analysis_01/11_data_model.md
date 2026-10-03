@@ -1,7 +1,7 @@
 # Data Model for RASTRO
 
 > Date: 2026-09-27. Status: **implemented on the mini-set** (`make up`).
-> Related: [10_proposal.md](10_proposal.md) · pipeline details in [data_pipeline.md](../documentation/technical/data_pipeline.md).
+> Related: [10_proposal.md](10_proposal.md) · pipeline details in [data/pipeline.md](../documentation/technical/data/pipeline.md); the schema as built is in [data/model.md](../documentation/technical/data/model.md).
 
 ## 1. What the data told us (measured on the organizer data)
 

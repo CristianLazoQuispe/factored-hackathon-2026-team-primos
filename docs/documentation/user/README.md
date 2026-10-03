@@ -14,6 +14,13 @@ A customer-service assistant for a Latin American bank. You chat with it in **Sp
 | *¿Cuál es mi saldo?* / *Qual é o meu saldo?* | Lists your accounts and cards: balance, currency, credit limit and status. Card numbers show only the last 4 digits |
 | *¿Cuánto tengo en mi tarjeta de crédito?* | Shows only that product type |
 | *¿Y la de débito?* | Follows up in the same conversation |
+| *¿Cuánto debo en mi tarjeta y cuándo vence?* / *¿Cuál es mi pago mínimo?* | Shows what you owe on cards and loans, the due date and the minimum payment or installment. The payment dates and amounts are illustrative figures as of 18 June 2026 (the dataset has none) |
+| *Dime mis últimos movimientos* / *Muéstrame mis compras en Uber* | Lists your movements, by account or card, merchant, type or amount |
+| *¿Cuánto gasté este mes?* / *¿En qué gasto más?* | Totals your approved purchases by category, merchant and month, against the period before |
+| *¿Cuántas quejas tengo?* | Counts your complaints and says in what state they are |
+| *¿A cuánto está el dólar?* | Gives the bank's reference exchange rate |
+| *No reconozco un cargo de Uber* | Finds the charge and checks the bank's records: charged twice, still pending, already reversed, or bought abroad |
+| *¿Desde cuándo soy cliente?* | Shows your own data on record |
 | *Quiero hablar con una persona* | Transfers you to a human agent at once, with your case summarized |
 | Anything else (advice, other topics) | Answers briefly, says what it can help with, and offers a person |
 
@@ -29,7 +36,8 @@ Under each answer, small labels show what the assistant used (for example `balan
 
 ## Current limits
 
-- **Balances only.** Disputes, card blocking, credit and other requests are planned; today they get a short answer and the offer of a person.
+- **Read-only.** The assistant looks things up; it cannot pay, transfer, block a card or open a dispute. Those requests get a short answer and the offer of a person.
+- **A snapshot, not live data.** The data ends on 18 June 2026, so "this month" means the last month in the data.
 - **Response time:** a few seconds with the local model (Ollama), faster with Gemini.
 - **Portuguese:** understood and answered, but the underlying dataset is Spanish-only (Mexico, Colombia, Argentina).
 - **Test identity:** the customer ID field is a test login for synthetic data. A real deployment would require a verified sign-in before any sensitive action.
