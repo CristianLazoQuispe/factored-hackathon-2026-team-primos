@@ -1,0 +1,29 @@
+/* Mis finanzas. Every rule is nested under the screen's root class. */
+.s-finance {
+  .q-panel { border-radius: 20px; padding: 22px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .h { font-size: 16px; font-weight: 500; letter-spacing: -.015em; }
+
+  .legend-row { display: grid; grid-template-columns: 12px 1fr auto auto; gap: 10px; align-items: center; padding: 8px 6px;
+    border-radius: 8px; font-size: 14px; background: transparent; border: none; color: var(--q-mist); font-family: inherit;
+    text-align: left; cursor: default; }
+  .legend-row:hover, .legend-row:focus-visible { background: rgba(230,244,241,.05); outline: none; }
+  .sw { width: 12px; height: 12px; border-radius: 3px; }
+
+  .bar { flex: 1 1 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 6px;
+    height: 100%; background: transparent; border: none; padding: 0; cursor: default; font: inherit; color: inherit; }
+  .bar-fill { width: 60%; max-width: 34px; border-radius: 4px 4px 0 0; background: var(--q-cat-1); }
+
+  .sug { min-height: 40px; padding: 0 14px; border-radius: 999px; display: inline-flex; align-items: center; text-decoration: none;
+    background: rgba(230,244,241,.04); box-shadow: inset 0 0 0 1px rgba(230,244,241,.14); color: var(--q-mist); font-size: 13px; }
+  .sug:hover { color: var(--q-mist); box-shadow: inset 0 0 0 1px var(--q-teal); background: rgba(46,196,182,.08); }
+
+  .switch { position: relative; width: 52px; height: 30px; border-radius: 999px; border: none; cursor: pointer; flex: 0 0 auto;
+    transition: background .2s; }
+  .switch-off { background: rgba(230,244,241,.16); }
+  .switch-on { background: var(--q-teal); }
+  .knob { position: absolute; top: 3px; width: 24px; height: 24px; border-radius: 50%; background: var(--q-mist); transition: left .2s; }
+
+  @media (max-width: 640px) {
+    .q-btn { flex: 1 1 auto; }
+  }
+}
