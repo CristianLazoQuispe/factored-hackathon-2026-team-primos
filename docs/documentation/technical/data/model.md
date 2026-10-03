@@ -20,6 +20,7 @@ Not loaded: `call_transcripts`, `call_center_interactions` and `satisfaction_sur
 
 **The billing rule.** The dataset has balances, rates and `days_past_due`, but no due dates, statements or installments. `load.py` derives them, as of the dataset's last day (2026-06-18), from a stable hash of the product id, so the same product always gets the same figures:
 
+- only cards and loans that are not Closed get a schedule (Blocked and Suspended ones still owe);
 - a product that is past due was due exactly `days_past_due` days ago; any other is due 1 to 20 days ahead;
 - the statement closes 20 days before the due date;
 - a card's statement is its whole balance when past due, otherwise 70-100% of it; its minimum is 5% of the statement with a floor per currency, plus what is past due, never more than the statement;
