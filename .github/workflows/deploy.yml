@@ -37,8 +37,8 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --frozen
-      - run: uv run ruff check app tests data_pipeline
-      - run: uv run ruff format --check app tests data_pipeline
+      - run: uv run ruff check app tests data_pipeline evals
+      - run: uv run ruff format --check app tests data_pipeline evals
       # Tests that need the demo Postgres skip themselves when it is not running.
       - run: uv run pytest -q
 
