@@ -81,7 +81,7 @@ BILLING = f"""
                product_type
         FROM core_products
         WHERE product_type IN ('Tarjeta Crédito', 'Préstamo Personal', 'Préstamo Hipotecario')
-          AND current_balance IS NOT NULL),
+          AND current_balance IS NOT NULL AND product_status <> 'Closed'),
     d AS (
         SELECT *, ceil(dpd / 30.0)::INT AS missed,
                CASE WHEN dpd > 0 THEN DATE '{AS_OF}' - dpd

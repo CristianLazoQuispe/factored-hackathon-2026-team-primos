@@ -7,13 +7,14 @@ import pytest
 
 from data_pipeline.load import AS_OF, BILLING
 
-PRODUCTS = [  # product_id, product_type, currency, current_balance, interest_rate, days_past_due
-    ("CARD-OK", "Tarjeta Crédito", "USD", 1000.0, 30.0, 0),
-    ("CARD-LATE", "Tarjeta Crédito", "USD", 1000.0, 30.0, 60),
-    ("CARD-SMALL", "Tarjeta Crédito", "COP", 40_000.0, 30.0, None),
-    ("LOAN-OK", "Préstamo Personal", "ARS", 500_000.0, 24.0, 0),
-    ("LOAN-LATE", "Préstamo Hipotecario", "COP", 90_000_000.0, None, 180),
-    ("SAVINGS", "Cuenta Ahorro", "USD", 2500.0, 2.0, None),
+PRODUCTS = [  # id, type, currency, current_balance, interest_rate, days_past_due, status
+    ("CARD-OK", "Tarjeta Crédito", "USD", 1000.0, 30.0, 0, "Active"),
+    ("CARD-LATE", "Tarjeta Crédito", "USD", 1000.0, 30.0, 60, "Blocked"),
+    ("CARD-SMALL", "Tarjeta Crédito", "COP", 40_000.0, 30.0, None, "Active"),
+    ("CARD-CLOSED", "Tarjeta Crédito", "USD", 800.0, 30.0, 0, "Closed"),
+    ("LOAN-OK", "Préstamo Personal", "ARS", 500_000.0, 24.0, 0, "Active"),
+    ("LOAN-LATE", "Préstamo Hipotecario", "COP", 90_000_000.0, None, 180, "Suspended"),
+    ("SAVINGS", "Cuenta Ahorro", "USD", 2500.0, 2.0, None, "Active"),
 ]
 
 
@@ -22,17 +23,17 @@ def billing() -> dict[str, dict]:
     con.execute(
         """CREATE TABLE core_products (product_id VARCHAR, customer_id VARCHAR,
                product_type VARCHAR, currency VARCHAR, current_balance DOUBLE,
-               interest_rate DOUBLE, days_past_due INT)"""
+               interest_rate DOUBLE, days_past_due INT, product_status VARCHAR)"""
     )
     con.executemany(
-        "INSERT INTO core_products VALUES (?, 'C1', ?, ?, ?, ?, ?)", [list(p) for p in PRODUCTS]
+        "INSERT INTO core_products VALUES (?, 'C1', ?, ?, ?, ?, ?, ?)", [list(p) for p in PRODUCTS]
     )
     result = con.execute(BILLING)
     columns = [d[0] for d in result.description]
     return {row[0]: dict(zip(columns, row, strict=True)) for row in result.fetchall()}
 
 
-def test_only_credit_cards_and_loans_get_a_schedule_and_it_never_changes():
+def test_only_open_credit_cards_and_loans_get_a_schedule_and_it_never_changes():
     rows = billing()
     assert set(rows) == {"CARD-OK", "CARD-LATE", "CARD-SMALL", "LOAN-OK", "LOAN-LATE"}
     assert rows == billing()  # same products, same dates and amounts
