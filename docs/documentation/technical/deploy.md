@@ -193,7 +193,7 @@ asking for a token. In Swagger (`$API/docs`) paste the token in **Authorize**.
 
 - **`--max-instances 1`.** Conversation memory is an in-process `InMemorySaver`: with two instances a
   customer's thread would vanish between requests. Real fix: a Postgres checkpointer.
-- **The operator console forgets.** `/crm` on the web shows a mirror of the chats that lives in the
+- **The operator console forgets.** `/consola` on the web shows a mirror of the chats that lives in the
   same process: chats and the handoff queue are lost when the instance stops (idle, or any deploy).
   It also needs the single instance. Real fix: write them to `ops.conversations`, `ops.messages` and
   `ops.handoff_cases`, which `schema.sql` already defines.

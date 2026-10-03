@@ -4,8 +4,8 @@ A customer-service assistant for a Latin American bank. You chat with it in **Sp
 
 ## Open it
 
-- **Local:** `cp .env.example .env && make up`, then open http://localhost:8080 (see the [root README](../../../README.md)).
-- **Customer ID:** the field at the top of the chat. Locally it is prefilled with test customers from the organizer's synthetic dataset. Pick one from the list or type any `CLI-…` ID. Changing it starts a new conversation.
+- **Local:** `cp .env.example .env && make up`, then open http://localhost:3000 and press **Hablar con Quipu**, or go straight to http://localhost:3000/chat (see the [root README](../../../README.md)).
+- **Customer ID:** the **Cliente** field at the top of the chat. Locally it is prefilled with test customers from the organizer's synthetic dataset. Pick one from the list or type any `CLI-…` ID. Changing it starts a new conversation.
 
 ## What you can ask today
 
@@ -17,9 +17,9 @@ A customer-service assistant for a Latin American bank. You chat with it in **Sp
 | *Quiero hablar con una persona* | Transfers you to a human agent at once, with your case summarized |
 | Anything else (advice, other topics) | Answers briefly, says what it can help with, and offers a person |
 
-You can also **talk to it**: click the microphone next to the message box, say your question in Spanish or Portuguese, and click again to send it. What you said appears as your message. The two buttons at the top show what is allowed on this page: **Permitir micrófono** asks the browser for the microphone before your first message, and **Activar voz del agente** makes the assistant read its answers aloud, in your language. With the voice on, an answer is written on screen as it is read; **Mostrar todo** under it shows the whole text at once while the voice goes on. The voice is off every time the page loads; pressing the button again, the microphone or sending another message stops the reading and shows the rest of the text.
+You can also **talk to it**: click the large microphone under Quipu's avatar, say your question in Spanish or Portuguese, and click again to send it. What you said appears as your message. The two buttons at the top show what is allowed on this page: **Permitir micrófono** asks the browser for the microphone before your first message, and the **Silencio** / **Voz** button makes the assistant read its answers aloud, in your language. The avatar shows what the assistant is doing: it stretches out while idle, bends while it listens and closes into a crown while it looks things up and answers. With the voice on, an answer is written on screen as it is read; **Mostrar todo** under it shows the whole text at once while the voice goes on. The voice is off every time the page loads; pressing the button again, the microphone or sending another message stops the reading and shows the rest of the text.
 
-Under each answer, a small line shows what the assistant used (for example `skill: balance_inquiry · tools: get_balances`) or whether you were transferred to a person.
+Under each answer, small labels show what the assistant used (for example `balance_inquiry` and `get_balances`) or that you were transferred to a person. **Mis finanzas**, next to the chat, shows a summary of your spending; for now it is a sample with fixed figures, and so is the chart that answers *¿En qué gasto más?*.
 
 ## Your data and safety
 

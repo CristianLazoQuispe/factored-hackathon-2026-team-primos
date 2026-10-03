@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     jwt_secret: str = "change-me-local-only-not-for-production"
     access_token_ttl_minutes: int = 15
-    operator_key: str = "change-me-local-only-operator-key"  # opens the operator console (/crm)
+    operator_key: str = "change-me-local-only-operator-key"  # opens the operator console (/consola)
     demo_customer_ids: str = ""  # comma-separated; offered in the UI and can start a demo session
     public_base_url: str = "http://localhost:8080"
     cors_origins: str = "http://localhost:3000"  # comma-separated origins of the web

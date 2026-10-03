@@ -15,7 +15,7 @@ cp .env.example .env
 make up
 ```
 
-Open http://localhost:3000. That's it: `make up` starts the local LLM, Postgres with sample data, the API (:8080) and the web (:3000), then checks that everything answers.
+Open http://localhost:3000 for the landing page of **quipu**, the bank's voice agent, and **Hablar con Quipu** for the chat. That's it: `make up` starts the local LLM, Postgres with sample data, the API (:8080) and the web (:3000), then checks that everything answers.
 
 ```bash
 make smoke   # check again that everything is healthy
@@ -27,7 +27,16 @@ No keys needed: it runs on Ollama (`qwen3.5:4b`) and a committed data sample.
 
 ### Try it
 
-The **Customer ID** field lists the customers in `DEMO_CUSTOMER_IDS` (`.env`); choosing one logs you in (the UI asks `POST /api/auth/token` for a short-lived bearer token). The agent handles **balances**, **charges you don't recognize** and **questions about your own data**:
+| Page | What it is | Data |
+|---|---|---|
+| `/` | Landing | Static |
+| `/chat` | The customer's chat, typed or spoken | Real: the agent |
+| `/mis-finanzas` | The customer's spending | Sample (`web/lib/profile.ts`) |
+| `/consola` | The team's console: every chat, take one over, give it back (needs `OPERATOR_KEY`) | Real: the API's memory |
+| `/consola/perfil` | A customer's 360 profile | Sample (`web/lib/profile.ts`) |
+| `/consola/gerencia` | Management dashboard | Sample (`web/lib/ops.ts`) |
+
+The sample pages show the idea with fixed figures until the API serves them. In `/chat`, the **Cliente** field lists the customers in `DEMO_CUSTOMER_IDS` (`.env`); choosing one logs you in (the UI asks `POST /api/auth/token` for a short-lived bearer token). The agent handles **balances**, **charges you don't recognize** and **questions about your own data**:
 
 | Ask | What happens |
 |---|---|
@@ -38,7 +47,7 @@ The **Customer ID** field lists the customers in `DEMO_CUSTOMER_IDS` (`.env`); c
 | `quiero hablar con una persona` | Handoff to a human, decided by code with no LLM call |
 | `¿me recomiendas una hipoteca?` | Short out-of-scope answer |
 | Empty Customer ID | The agent asks for it and validates it against the database |
-| Click the **microphone**, speak in Spanish or Portuguese, click again | faster-whisper transcribes it and the agent answers as above. With **Activar voz del agente** pressed, Kokoro also reads the answer aloud |
+| Click the **microphone**, speak in Spanish or Portuguese, click again | faster-whisper transcribes it and the agent answers as above. With the **Silencio** button switched to **Voz**, Kokoro also reads the answer aloud |
 
 The API is `POST /api/chat {message, thread_id?}`. Outside `APP_ENV=local` it needs `Authorization: Bearer <token>` (from `POST /api/auth/token`, demo customers only) and the customer is the token's, never the body's. Locally it still accepts `customer_id` in the body, so `curl` works without a token. Swagger: http://localhost:8080/docs.
 

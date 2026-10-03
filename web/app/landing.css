@@ -1,0 +1,48 @@
+/* Landing (route "/"). Every rule lives under .s-landing so screens cannot collide.
+   Buttons, chips, the blinking dot, the dotted background and the logo animation come from globals.css. */
+
+@keyframes landing-hop { from { transform: translateY(0); } to { transform: translateY(calc(-6px * var(--q-amp, 1))); } }
+@keyframes landing-ping { 0% { transform: scale(.6); opacity: .5; } 100% { transform: scale(1.25); opacity: 0; } }
+
+.s-landing {
+  .sonar { position: absolute; border-radius: 50%; border: 1px solid rgba(46,196,182,.28); }
+  &.q-st-listening .sonar.live { animation: landing-ping 1.8s ease-out infinite; }
+  &.q-st-speaking .sonar.live { animation: landing-ping 1s ease-out infinite; }
+
+  /* The "voice" card: 18 cords, each with a knot that hops at the pace of the current mode. */
+  .eq-c { position: relative; width: 8px; height: 56px; color: #2EC4B6; }
+  .eq-c .cd-l { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; border-radius: 2px; background: currentColor; opacity: .45; }
+  .eq-c .kn { position: absolute; left: 50%; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%; background: currentColor;
+    animation: landing-hop calc(.5s * var(--q-spd, 1)) ease-in-out infinite alternate; }
+
+  .btn-sm { min-height: 40px; padding: 0 14px; font-size: 14px; border-radius: 10px; }
+  .kbd { font-family: var(--q-mono); font-size: 11px; padding: 2px 6px; border-radius: 5px; background: rgba(4,20,26,.12); color: inherit; }
+  .q-btn-ghost .kbd { background: rgba(230,244,241,.08); }
+  .tag { display: inline-flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 12px; border-radius: 999px; background: rgba(46,196,182,.08);
+    box-shadow: inset 0 0 0 1px rgba(46,196,182,.25); color: #BFEDE7; font-size: 13px; }
+  .panel { background: linear-gradient(180deg, rgba(11,42,51,.72), rgba(7,30,38,.72)); box-shadow: inset 0 0 0 1px rgba(230,244,241,.08); border-radius: 20px; }
+  .state { min-height: 36px; padding: 0 12px; border-radius: 9px; border: none; font-family: var(--q-font); font-size: 13px; cursor: pointer; background: transparent; color: #9DB8B5; }
+  .state:hover { color: #E6F4F1; background: rgba(230,244,241,.05); }
+  .state-on { background: rgba(46,196,182,.14); color: #E6F4F1; box-shadow: inset 0 0 0 1px rgba(46,196,182,.4); }
+  .nav a.nl { color: #9DB8B5; text-decoration: none; font-size: 14px; }
+  .nav a.nl:hover { color: #E6F4F1; }
+  .label { display: flex; align-items: center; gap: 10px; color: #2EC4B6; font-size: 14px; font-weight: 500; }
+  .label::before { content: ""; width: 18px; height: 1px; background: #2EC4B6; }
+  .look { transition: box-shadow .2s, transform .2s; }
+  .look:hover { color: #E6F4F1; box-shadow: inset 0 0 0 1px rgba(46,196,182,.5); transform: translateY(-2px); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; }
+  }
+
+  /* The design matched these elements by their inline style text; React serialises inline styles
+     differently on the server and in the browser, so they carry a class instead (.pipe-link, .pad). */
+  @media (max-width: 640px) {
+    .nav .nl { display: none; }
+    .pipe { gap: 10px !important; }
+    .pipe > .pipe-link { display: none !important; }
+    section { padding-left: 20px !important; padding-right: 20px !important; }
+    .pad { padding-top: 64px !important; padding-bottom: 64px !important; }
+    .q-btn { width: 100%; }
+  }
+}

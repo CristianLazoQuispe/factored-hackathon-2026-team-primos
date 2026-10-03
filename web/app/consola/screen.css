@@ -1,0 +1,38 @@
+/* The team's console: conversations (design handoff: Console.dc.html). */
+.s-console {
+  height: 100dvh; display: flex; flex-direction: column;
+
+  /* Side by side, each column scrolling on its own. */
+  .cols { flex: 1 1 auto; display: flex; min-height: 0; }
+
+  .seg { min-height: 34px; padding: 0 12px; border-radius: 9px; border: none; background: none; cursor: pointer;
+    display: inline-flex; align-items: center; font: 13px var(--q-font); color: #9DB8B5; }
+  .seg-on { background: rgba(46,196,182,.14); color: #E6F4F1; box-shadow: inset 0 0 0 1px rgba(46,196,182,.4); }
+  .conv { display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: 14px; border: none; background: none;
+    cursor: pointer; text-align: left; font: inherit; color: #E6F4F1; box-shadow: inset 0 0 0 1px rgba(230,244,241,.08); }
+  .conv:hover { background: rgba(230,244,241,.03); }
+  .conv-on, .conv-on:hover { background: rgba(93,169,233,.08); box-shadow: inset 0 0 0 1px rgba(93,169,233,.45); }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; padding: 11px 14px; font-size: 14px; }
+  .kv + .kv { border-top: 1px solid rgba(230,244,241,.06); }
+  .kv > :last-child { text-align: right; overflow-wrap: anywhere; }
+  .msg { display: flex; gap: 12px; align-items: flex-start; max-width: 680px; }
+  .who { display: flex; align-items: center; gap: 8px; font-size: 12px; font-family: var(--q-mono); }
+  .body { font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
+  .body > :first-child { margin-top: 0; }
+  .body > :last-child { margin-bottom: 0; }
+  .body p { margin: 8px 0; }
+  .body ul, .body ol { margin: 8px 0; padding-left: 20px; }
+  .body strong { font-weight: 600; }
+  .field { min-height: 44px; padding: 0 14px; border: none; border-radius: 12px; background: rgba(230,244,241,.04);
+    box-shadow: inset 0 0 0 1px rgba(230,244,241,.12); font: 14px var(--q-font); color: #E6F4F1; }
+
+  /* Narrower than the three columns side by side: they stack and the page scrolls. */
+  @media (max-width: 1100px) {
+    height: auto; min-height: 100dvh;
+    .cols { flex-wrap: wrap; }
+    .thread { min-height: 70vh; }
+  }
+  @media (max-width: 640px) {
+    .legend { display: none !important; }
+  }
+}
