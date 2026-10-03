@@ -2,8 +2,8 @@
 
 Runs the same way on the committed sample (`--source sample`, reads `data/sample/`) and on the
 full dataset (`--source full`, reads `data/bronze/`). Writes one Parquet per table plus
-`_quality_report.json` with row counts, dropped duplicates and dropped orphans per table
-(lineage for the data-quality story).
+`_quality_report.json` with row counts, dropped duplicates, dropped orphans and counted anomalies
+per table (lineage for the data-quality story).
 
 Rules:
 - Primary key: keep one row per key (latest `last_updated` when the table has it).
@@ -12,6 +12,11 @@ Rules:
   and do not block the agent.
 - Country names: the source mixes "Mexico" and "México"; silver normalizes to the customer
   spelling ("México").
+- Category: `transaction_category` is the one taxonomy. Where it is empty it takes the row's
+  `merchant_category`, then the category the same merchant has everywhere else.
+- Anomalies the generator left (a product opened before its customer registered, a balance over
+  the limit, a movement after the product expired) are counted, never fixed: nothing the agent
+  answers depends on them, and a silent fix would hide what the source really says.
 - Contracts (pandera): key not null and unique, and closed vocabularies for the columns the
   agent's tools branch on.
 
@@ -33,7 +38,6 @@ PRIMARY_KEYS = {
     "transactions": "transaction_id",
     "digital_events": "event_id",
     "call_center_interactions": "interaction_id",
-    "call_transcripts": "transcript_id",
     "complaints": "complaint_id",
     "satisfaction_surveys": "survey_id",
     "service_agents": "agent_id",
@@ -46,7 +50,6 @@ CUSTOMER_FK_TABLES = [
     "transactions",
     "digital_events",
     "call_center_interactions",
-    "call_transcripts",
     "complaints",
     "satisfaction_surveys",
 ]
@@ -78,8 +81,25 @@ CONTRACTS = {
         {
             "product_id": pa.Column(str, unique=True, nullable=False),
             "customer_id": pa.Column(str, nullable=False),
+            "currency": pa.Column(str, pa.Check.isin(["MXN", "COP", "ARS", "USD"])),
         }
     ),
+}
+FILL_CATEGORY = """
+    UPDATE transactions t SET transaction_category = coalesce(t.merchant_category, m.category)
+    FROM (SELECT merchant_name, mode(coalesce(transaction_category, merchant_category)) AS category
+          FROM transactions WHERE merchant_name IS NOT NULL GROUP BY 1) m
+    WHERE t.transaction_category IS NULL AND t.merchant_name = m.merchant_name
+"""
+ANOMALIES = {  # counted, not fixed: (table, name) -> rows
+    ("products", "opened_before_registration"): """
+        SELECT count(*) FROM products p JOIN customers c USING (customer_id)
+        WHERE p.opening_date < c.registration_date::DATE""",
+    ("products", "balance_over_limit"): """
+        SELECT count(*) FROM products WHERE current_balance > credit_limit""",
+    ("transactions", "after_product_expiration"): """
+        SELECT count(*) FROM transactions t JOIN products p USING (product_id)
+        WHERE t.transaction_date::DATE > p.expiration_date""",
 }
 
 
@@ -117,6 +137,14 @@ def main() -> None:
             "UPDATE transactions SET transaction_country = 'México' "
             "WHERE transaction_country = 'Mexico'"
         )
+        empty = "SELECT count(*) FROM transactions WHERE transaction_category IS NULL"
+        before = con.execute(empty).fetchone()[0]
+        con.execute(FILL_CATEGORY)
+        report["transactions"]["filled_category"] = before - con.execute(empty).fetchone()[0]
+        first, last = con.execute(
+            "SELECT min(transaction_date), max(transaction_date) FROM transactions"
+        ).fetchone()
+        report["transactions"] |= {"first_date": str(first), "last_date": str(last)}
 
     for table in CUSTOMER_FK_TABLES:
         if table not in tables:
@@ -135,6 +163,10 @@ def main() -> None:
                     AND {column} NOT IN (SELECT {key} FROM {parent})"""
             ).fetchone()[0]
             report[table][f"orphan_{column}"] = orphans
+
+    for (table, name), query in ANOMALIES.items():
+        if {table, "customers", "products"} <= set(tables):
+            report[table][name] = con.execute(query).fetchone()[0]
 
     for table in tables:
         if table in CONTRACTS:
