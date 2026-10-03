@@ -17,8 +17,8 @@ anywhere. Settings live in repository *variables*; there are no GitHub secrets.
 
 - Region `us-central1`; Artifact Registry repo `factored`.
 - Cloud SQL `factored-510201:us-central1:factored-db` (Postgres 16), database and user `agent`.
-  It is already loaded: `core` (10 tables), `ops`, the `dwh_reader` role. **Do not run
-  `make db-load-cloud`**: it drops `core` (`schema.sql` starts with `DROP SCHEMA core CASCADE`).
+  It holds `core`, `ops` and the `dwh_reader` role. `core` is loaded by `make etl-cloud`
+  (see [data_pipeline.md](data_pipeline.md)): it **replaces** `core`, so coordinate before running it.
 - Runtime account `factored-api@…` with `cloudsql.client`, `secretmanager.secretAccessor` and
   `aiplatform.user` (so it can read every secret and call Gemini through Vertex AI: no API key).
 - Secrets `factored-database-url`, `factored-db-password`, `jwt-secret` (signs the bearer tokens) and
@@ -117,8 +117,9 @@ deployed UI. Use only synthetic customers that exist in the Cloud SQL data.
 
 What a deploy does **not** do:
 
-- It does not touch the database. A change in `schema.sql` is applied by hand (it starts with
-  `DROP SCHEMA core CASCADE`: coordinate first).
+- It does not touch the database. A change in `schema.sql` reaches Cloud SQL only with
+  `make etl-cloud CONFIRM=yes`, which rebuilds and replaces `core`. New code reads the new columns,
+  so run it **before** merging the change to `main`, and coordinate first.
 - It does not create secrets such as `jwt-secret` or `operator-key`.
 - It **replaces** every environment variable of `factored-api`. A variable added by hand in the console
   is lost on the next deploy: add it to `.github/workflows/deploy.yml`.
@@ -172,7 +173,9 @@ Roll back with `update-traffic --to-revisions=<previous revision>=100` on **both
 - **A wrong provider condition fails silently:** verify it with
   `gcloud iam workload-identity-pools providers describe github-provider --location=global
   --workload-identity-pool=github --format="value(attributeCondition)"`.
-- **Never run `make db-load-cloud` on the shared database:** it drops `core`. It is already loaded.
+- **`make etl-cloud` replaces `core` on the shared database.** It refuses to run without
+  `CONFIRM=yes`, builds the new schema aside and swaps it in at the end, so a failed load changes
+  nothing; a successful one changes what every teammate's deployed agent reads.
 
 ## Using the deployed API
 

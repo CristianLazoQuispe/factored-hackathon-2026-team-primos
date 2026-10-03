@@ -48,7 +48,6 @@ def register_views(con: duckdb.DuckDBPyConnection, bronze: Path, start: str, end
         *FACT_DATE_COLUMNS,
         "customers",
         "products",
-        "call_transcripts",
         "service_agents",
         "branches",
         "daily_exchange_rates",
@@ -136,9 +135,6 @@ def export(con: duckdb.DuckDBPyConnection, out: Path, start: str, end: str) -> d
         "products": f"SELECT * FROM products_all WHERE {sel}",
         **{t: f"SELECT * FROM {t}_w WHERE {sel}" for t in FACT_DATE_COLUMNS},
     }
-    queries["call_transcripts"] = f"""
-        SELECT * FROM call_transcripts_all WHERE interaction_id IN
-            (SELECT interaction_id FROM call_center_interactions_w WHERE {sel})"""
     for name, query in queries.items():
         con.execute(f"CREATE TABLE s_{name} AS {query}")
 
@@ -146,7 +142,6 @@ def export(con: duckdb.DuckDBPyConnection, out: Path, start: str, end: str) -> d
         """
         CREATE TABLE s_service_agents AS SELECT * FROM service_agents_all WHERE agent_id IN (
             SELECT agent_id FROM s_call_center_interactions
-            UNION SELECT agent_id FROM s_call_transcripts
             UNION SELECT assigned_agent_id FROM s_complaints
             UNION SELECT agent_id FROM s_satisfaction_surveys)
         """

@@ -14,7 +14,7 @@ FACTS = {
     "complaints": "creation_date",
     "satisfaction_surveys": "survey_date",
 }
-CUSTOMER_TABLES = ["products", *FACTS, "call_transcripts"]
+CUSTOMER_TABLES = ["products", *FACTS]
 
 pytestmark = pytest.mark.skipif(
     not (SAMPLE / "customers.parquet").exists(), reason="mini-set not generated"
@@ -53,17 +53,6 @@ def test_facts_fall_inside_the_window(con, table, column) -> None:
             con,
             f"""SELECT count(*) FROM {table} WHERE {column} < TIMESTAMP '{start}'
                            OR {column} >= TIMESTAMP '{end}' + INTERVAL 1 DAY""",
-        )
-        == 0
-    )
-
-
-def test_transcripts_belong_to_sampled_interactions(con) -> None:
-    assert (
-        scalar(
-            con,
-            """SELECT count(*) FROM call_transcripts WHERE interaction_id NOT IN
-                          (SELECT interaction_id FROM call_center_interactions)""",
         )
         == 0
     )
