@@ -151,7 +151,7 @@ Code: `app/adapters/inbound/auth.py`, `http.py`. Tests: `tests/test_auth.py`.
 
 ## Operator console (implemented)
 
-A person of the team opens `/crm` on the web with the shared `OPERATOR_KEY` and sees every chat of
+A person of the team opens `/consola` on the web with the shared `OPERATOR_KEY` and sees every chat of
 the running instance: the full conversation, its status and, after a handoff, the case file.
 
 | Status | Meaning | Who answers the customer |
@@ -168,7 +168,7 @@ the running instance: the full conversation, its status and, after a handoff, th
   database: they are lost when the instance stops. The agent does not see what the operator wrote.
 - Telegram chats are not mirrored.
 
-Code: `app/adapters/inbound/conversations.py`, `http.py`, `auth.py`, `web/app/crm/page.tsx`.
+Code: `app/adapters/inbound/conversations.py`, `http.py`, `auth.py`, `web/app/consola/page.tsx`.
 Tests: `tests/test_crm.py`.
 
 ## Reliability safeguards (implemented)
