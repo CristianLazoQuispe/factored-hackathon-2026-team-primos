@@ -44,6 +44,10 @@ flowchart LR
 
 ## What is in `core`, and where it comes from
 
+![Data model of the core schema](diagrams/data_model.svg)
+
+The same eight tables in the local Postgres and in Cloud SQL; only the amount of data differs. The diagram shows the columns the tools read (full definition: `app/adapters/outbound/postgres/schema.sql`). `fx_rates` has no foreign key: it is looked up by currency and date. Source: [`diagrams/data_model.mmd`](diagrams/data_model.mmd); regenerate the SVG and the 300-dpi PNG with `make diagrams`.
+
 The brief asks to label every input. Each table carries its provenance as a `COMMENT ON TABLE` in `schema.sql`, and the load copies those labels into the quality report.
 
 | Table | Rows are | Provenance |

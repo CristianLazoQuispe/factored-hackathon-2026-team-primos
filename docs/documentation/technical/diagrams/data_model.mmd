@@ -1,0 +1,101 @@
+%% Data model of the `core` schema in Postgres (local) and Cloud SQL: the same tables in both.
+%% Only the columns the tools read are shown; the full definition is in schema.sql.
+%% Edit this file, then run `make diagrams` to regenerate data_model.svg / data_model.png.
+erDiagram
+    direction LR
+    fx_rates {
+        date date PK
+        text source_currency PK
+        text target_currency PK
+        numeric exchange_rate
+        numeric buy_rate
+        numeric sell_rate
+    }
+    customers ||--o{ products : "holds"
+    customers ||--o{ transactions : "makes"
+    products ||--o{ transactions : "on"
+    products ||--o| billing : "cards and loans"
+    customers ||--o{ complaints : "files"
+    customers ||--o{ app_sessions : "opens"
+    customers ||--o| customer_service_summary : "summarized in"
+    transactions }o..o{ fx_rates : "currency, by date (no key)"
+
+    customers {
+        text customer_id PK
+        text first_name
+        text last_name
+        text city
+        text country
+        text segment
+        text preferred_language
+        text customer_status
+        date registration_date
+        boolean is_synthetic_fixture
+    }
+    products {
+        text product_id PK
+        text customer_id FK
+        text product_type "account, card, loan, investment, insurance"
+        text product_number_last4
+        text currency
+        numeric current_balance
+        numeric credit_limit
+        numeric interest_rate "annual %"
+        date opening_date
+        date expiration_date
+        integer days_past_due
+        text product_status
+    }
+    transactions {
+        text transaction_id PK
+        text customer_id FK
+        text product_id FK
+        timestamp transaction_date
+        text transaction_type "purchase, payment, transfer, ..."
+        text transaction_category "one taxonomy, 6 values"
+        numeric amount
+        text currency
+        text merchant_name
+        text channel
+        text transaction_country
+        text transaction_status
+    }
+    billing {
+        text product_id PK, FK
+        text customer_id FK
+        date as_of
+        date statement_date
+        date due_date
+        numeric statement_balance "cards"
+        numeric minimum_payment "loans: installment"
+        numeric past_due_amount
+        integer remaining_installments "loans"
+        text provenance "team_generated"
+    }
+    complaints {
+        text complaint_id PK
+        text customer_id FK
+        timestamp creation_date
+        text case_type
+        text category
+        text status
+        text priority
+        numeric claimed_amount
+    }
+    app_sessions {
+        text session_id PK
+        text customer_id FK
+        timestamp started_at
+        timestamp ended_at
+        text channel
+        text ip_country
+        boolean had_login
+    }
+    customer_service_summary {
+        text customer_id PK, FK
+        integer contacts_in_window
+        integer escalated_contacts
+        text last_contact_reason
+        integer open_complaints
+        integer last_csat
+    }
