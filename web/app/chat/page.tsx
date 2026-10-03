@@ -76,6 +76,35 @@ const LEAD = 0.2; // seconds the text runs ahead of the voice: behind it, it wou
 
 const ANSWERING = 2400; // ms the corona "speaks" for a reply that is only written (voice off)
 
+// What Quipu says while it works on a reply. The API answers in one piece and does not tell which
+// step it is on, so none of these names one.
+const WAITING = ["Pensando", "Atando cabos", "Leyendo los nudos", "Haciendo cuentas", "Revisando con cuidado", "Ya casi"];
+
+const WAITING_TURN = 2500; // ms each of them stays
+
+function Dots() {
+  return (
+    <span className="dots" aria-hidden="true">
+      <span />
+      <span />
+      <span />
+    </span>
+  );
+}
+
+function Waiting() {
+  const [index, setIndex] = useState(() => Math.floor(Math.random() * WAITING.length));
+  useEffect(() => {
+    // Any of the others, so the line always changes.
+    const timer = setInterval(
+      () => setIndex((prev) => (prev + 1 + Math.floor(Math.random() * (WAITING.length - 1))) % WAITING.length),
+      WAITING_TURN,
+    );
+    return () => clearInterval(timer);
+  }, []);
+  return <>{WAITING[index]}</>;
+}
+
 function newThread() {
   return crypto.randomUUID();
 }
@@ -134,6 +163,7 @@ export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
+  const [transcribing, setTranscribing] = useState(false); // what was just said is being written down
   const [sound, setSound] = useState(false); // Quipu's voice: off until the customer turns it on
   const [preparing, setPreparing] = useState(false); // the audio of a reply's first line is on its way
   const [answering, setAnswering] = useState(false); // a written reply has just arrived
@@ -153,7 +183,7 @@ export default function Chat() {
   // Keep the newest message in view: nobody should have to scroll to notice a reply.
   useEffect(() => {
     if (messages.length) end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, pending, preparing]);
+  }, [messages, pending, preparing, transcribing]);
 
   // The customers offered here are the ones the API lets start a demo session (DEMO_CUSTOMER_IDS).
   useEffect(() => {
@@ -389,11 +419,14 @@ export default function Chat() {
       }
       const recorded = await stop();
       setPending(true);
+      setTranscribing(true);
       const heard: { text: string; language: string } = await (await speech("transcribe", recorded)).json();
+      setTranscribing(false);
       if (heard.text) await submit(heard.text, heard.language); // empty: silence
     } catch (error) {
       fail(error);
     } finally {
+      setTranscribing(false);
       setPending(false);
     }
   }
@@ -476,9 +509,11 @@ export default function Chat() {
             </div>
           </div>
           <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, textAlign: "center" }} aria-live="polite">
-            <span style={{ fontSize: 26, fontWeight: 500, letterSpacing: "-0.035em" }}>{STATUS[mode].title}</span>
+            <span style={{ fontSize: 26, fontWeight: 500, letterSpacing: "-0.035em" }}>
+              {transcribing ? "Procesando audio…" : STATUS[mode].title}
+            </span>
             <span style={{ fontFamily: "var(--q-mono)", fontSize: 12, color: "var(--q-muted)" }}>
-              {preparing ? "tts · generando la voz" : STATUS[mode].code}
+              {transcribing ? "voz · transcribiendo" : preparing ? "tts · generando la voz" : STATUS[mode].code}
             </span>
           </div>
           <button
@@ -581,6 +616,30 @@ export default function Chat() {
                   </div>
                 </div>
               ),
+            )}
+
+            {/* Something is on its way: say so in the thread, where the customer is looking. */}
+            {transcribing ? (
+              <div
+                role="status"
+                style={{
+                  alignSelf: "flex-end", padding: "12px 16px", borderRadius: "16px 16px 4px 16px",
+                  background: "var(--q-mist)", color: "var(--q-abyss)", fontSize: 15, opacity: 0.6,
+                }}
+              >
+                Procesando audio
+                <Dots />
+              </div>
+            ) : (
+              (pending || preparing) && (
+                <div role="status" style={{ display: "flex", gap: 14, alignItems: "center" }}>
+                  <Logo animated />
+                  <span style={{ fontSize: 15, color: "var(--q-muted)" }}>
+                    {pending ? <Waiting /> : "Preparando la voz"}
+                    <Dots />
+                  </span>
+                </div>
+              )
             )}
             <div ref={end} />
           </div>
