@@ -1,7 +1,7 @@
 -include .env
 export
 
-.PHONY: build up smoke down logs llm setup data data-lite bronze sample fixtures silver db-up db-load demo-data models dev web test lint docker telegram-local db-proxy db-load-cloud deploy-api deploy-web api-cors deploy telegram-webhook diagrams
+.PHONY: build up smoke down logs llm setup data data-lite bronze sample fixtures silver db-up db-load demo-data models dev web test lint docker telegram-local db-proxy etl-cloud deploy-api deploy-web api-cors deploy telegram-webhook diagrams
 
 # Mirrors Settings.provider (app/config.py): Ollama unless LLM_PROVIDER says otherwise or APP_ENV isn't local.
 LLM_PROVIDER_RESOLVED := $(or $(LLM_PROVIDER),$(if $(filter local,$(or $(APP_ENV),local)),ollama,google_genai))
@@ -72,8 +72,8 @@ silver:           ## Clean + contracts: data/sample -> data/silver (SOURCE=full 
 db-up:            ## Start local Postgres (docker compose)
 	docker compose up -d --wait db
 
-db-load:          ## Load silver + fixtures into Postgres core schema (idempotent)
-	uv run python -m data_pipeline.load
+db-load:          ## Load silver + fixtures into Postgres core schema (idempotent; SOURCE as in `make silver`)
+	uv run python -m data_pipeline.load --source $(or $(SOURCE),sample)
 
 demo-data: db-up silver db-load  ## One command from a fresh clone: Postgres with the mini-set
 
@@ -114,9 +114,14 @@ WEB_ORIGINS = $$($(GCLOUD) run services describe factored-web --region $(GCP_REG
 db-proxy:         ## Tunnel to Cloud SQL on 127.0.0.1:5433 (leave running; needs cloud-sql-proxy)
 	cloud-sql-proxy --port 5433 $(SQL_CONNECTION)
 
-db-load-cloud:    ## Load the sample into Cloud SQL through `make db-proxy`
+etl-cloud:        ## Full ETL into Cloud SQL through `make db-proxy`: raw CSV -> bronze -> silver -> core (replaces core; CONFIRM=yes)
+	@test "$(CONFIRM)" = yes || { echo "This replaces core on the shared Cloud SQL with the full dataset in data/raw. Re-run with CONFIRM=yes."; exit 1; }
+	uv run python -m data_pipeline.bronze
+	uv run python -m data_pipeline.silver --source full
 	@DATABASE_URL=postgresql://agent:$$($(GCLOUD) secrets versions access latest --secret factored-db-password)@127.0.0.1:5433/agent \
-		sh -c 'uv run python -m data_pipeline.silver --source sample && uv run python -m data_pipeline.load'
+		uv run python -m data_pipeline.load --source full
+	cp data/silver/_quality_report.json docs/documentation/technical/quality_report_full.json
+	@echo "ok   evidence in docs/documentation/technical/quality_report_full.json (data/silver now holds the full set: make demo-data rebuilds the sample)"
 
 deploy-api:       ## Build the API image and deploy factored-api (keeps CORS pointed at factored-web)
 	$(GCLOUD) builds submit --region $(GCP_REGION) --tag $(REGISTRY)/api:$(TAG) .

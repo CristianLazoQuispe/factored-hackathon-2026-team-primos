@@ -24,12 +24,10 @@ OWNED = frozenset(  # every row carries customer_id: rewritten to the session cu
         "customers",
         "products",
         "transactions",
+        "billing",
         "app_sessions",
         "customer_service_summary",
         "complaints",
-        "call_center_interactions",
-        "satisfaction_surveys",
-        "call_transcripts",
     }
 )
 REFERENCE = frozenset({"fx_rates"})  # no customer data: readable as is

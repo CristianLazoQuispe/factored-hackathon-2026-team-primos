@@ -18,7 +18,7 @@ Scenarios (one demo customer each, with a dense 90-day history so localization i
 """
 
 import random
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import polars as pl
 
@@ -26,38 +26,38 @@ from app.config import get_settings
 
 NOW = datetime(2026, 6, 18, 12, 0, 0)
 SEED = 2026
-MERCHANTS = {
+MERCHANTS = {  # category: the organizer's taxonomy (transactions.transaction_category)
     "México": [
-        ("OXXO", "Retail"),
-        ("Walmart", "Supermercados"),
-        ("Uber Trip", "Transporte"),
-        ("Netflix", "Entretenimiento"),
-        ("Liverpool", "Retail"),
-        ("Pemex", "Combustible"),
+        ("OXXO", "Other"),
+        ("Walmart", "Food"),
+        ("Uber Trip", "Transport"),
+        ("Netflix", "Entertainment"),
+        ("Liverpool", "Other"),
+        ("Pemex", "Transport"),
     ],
     "Colombia": [
-        ("Éxito", "Supermercados"),
-        ("Rappi", "Restaurantes"),
-        ("Uber Trip", "Transporte"),
-        ("Falabella", "Retail"),
-        ("Spotify", "Entretenimiento"),
-        ("Terpel", "Combustible"),
+        ("Éxito", "Food"),
+        ("Rappi", "Food"),
+        ("Uber Trip", "Transport"),
+        ("Falabella", "Other"),
+        ("Spotify", "Entertainment"),
+        ("Terpel", "Transport"),
     ],
     "Argentina": [
-        ("Carrefour", "Supermercados"),
-        ("Mercado Libre", "Retail"),
-        ("Cabify", "Transporte"),
-        ("YPF", "Combustible"),
-        ("PedidosYa", "Restaurantes"),
-        ("Netflix", "Entretenimiento"),
+        ("Carrefour", "Food"),
+        ("Mercado Libre", "Other"),
+        ("Cabify", "Transport"),
+        ("YPF", "Transport"),
+        ("PedidosYa", "Food"),
+        ("Netflix", "Entertainment"),
     ],
     "Brazil": [
-        ("Pão de Açúcar", "Supermercados"),
-        ("iFood", "Restaurantes"),
-        ("99 Táxi", "Transporte"),
-        ("Americanas", "Retail"),
-        ("Spotify", "Entretenimiento"),
-        ("Shell", "Combustible"),
+        ("Pão de Açúcar", "Food"),
+        ("iFood", "Food"),
+        ("99 Táxi", "Transport"),
+        ("Americanas", "Other"),
+        ("Spotify", "Entertainment"),
+        ("Shell", "Transport"),
     ],
 }
 PROFILES = [  # id, first, last, city, country, accent, language, currency
@@ -107,6 +107,7 @@ PROFILES = [  # id, first, last, city, country, accent, language, currency
     ("DEMO-BR-PORTUGUESE", "Ana", "Souza Lima", "São Paulo", "Brazil", "brazilian", "pt", "USD"),
 ]
 TYPICAL_AMOUNT = {"MXN": 450, "COP": 95_000, "ARS": 28_000, "USD": 35}
+OPENED = date(2021, 3, 15)  # every demo customer registered and opened the card that day
 
 
 def tx(
@@ -137,7 +138,6 @@ def tx(
         "amount_usd": None,
         "channel": channel,
         "merchant_name": merchant,
-        "merchant_category": category,
         "transaction_country": country,
         "transaction_city": city,
         "transaction_status": status,
@@ -168,6 +168,7 @@ def build() -> dict[str, list[dict]]:
                 "preferred_language": lang,
                 "segment": "Plus",
                 "customer_status": "Active",
+                "registration_date": OPENED,
             }
         )
         products.append(
@@ -177,9 +178,13 @@ def build() -> dict[str, list[dict]]:
                 "product_type": "Tarjeta Crédito",
                 "product_number_last4": f"{rng.randint(1000, 9999)}",
                 "currency": ccy,
-                "current_balance": 0.0,
+                "current_balance": TYPICAL_AMOUNT[ccy] * 18.0,
                 "credit_limit": TYPICAL_AMOUNT[ccy] * 60,
                 "product_status": "Active",
+                "interest_rate": 36.0,
+                "opening_date": OPENED,
+                "expiration_date": date(2029, 3, 31),
+                "days_past_due": 0,
             }
         )
         # Dense background history: ~30 approved purchases over the last 90 days.
@@ -240,15 +245,15 @@ def build() -> dict[str, list[dict]]:
         )
 
     t = NOW - timedelta(days=7, hours=3)
-    add("DEMO-MX-DUPLICATE", "DUP-A", t, 312.40, "Uber Trip", "Transporte")
-    add("DEMO-MX-DUPLICATE", "DUP-B", t + timedelta(seconds=4), 312.40, "Uber Trip", "Transporte")
+    add("DEMO-MX-DUPLICATE", "DUP-A", t, 312.40, "Uber Trip", "Transport")
+    add("DEMO-MX-DUPLICATE", "DUP-B", t + timedelta(seconds=4), 312.40, "Uber Trip", "Transport")
     add(
         "DEMO-CO-PENDING",
         "PENDING",
         NOW - timedelta(days=1),
         148_900,
         "Amazon Mktp",
-        "Retail",
+        "Other",
         status="Pending",
         channel="Web",
         city="Seattle",
@@ -260,7 +265,7 @@ def build() -> dict[str, list[dict]]:
         NOW - timedelta(days=4),
         1_043.00,
         "Best Buy US",
-        "Retail",
+        "Other",
         channel="Web",
         city="Austin",
         country="USA",
@@ -272,7 +277,7 @@ def build() -> dict[str, list[dict]]:
             NOW - timedelta(hours=hours),
             161_700,
             "ElectroMax Córdoba",
-            "Electrónica",
+            "Other",
             city="Córdoba",
             is_fraud=True,
             fraud_score=91.0,
@@ -287,11 +292,11 @@ def build() -> dict[str, list[dict]]:
             day + timedelta(hours=3 * k),
             amount,
             merchant,
-            "Retail",
+            "Other",
             channel="Web" if merchant == "Amazon Mktp" else "POS",
         )
     own = NOW - timedelta(days=2, hours=5)
-    add("DEMO-MX-OWN-PURCHASE", "OWN", own, 2_899.00, "Liverpool", "Retail", channel="App")
+    add("DEMO-MX-OWN-PURCHASE", "OWN", own, 2_899.00, "Liverpool", "Other", channel="App")
     sessions.append(
         {
             "session_id": "DEMO-MX-OWN-PURCHASE-SES-BUY",
@@ -312,19 +317,19 @@ def build() -> dict[str, list[dict]]:
         NOW - timedelta(days=5),
         54_000,
         "Mercado Libre",
-        "Retail",
+        "Other",
         status="Reversed",
         channel="Web",
     )
     t = NOW - timedelta(days=3, hours=2)
-    add("DEMO-BR-PORTUGUESE", "DUP-A", t, 27.90, "iFood", "Restaurantes", channel="App")
+    add("DEMO-BR-PORTUGUESE", "DUP-A", t, 27.90, "iFood", "Food", channel="App")
     add(
         "DEMO-BR-PORTUGUESE",
         "DUP-B",
         t + timedelta(seconds=6),
         27.90,
         "iFood",
-        "Restaurantes",
+        "Food",
         channel="App",
     )
     return {

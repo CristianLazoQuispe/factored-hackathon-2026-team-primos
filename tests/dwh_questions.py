@@ -5,6 +5,10 @@ agent writes, and the expected result. Today it checks the guarded path end to e
 LLM (tests/test_dwh_questions.py). Later it is the evaluation set: run the model's SQL for the same
 question and compare its result with `rows`/`first` (execution accuracy).
 
+Most of these questions now have a tool with reviewed SQL, which the agent tries first
+(tests/test_spending_sql.py pins the same answers on that path). They stay here because the SQL
+path is the fallback and must keep giving the same answer.
+
 Expected values were checked against the tables with an independent query. Customer ids are
 organizer data (CLI-...) or team fixtures (DEMO-...).
 """
@@ -89,28 +93,17 @@ QUESTIONS = [
         "lang": "es",
         "customer": "CLI-XKD238N6EUVH",
         "question": "¿Por qué me contacté por última vez con el banco?",
-        "sql": "SELECT interaction_type, contact_reason, was_resolved "
-        "FROM call_center_interactions ORDER BY interaction_date DESC LIMIT 1",
-        "rows": [
-            {"interaction_type": "Chat", "contact_reason": "Transaccional", "was_resolved": True}
-        ],
+        "sql": "SELECT last_contact_reason FROM customer_service_summary",
+        "rows": [{"last_contact_reason": "Transaccional"}],
     },
     {
-        "id": "resolved_contacts",
+        "id": "card_due_date",
         "lang": "es",
-        "customer": "CLI-XKD238N6EUVH",
-        "question": "¿Cuántas de mis consultas se resolvieron?",
-        "sql": "SELECT count(*) FILTER (WHERE was_resolved) AS resolved, count(*) AS total "
-        "FROM call_center_interactions",
-        "rows": [{"resolved": 4, "total": 4}],
-    },
-    {
-        "id": "survey_scores",
-        "lang": "es",
-        "customer": "CLI-AGDPF9SUW2Q4",
-        "question": "¿Qué calificación di en mis encuestas?",
-        "sql": "SELECT survey_type, main_score FROM satisfaction_surveys ORDER BY survey_date DESC",
-        "rows": [{"survey_type": "NPS", "main_score": 5}, {"survey_type": "NPS", "main_score": 2}],
+        "customer": "DEMO-MX-DUPLICATE",
+        "question": "¿Cuándo vence el pago de mi tarjeta y cuál es el mínimo?",
+        "sql": "SELECT b.due_date::text AS due_date, b.minimum_payment FROM billing b "
+        "JOIN products p USING (product_id) WHERE p.product_type = 'Tarjeta Crédito'",
+        "rows": [{"due_date": "2026-07-04", "minimum_payment": 500.0}],
     },
     {
         "id": "usd_to_mxn",
