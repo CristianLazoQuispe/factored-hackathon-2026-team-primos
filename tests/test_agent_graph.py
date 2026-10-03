@@ -53,8 +53,12 @@ def bank(monkeypatch):
             }
         ]
 
+    async def no_audit(*args, **kwargs):
+        return None
+
     monkeypatch.setattr(graph, "find_customer", find_customer)
     monkeypatch.setattr(accounts, "fetch_balances", fetch_balances)
+    monkeypatch.setattr(accounts, "record_decision", no_audit)
     return seen
 
 
