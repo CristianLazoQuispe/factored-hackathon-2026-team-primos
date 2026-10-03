@@ -33,7 +33,7 @@ services:
       DATA_DIR: /app/data
     volumes:
       - ./data:/app/data
-    command: ["sh", "-c", "python -m data_pipeline.silver --source sample && python -m data_pipeline.load"]
+    command: ["sh", "-c", "python -m data_pipeline.silver --source sample && python -m data_pipeline.load --source sample"]
     depends_on:
       db:
         condition: service_healthy
