@@ -32,7 +32,9 @@ docs/
 │   ├── README.md                 ← index: technical vs user documentation
 │   ├── technical/                ← for engineers
 │   │   ├── architecture.md       ← component diagram, agent graph, skills + MCP, identity
-│   │   ├── data_pipeline.md      ← raw → bronze → sample → silver → Postgres; GCP scale-out
+│   │   ├── mcp/                  ← the agent's tools: one page per MCP server
+│   │   ├── data/                 ← model.md (core schema), pipeline.md (ETL), quality report of the full load
+│   │   ├── deploy.md             ← Cloud Run + Cloud SQL
 │   │   ├── diagrams/             ← Mermaid sources + SVG / 300-dpi PNG (`make diagrams`)
 │   │   └── adr/                  ← architecture decision records
 │   └── user/                     ← for testers and judges

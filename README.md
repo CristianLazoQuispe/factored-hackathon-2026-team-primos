@@ -40,9 +40,11 @@ The sample pages show the idea with fixed figures until the API serves them. In 
 
 | Ask | What happens |
 |---|---|
-| `¿cuál es mi saldo?` / `qual é o meu saldo?` | Skill `balance_inquiry` → MCP tool `get_balances` → real balances from Postgres |
+| `¿cuál es mi saldo?` / `qual é o meu saldo?` | Skill `balance_inquiry` → MCP tool `get_balances` → real balances and totals from Postgres |
+| `¿cuánto debo en mi tarjeta y cuándo vence?` | Skill `balance_inquiry` → `get_debts`: debt, due date and minimum payment (the payment schedule is team-generated, see [data/model.md](docs/documentation/technical/data/model.md)) |
 | `no reconozco un cargo de Uber` (customer `DEMO-MX-DUPLICATE`) | Skill `charge_investigation` → `investigate_charges`: finds the charges and checks the bank's records (duplicate, pending, foreign) |
-| `¿cuántas quejas tengo?` / `¿cuánto he gastado?` | Skill `data_lookup` → the model writes one SQL `SELECT`; code checks it and only lets it see this customer's rows |
+| `dime mis últimos movimientos` / `¿en qué gasto más?` / `¿cuántas quejas tengo?` / `¿a cuánto está el dólar?` | Skill `data_lookup` → a tool with reviewed SQL (`get_movements`, `get_spending_summary`, `get_complaints`, `get_exchange_rate`) |
+| A question about their data that no tool covers | Skill `data_lookup` → the model writes one SQL `SELECT`; code checks it and only lets it see this customer's rows |
 | `¿y la de débito?` | Follows up in the same conversation |
 | `quiero hablar con una persona` | Handoff to a human, decided by code with no LLM call |
 | `¿me recomiendas una hipoteca?` | Short out-of-scope answer |
@@ -66,7 +68,7 @@ The API is `POST /api/chat {message, thread_id?}`. Outside `APP_ENV=local` it ne
 
 - **Use Gemini locally** (e.g. for evals): in `.env` set `LLM_PROVIDER=google_genai` and `GOOGLE_API_KEY`. In the cloud it's Gemini by default.
 - **Code without Docker** (needs [uv](https://docs.astral.sh/uv/) and Node 24+): `make setup`, `make demo-data`, `make dev` (API :8080), `make web` (UI :3000), `make test`. For the microphone, `make models` downloads the speech models (about 0.8 GB) to `./models`; the Docker image has its own. `make setup` also enables a git pre-commit hook that runs the CI lint (`.githooks/pre-commit`).
-- **Full dataset** (S3 keys from the data dictionary PDF): `make data-lite`, then `make bronze`, `make silver SOURCE=full` and `make db-load SOURCE=full` load it into the local Postgres (`make demo-data` goes back to the mini-set). See [data_pipeline.md](docs/documentation/technical/data_pipeline.md).
+- **Full dataset** (S3 keys from the data dictionary PDF): `make data-lite`, then `make bronze`, `make silver SOURCE=full` and `make db-load SOURCE=full` load it into the local Postgres (`make demo-data` goes back to the mini-set). See [data/pipeline.md](docs/documentation/technical/data/pipeline.md).
 - **Telegram**: put a [@BotFather](https://t.me/BotFather) token in `TELEGRAM_BOT_TOKEN`, then `make telegram-local`.
 - **Deploy** (GCP): two Cloud Run services, `factored-api` and `factored-web`, and Cloud SQL. See [Deploy to GCP](#deploy-to-gcp).
 - **Architecture**: hexagonal. `app/domain` holds the rules, `app/application` the use cases, `app/adapters` HTTP/Telegram/MCP/LLM/Postgres. See [architecture.md](docs/documentation/technical/architecture.md) and the [ADRs](docs/documentation/technical/adr/).
@@ -78,7 +80,7 @@ The API is `POST /api/chat {message, thread_id?}`. Outside `APP_ENV=local` it ne
 3. Register the server in `SERVERS` (`app/adapters/inbound/agent/mcp_bridge.py`).
 4. Add a route test in `tests/test_agent_graph.py`.
 
-The graph doesn't change. Persona and scope live in `app/adapters/inbound/agent/AGENT.md`.
+The graph doesn't change. Persona and scope live in `app/adapters/inbound/agent/AGENT.md`. Every tool that exists today is described in [docs/documentation/technical/mcp/](docs/documentation/technical/mcp/README.md).
 
 ## Let the SQL agent read a new table
 
@@ -95,7 +97,7 @@ One-time setup (project owner):
 3. Create the Cloud SQL instance, the database `agent` and the user `agent`. Store the password in the secret `factored-db-password` and the URL `postgresql://agent:PASSWORD@/agent?host=/cloudsql/PROJECT:REGION:INSTANCE` in `factored-database-url`.
 4. Create the service account `factored-api` with `cloudsql.client`, `aiplatform.user` and `secretmanager.secretAccessor`.
 5. Create the secret `jwt-secret` (`openssl rand -hex 32`): the key that signs the API's bearer tokens. The API does not start without it.
-6. Load the data (this replaces `core`): in one terminal `make db-proxy` ([cloud-sql-proxy](https://cloud.google.com/sql/docs/postgres/sql-proxy)), in another `make etl-cloud CONFIRM=yes`. It runs the whole ETL on the dataset in `data/raw` and leaves its report in `docs/documentation/technical/quality_report_full.json`.
+6. Load the data (this replaces `core`): in one terminal `make db-proxy` ([cloud-sql-proxy](https://cloud.google.com/sql/docs/postgres/sql-proxy)), in another `make etl-cloud CONFIRM=yes`. It runs the whole ETL on the dataset in `data/raw` and leaves its report in `docs/documentation/technical/data/quality_report_full.json`.
 
 From there GitHub deploys: every push to `main` runs the tests and then deploys both services (`.github/workflows/deploy.yml`). Do not run `make deploy*` by hand (the last deploy wins) and never `make etl-cloud` on the shared database without telling the team: it replaces `core`. Setup, rollback and limits: [deploy.md](docs/documentation/technical/deploy.md). The API runs with `--max-instances 1` because conversation memory is in process.
 

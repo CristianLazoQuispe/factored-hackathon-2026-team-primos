@@ -12,7 +12,10 @@
 | Document | Status | Covers |
 |---|---|---|
 | [architecture.md](technical/architecture.md) | Living | Component diagram, agent graph, skills and MCP, identity, tracing |
-| [data_pipeline.md](technical/data_pipeline.md) | Living | raw → bronze → sample → silver → Postgres, contracts, freshness, GCP scale-out |
+| [mcp/](technical/mcp/README.md) | Living | The tools the agent can call: which question each one answers, arguments, what it returns, the rules they all follow |
+| [data/model.md](technical/data/model.md) | Living | The `core` schema: tables, diagram, provenance of each table, the team-generated billing rule, design decisions |
+| [data/pipeline.md](technical/data/pipeline.md) | Living | The ETL: raw → bronze → sample → silver → Postgres, contracts, quality report, local vs. Cloud SQL |
+| [deploy.md](technical/deploy.md) | Living | Cloud Run and Cloud SQL: what exists, how a deploy runs, rollback, limits |
 | [diagrams/](technical/diagrams/) | Living | Mermaid sources (`.mmd`) + rendered SVG / 300-dpi PNG (`make diagrams`) |
 | [adr/](technical/adr/) | Ongoing | Architecture decision records (`NNNN-title.md`) |
 | `evaluation.md` | Planned | Held-out set, metrics, repeated runs, judge validation, results, failures |
