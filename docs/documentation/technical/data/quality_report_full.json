@@ -67,7 +67,7 @@
     "output_rows": 13164
   },
   "load": {
-    "target_host": "localhost",
+    "target_host": "127.0.0.1",
     "billing_as_of": "2026-06-18",
     "rows": {
       "customers": 150008,

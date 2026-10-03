@@ -120,15 +120,17 @@ flowchart LR
 
 ## The data warehouse lookups (implemented)
 
-Two skills read the bank's data. In both, the model proposes and code decides.
+Three skills read the bank's data. In all of them the model proposes and code decides. Every tool, with its arguments and what it returns, is in [mcp/](mcp/README.md); the tables they read are in [data/model.md](data/model.md).
 
 | Skill | What the model does | What code guarantees |
 |---|---|---|
+| `balance_inquiry` | Calls `get_balances`, `get_debts` or `get_profile` | Reviewed SQL. Totals are per currency; payment dates come labeled as team-generated |
 | `charge_investigation` | Calls `investigate_charges` once: code finds the matching charges and investigates each | Reviewed SQL (duplicate, pending/reversed, FX). A failed lookup is `unavailable`, never "no" |
-| `data_lookup` | Writes one `SELECT` and calls `run_sql` | `app/domain/sql_scope.py` parses it, refuses anything but a read-only SELECT over the allowlisted `core` tables, and rewrites every customer table into a subquery filtered to the session customer. The database is a second wall: role `dwh_reader` (SELECT on `core` only), read-only transaction, 3 s timeout, 100 rows |
+| `data_lookup` | Calls the tool that fits (`get_movements`, `get_spending_summary`, `get_complaints`, `get_exchange_rate`). Only when none fits, writes one `SELECT` and calls `run_sql` | Reviewed SQL for the tools. For `run_sql`: `app/domain/sql_scope.py` parses it, refuses anything but a read-only SELECT over the allowlisted `core` tables, and rewrites every customer table into a subquery filtered to the session customer. The database is a second wall: role `dwh_reader` (SELECT on `core` only), read-only transaction, 3 s timeout, 100 rows |
 
 - The customer comes from the session (`session_customer(ctx)`), never from a tool argument, and
-  never from the model. Each `run_sql` and `investigate_charge` call is written to `ops.decision_log`.
+  never from the model. Tool calls are written to `ops.decision_log` (all but `search_transactions`
+  and `describe_schema`).
 - Unknown functions are refused by default: that is what stops `query_to_xml('select ...')`,
   which would run SQL from a string and skip the scoping.
 - The scoping lives in the domain on purpose: it does not depend on Postgres features, so it
