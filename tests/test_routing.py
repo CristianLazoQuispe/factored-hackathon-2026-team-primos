@@ -14,10 +14,16 @@ from app.domain.routing import guess_skill
         ("tengo un cobro duplicado", "charge_investigation"),
         ("¿cuál es mi saldo?", "balance_inquiry"),
         ("qual é o meu saldo?", "balance_inquiry"),
+        ("¿cuánto debo en mi tarjeta y cuándo vence?", "balance_inquiry"),
+        ("¿cuál es mi pago mínimo?", "balance_inquiry"),
+        ("qual é a taxa de juros do meu empréstimo?", "balance_inquiry"),
         ("¿cuánto he gastado en compras aprobadas?", "data_lookup"),
         ("¿cuántas quejas tengo y en qué estado están?", "data_lookup"),
         ("quanto eu gastei no mês passado?", "data_lookup"),
         ("muéstrame mis compras en Uber", "data_lookup"),
+        ("dime mis últimos movimientos", "data_lookup"),
+        ("¿en qué gasto más?", "data_lookup"),
+        ("¿a cuánto está el dólar en pesos mexicanos?", "data_lookup"),
     ],
 )
 def test_obvious_requests_are_routed(text, skill):
