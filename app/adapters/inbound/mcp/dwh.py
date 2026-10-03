@@ -62,7 +62,7 @@ async def get_movements(
     withdrawals) on their accounts and cards. Use it for "my last movements", "my purchases at
     X", "my biggest purchases", "movements of my credit card".
 
-    days counts back from the customer's latest transaction. product_type or last4 (the last 4
+    days counts back from the dataset's last day. product_type or last4 (the last 4
     digits) narrow to one account or card. merchant is a case-insensitive substring ("uber").
     order="largest" sorts by amount. `truncated` true means there are more than `limit`.
     Amounts are in each movement's own currency: never add different currencies.
@@ -98,7 +98,7 @@ async def get_movements(
 @mcp.tool
 async def get_spending_summary(ctx: Context, days: Days = 30) -> dict:
     """How much the authenticated customer spent (Approved purchases) in the last `days`, counted
-    back from their latest transaction. One block per currency in `currencies`: `spend`,
+    back from the dataset's last day. One block per currency in `currencies`: `spend`,
     `previous_spend` (the same number of days before) and `change_pct`, `transactions`,
     `tx_per_week`, `avg_ticket`, `max_ticket`, `by_category`, `top_merchants` (5), `monthly` and
     `foreign` (purchases outside the customer's country). Use it for "how much did I spend",

@@ -1,8 +1,8 @@
 """Reviewed SQL for the `data_lookup` skill's fixed questions. No LLM writes any of it.
 
 Every statement filters by `customer_id` inside the query. The dataset is static (it ends in June
-2026), so "the last N days" is counted back from the customer's most recent transaction, not from
-today. Spending is Approved purchases, always grouped by currency.
+2026), so "the last N days" is counted back from the dataset's last transaction, the same day for
+every customer, not from today. Spending is Approved purchases, always grouped by currency.
 """
 
 from datetime import date
@@ -12,9 +12,7 @@ from app.adapters.outbound.postgres import query
 # Approved purchases of the last 2 x days; `in_window` marks the latest `days`, the rest is the
 # period before it (only TOTALS reads that one).
 _PURCHASES = """
-    WITH anchor AS (
-        SELECT max(transaction_date) AS at FROM core.transactions
-        WHERE customer_id = %(customer_id)s),
+    WITH anchor AS (SELECT max(transaction_date) AS at FROM core.transactions),
     purchases AS (
         SELECT t.*, t.transaction_date > a.at - make_interval(days => %(days)s) AS in_window
         FROM core.transactions t, anchor a
@@ -75,9 +73,8 @@ MOVEMENTS = """
     FROM core.transactions t
     LEFT JOIN core.products p ON p.product_id = t.product_id AND p.customer_id = t.customer_id
     WHERE t.customer_id = %(customer_id)s
-      AND t.transaction_date >= (
-            SELECT max(transaction_date) FROM core.transactions WHERE customer_id = %(customer_id)s
-          ) - make_interval(days => %(days)s)
+      AND t.transaction_date >= (SELECT max(transaction_date) FROM core.transactions)
+          - make_interval(days => %(days)s)
       AND (%(product_type)s::text IS NULL OR p.product_type = %(product_type)s)
       AND (%(last4)s::text IS NULL OR p.product_number_last4 = %(last4)s)
       AND (%(transaction_type)s::text IS NULL OR t.transaction_type = %(transaction_type)s)
