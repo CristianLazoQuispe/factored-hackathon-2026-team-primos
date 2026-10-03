@@ -122,7 +122,9 @@ async def get_spending_summary(ctx: Context, days: Days = 30) -> dict:
 async def get_complaints(ctx: Context) -> dict:
     """The complaints, claims, requests and suggestions the authenticated customer filed: `count`,
     how many are still `open`, `by_status`, and the `latest` ones (newest first) with type,
-    category, status, priority and dates."""
+    category, status, priority and dates. `stale_open` counts cases the records still show as
+    open but that had no news for months (`stale` on each one): say they have no recent update,
+    never that someone is working on them."""
     customer_id = session_customer(ctx)
     rows = await store.complaints(customer_id)
     summary = complaints_summary([present(row) for row in rows])

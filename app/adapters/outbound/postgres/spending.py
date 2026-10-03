@@ -8,6 +8,7 @@ every customer, not from today. Spending is Approved purchases, always grouped b
 from datetime import date
 
 from app.adapters.outbound.postgres import query
+from app.domain.spending import OPEN_STATUSES, STALE_AFTER_DAYS
 
 # Approved purchases of the last 2 x days; `in_window` marks the latest `days`, the rest is the
 # period before it (only TOTALS reads that one).
@@ -89,7 +90,10 @@ MOVEMENTS = """
 """
 COMPLAINTS = """
     SELECT creation_date, case_type, category, subcategory, reception_channel, priority, status,
-           claimed_amount, currency, resolution_date
+           claimed_amount, currency, resolution_date,
+           status = ANY(%(open_statuses)s) AND creation_date
+               < (SELECT max(transaction_date) FROM core.transactions)
+                 - make_interval(days => %(stale_days)s) AS stale
     FROM core.complaints
     WHERE customer_id = %(customer_id)s
     ORDER BY creation_date DESC
@@ -125,7 +129,8 @@ class PostgresSpending:
         return await query(MOVEMENTS, {"customer_id": customer_id, "limit": limit} | filters)
 
     async def complaints(self, customer_id: str) -> list[dict]:
-        return await query(COMPLAINTS, {"customer_id": customer_id})
+        params = {"open_statuses": list(OPEN_STATUSES), "stale_days": STALE_AFTER_DAYS}
+        return await query(COMPLAINTS, {"customer_id": customer_id} | params)
 
     async def exchange_rate(self, source: str, target: str, on: date | None) -> dict | None:
         rows = await query(EXCHANGE_RATE, {"source": source, "target": target, "on": on})
