@@ -1,0 +1,68 @@
+/* The customer chat (design handoff: Chat.dc.html). */
+.s-chat {
+  height: 100dvh; display: flex; flex-direction: column;
+
+  /* Side by side, each column scrolling on its own. */
+  .cols { flex: 1 1 auto; display: flex; min-height: 0; }
+
+  .sonar { position: absolute; border-radius: 50%; border: 1px solid rgba(46,196,182,.28); }
+  &.q-st-listening .sonar.live { animation: chat-ping 1.8s ease-out infinite; }
+  &.q-st-speaking .sonar.live { animation: chat-ping 1s ease-out infinite; }
+
+  .mic { width: 72px; height: 72px; border-radius: 22px; border: none; cursor: pointer; display: grid; place-items: center; transition: box-shadow .2s, background .2s; }
+  .mic:disabled { opacity: .5; cursor: default; }
+  .mic-idle { background: #E6F4F1; color: #04141A; box-shadow: 0 10px 40px -10px rgba(46,196,182,.7); }
+  .mic-idle:hover:enabled { box-shadow: 0 0 0 5px rgba(46,196,182,.3); }
+  .mic-live { background: #2EC4B6; color: #04141A; box-shadow: 0 0 0 6px rgba(46,196,182,.25), 0 0 40px rgba(46,196,182,.6); }
+
+  .field { min-height: 40px; padding: 0 12px; border: none; border-radius: 10px; background: rgba(230,244,241,.04);
+    box-shadow: inset 0 0 0 1px rgba(230,244,241,.12); font-family: var(--q-mono); font-size: 13px; color: #E6F4F1; }
+
+  .sug { min-height: 40px; padding: 0 16px; border-radius: 999px; border: none; cursor: pointer; font: 14px var(--q-font);
+    color: #E6F4F1; background: rgba(230,244,241,.04); box-shadow: inset 0 0 0 1px rgba(230,244,241,.14); }
+  .sug:hover { box-shadow: inset 0 0 0 1px #2EC4B6; background: rgba(46,196,182,.08); }
+
+  .link { padding: 0; border: none; background: none; cursor: pointer; font: 12px var(--q-mono); color: #5E7F7C; text-decoration: underline; }
+  .link:hover { color: #E6F4F1; }
+
+  .bar-row { display: grid; grid-template-columns: 150px 1fr 64px; gap: 12px; align-items: center; padding: 6px 8px; margin: 0 -8px;
+    border-radius: 8px; font-size: 13px; background: transparent; border: none; color: #E6F4F1; font-family: inherit; text-align: left; cursor: default; }
+  .bar-row:hover, .bar-row:focus-visible { background: rgba(230,244,241,.05); outline: none; }
+  .track { height: 10px; border-radius: 0 4px 4px 0; position: relative; }
+  .fill { height: 100%; border-radius: 0 4px 4px 0; }
+
+  /* A reply is Markdown. Its lists are the rows of the design's table of movements. */
+  .reply { font-size: 15px; line-height: 1.6; overflow-wrap: anywhere; }
+  .reply > :first-child { margin-top: 0; }
+  .reply > :last-child { margin-bottom: 0; }
+  .reply p { margin: 10px 0; }
+  .reply strong { font-weight: 600; }
+  .reply hr { border: none; border-top: 1px solid rgba(230,244,241,.08); margin: 14px 0; }
+  .reply ul, .reply ol { list-style: none; margin: 12px 0; padding: 0; font-size: 14px; border-radius: 14px; overflow: hidden;
+    box-shadow: inset 0 0 0 1px rgba(230,244,241,.09); background: rgba(11,42,51,.45); }
+  .reply li { padding: 11px 14px; }
+  .reply li + li { border-top: 1px solid rgba(230,244,241,.06); }
+  .reply li > p { margin: 0; }
+  .reply li ul, .reply li ol { margin: 8px 0 0; }
+
+  @media (prefers-reduced-motion: reduce) { .sonar { animation: none !important; } }
+
+  /* Narrower than the corona and the thread side by side: the corona goes on top and the page
+     scrolls, with the composer always at hand. */
+  @media (max-width: 1000px) {
+    height: auto; min-height: 100dvh;
+    .cols { flex-wrap: wrap; }
+    .side { border-right: none !important; border-bottom: 1px solid rgba(230,244,241,.07); }
+    .composer { position: sticky; bottom: 0; background: #04141A; }
+  }
+  @media (max-width: 640px) {
+    .side { padding: 20px 16px !important; gap: 14px !important; }
+    .orbbox { width: 220px !important; }
+    .msgs { padding: 20px 16px !important; }
+    .composer { padding: 12px 16px 18px !important; }
+    .field { width: 150px !important; }
+    .bar-row { grid-template-columns: 110px 1fr 56px; }
+  }
+}
+
+@keyframes chat-ping { 0% { transform: scale(.6); opacity: .55; } 100% { transform: scale(1.25); opacity: 0; } }

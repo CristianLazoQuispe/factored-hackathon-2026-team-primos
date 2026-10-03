@@ -1,0 +1,617 @@
+"use client";
+
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import Markdown from "react-markdown";
+
+import { AppHeader } from "@/components/app-header";
+import { Corona, type CoronaHandle } from "@/components/corona";
+import { AgentIcon, Logo } from "@/components/logo";
+import { revealed, visible } from "@/components/spoken";
+import { type MicrophoneAccess, useRecorder } from "@/components/use-recorder";
+import { type Category, formatAmount, getOwnFinances } from "@/lib/profile";
+import type { CoronaMode } from "@/lib/quipu-corona";
+
+import "./screen.css";
+
+// `operator` is a person of the team answering from the console; `assistant` is Quipu.
+// `skill` and `tools` are the trace of a reply: what Quipu did to answer.
+// `shown`: while the voice reads a reply, how many of its characters the voice has reached; the
+// rest is not on screen yet. `reading` tells which reading (see `speaking`) the message belongs to.
+type Message = {
+  role: "customer" | "assistant" | "operator";
+  text: string;
+  skill?: string | null;
+  tools?: string[];
+  handoff?: boolean;
+  chart?: Category[];
+  reading?: number;
+  shown?: number;
+};
+
+type ChatResponse = {
+  reply: string | null; // null: a person has this chat and answers from the operator console
+
+  thread_id: string;
+  customer_id: string | null;
+  skill: string | null;
+  tools_used: string[];
+  handoff: object | null;
+};
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
+
+type DemoCustomer = { customer_id: string; first_name: string; country: string; segment: string };
+
+type Session = { customer: string; token: string; expiresAt: number };
+
+const MICROPHONE: Record<MicrophoneAccess, { label: string; color: string }> = {
+  "not asked": { label: "Permitir micrófono", color: "var(--q-mist)" },
+  granted: { label: "Micrófono listo", color: "var(--q-teal)" },
+  denied: { label: "Sin acceso al micrófono", color: "var(--q-amber-soft)" },
+};
+
+// What the corona is doing, in words, under it.
+const STATUS: Record<CoronaMode, { title: string; code: string }> = {
+  idle: { title: "Listo para ayudarte", code: "toca el micrófono o escribe" },
+  listening: { title: "Te escucho…", code: "toca de nuevo para enviar" },
+  thinking: { title: "Buscando en tus datos…", code: "agente · consultando" },
+  speaking: { title: "Respondiendo", code: "quipu · respuesta" },
+};
+
+// The agent cannot draw yet (it has no `render_chart` tool), so this one question is answered
+// here with the sample profile, to show what a reply with a chart looks like.
+const SPENDING = "¿En qué gasto más?";
+
+const SUGGESTIONS = ["¿Cuál es mi saldo?", "Dime mis últimos movimientos", SPENDING];
+
+const CATEGORY_COLORS = ["--q-cat-1", "--q-cat-2", "--q-cat-3", "--q-cat-4", "--q-cat-5", "--q-cat-other"];
+
+const ASK_FOR_A_PERSON = "Quiero hablar con un agente";
+
+// The voice for the reply to a typed message, which Whisper never heard: ã, õ and ç are written
+// in Portuguese and not in Spanish.
+const PORTUGUESE = /[ãõç]/i;
+
+const LEAD = 0.2; // seconds the text runs ahead of the voice: behind it, it would look broken
+
+const ANSWERING = 2400; // ms the corona "speaks" for a reply that is only written (voice off)
+
+function newThread() {
+  return crypto.randomUUID();
+}
+
+function trace(response: ChatResponse) {
+  return { skill: response.skill, tools: response.tools_used, handoff: response.handoff !== null };
+}
+
+function SpendingChart({ categories }: { categories: Category[] }) {
+  const [hover, setHover] = useState(-1);
+  const top = Math.max(...categories.map((c) => c.amount));
+  const total = categories.reduce((sum, c) => sum + c.amount, 0);
+  return (
+    <div style={{ padding: "18px 20px", borderRadius: 16, background: "var(--q-ocean)", boxShadow: "inset 0 0 0 1px rgba(230,244,241,.09)", display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 13 }}>
+        <span style={{ fontWeight: 500 }}>Gasto por categoría</span>
+        <span style={{ color: "var(--q-fog)" }}>MXN · 90 días</span>
+      </div>
+      {categories.map((category, index) => (
+        <button
+          key={category.name}
+          type="button"
+          className="bar-row"
+          onMouseEnter={() => setHover(index)}
+          onMouseLeave={() => setHover(-1)}
+          onFocus={() => setHover(index)}
+          onBlur={() => setHover(-1)}
+        >
+          <span>{category.name}</span>
+          <span className="track">
+            <span
+              className="fill"
+              style={{
+                display: "block", width: `${(category.amount / top) * 100}%`,
+                background: `var(${CATEGORY_COLORS[Math.min(index, CATEGORY_COLORS.length - 1)]})`,
+                opacity: hover === -1 || hover === index ? 1 : 0.4,
+              }}
+            />
+          </span>
+          <span style={{ fontFamily: "var(--q-mono)", textAlign: "right" }}>{formatAmount(category.amount)}</span>
+        </button>
+      ))}
+      <span style={{ fontSize: 12, color: "var(--q-fog)", minHeight: 16 }}>
+        {hover === -1
+          ? "Pasa el cursor por una categoría para ver su peso."
+          : `${categories[hover].name}: ${Math.round((categories[hover].amount / total) * 100)}% del total`}
+      </span>
+    </div>
+  );
+}
+
+export default function Chat() {
+  const [customerId, setCustomerId] = useState("");
+  const [demoCustomers, setDemoCustomers] = useState<DemoCustomer[]>([]);
+  const [threadId, setThreadId] = useState(newThread);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [draft, setDraft] = useState("");
+  const [pending, setPending] = useState(false);
+  const [sound, setSound] = useState(false); // Quipu's voice: off until the customer turns it on
+  const [preparing, setPreparing] = useState(false); // the audio of a reply's first line is on its way
+  const [answering, setAnswering] = useState(false); // a written reply has just arrived
+  const { access, allow, recording, start, stop } = useRecorder();
+
+  // Safari only lets a page make sound from a click, so the click that turns the voice on opens
+  // this context and every line is played through it.
+  const audio = useRef<AudioContext | null>(null);
+  const voice = useRef<AudioBufferSourceNode | null>(null); // the line being read aloud
+  const speaking = useRef(0); // counts the replies read aloud, and the times one was stopped
+  const session = useRef<Session | null>(null);
+  const operatorCursor = useRef(0); // how many messages of this thread were already checked
+  const corona = useRef<CoronaHandle>(null);
+  const answered = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const end = useRef<HTMLDivElement>(null);
+
+  // Keep the newest message in view: nobody should have to scroll to notice a reply.
+  useEffect(() => {
+    if (messages.length) end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages, pending, preparing]);
+
+  // The customers offered here are the ones the API lets start a demo session (DEMO_CUSTOMER_IDS).
+  useEffect(() => {
+    fetch(`${API_URL}/api/demo-customers`)
+      .then((response) => (response.ok ? response.json() : []))
+      .then((customers: DemoCustomer[]) => {
+        setDemoCustomers(customers);
+        if (customers.length) setCustomerId(customers[0].customer_id);
+      })
+      .catch(() => setDemoCustomers([]));
+  }, []);
+
+  function changeCustomer(value: string) {
+    setCustomerId(value);
+    setThreadId(newThread());
+    setMessages([]);
+    operatorCursor.current = 0;
+  }
+
+  // Test identity service: the API signs a short-lived token for the chosen demo customer.
+  const authHeader = useCallback(async (customer: string, renew: boolean): Promise<Record<string, string>> => {
+    const current = session.current;
+    if (!renew && current?.customer === customer && current.expiresAt - Date.now() > 30_000) {
+      return { Authorization: `Bearer ${current.token}` };
+    }
+    const response = await fetch(`${API_URL}/api/auth/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ customer_id: customer }),
+    });
+    if (!response.ok) {
+      throw new Error(response.status === 403 ? "Ese cliente no tiene sesión de demostración" : `HTTP ${response.status}`);
+    }
+    const data: { access_token: string; expires_in: number } = await response.json();
+    session.current = { customer, token: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 };
+    return { Authorization: `Bearer ${data.access_token}` };
+  }, []);
+
+  // Once the chat has started, ask every few seconds for what a person of the team wrote in it
+  // (they answer from /consola). Quipu's own replies arrive with each POST, not here.
+  const started = messages.length > 0;
+  useEffect(() => {
+    if (!started) return;
+    let active = true;
+    let busy = false;
+    const timer = setInterval(async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const customer = customerId.trim();
+        const auth = customer ? await authHeader(customer, false) : {};
+        const response = await fetch(`${API_URL}/api/chat/${threadId}/operator?after=${operatorCursor.current}`, {
+          headers: auth,
+        });
+        if (!active || !response.ok) return;
+        const data: { next: number; messages: { text: string }[] } = await response.json();
+        operatorCursor.current = data.next;
+        if (data.messages.length) {
+          setMessages((prev) => [...prev, ...data.messages.map((m) => ({ role: "operator" as const, text: m.text }))]);
+        }
+      } catch {
+        // The API is unreachable right now: the next tick asks again.
+      } finally {
+        busy = false;
+      }
+    }, 3000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [started, threadId, customerId, authHeader]);
+
+  async function post(text: string, renew: boolean) {
+    const customer = customerId.trim();
+    const auth = customer ? await authHeader(customer, renew) : {};
+    return fetch(`${API_URL}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...auth },
+      body: JSON.stringify({ message: text, thread_id: threadId }),
+    });
+  }
+
+  function fail(error: unknown) {
+    setMessages((prev) => [...prev, { role: "assistant", text: `Error: ${(error as Error).message}` }]);
+  }
+
+  async function speech(path: "transcribe" | "synthesize", body: BodyInit, headers: Record<string, string> = {}) {
+    const customer = customerId.trim();
+    const auth = customer ? await authHeader(customer, false) : {};
+    const response = await fetch(`${API_URL}/api/speech/${path}`, { method: "POST", headers: { ...headers, ...auth }, body });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response;
+  }
+
+  // Stops the reply being read aloud (`speak` sees that the count moved on and ends) and puts
+  // whatever the voice had not reached on screen.
+  function hush() {
+    speaking.current += 1;
+    voice.current?.stop();
+    setPreparing(false);
+    setMessages((prev) => prev.map((m) => (m.shown === undefined ? m : { ...m, shown: undefined })));
+  }
+
+  // Reads a reply aloud line by line and writes it on screen at the pace of the voice. The audio
+  // of a whole list of balances takes many seconds to generate, so each line plays as soon as it
+  // is ready and the next one is generated meanwhile. Nothing is shown before the first line
+  // sounds: text and voice start together. The corona's cords move with the loudness of the voice.
+  async function speak(reply: string, traced: ReturnType<typeof trace>, language: string) {
+    const reading = ++speaking.current;
+    const context = audio.current!;
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.connect(context.destination);
+    const samples = new Uint8Array(analyser.frequencyBinCount);
+    const loudness = () => {
+      analyser.getByteTimeDomainData(samples);
+      let sum = 0;
+      for (const sample of samples) sum += ((sample - 128) / 128) ** 2;
+      return Math.min(1, Math.sqrt(sum / samples.length) * 4);
+    };
+    const lines = [...reply.matchAll(/[^\n]+/g)].filter((line) => /[\p{L}\p{N}]/u.test(line[0])); // not a `---` rule
+    const clip = async (line: string) => {
+      const spoken = await speech("synthesize", JSON.stringify({ text: line, language }), {
+        "Content-Type": "application/json",
+      });
+      return context.decodeAudioData(await spoken.arrayBuffer());
+    };
+    let reached = 0;
+    const reach = (shown: number) => {
+      if (shown === reached) return;
+      reached = shown;
+      // A message with `shown` gone was shown whole ("Mostrar todo", `hush`): it stays whole.
+      setMessages((prev) => prev.map((m) => (m.reading === reading && m.shown !== undefined ? { ...m, shown } : m)));
+    };
+    setMessages((prev) => [...prev, { role: "assistant", text: reply, ...traced, reading, shown: 0 }]);
+    setPreparing(true);
+    try {
+      let next = clip(lines[0][0]);
+      for (const [index, line] of lines.entries()) {
+        const buffer = await next;
+        if (reading !== speaking.current) return; // the voice was turned off, or the customer is talking again
+        if (lines[index + 1]) next = clip(lines[index + 1][0]);
+        setPreparing(false);
+        await new Promise<void>((resolve) => {
+          const source = context.createBufferSource();
+          source.buffer = buffer;
+          source.connect(analyser);
+          const started = context.currentTime;
+          let frame = 0;
+          const follow = () => {
+            reach(line.index + revealed(line[0], (context.currentTime - started + LEAD) / buffer.duration));
+            corona.current?.setLevel(loudness());
+            frame = requestAnimationFrame(follow);
+          };
+          source.onended = () => {
+            cancelAnimationFrame(frame); // at the end of the line, or when `hush` stops it
+            resolve();
+          };
+          voice.current = source;
+          source.start();
+          follow();
+        });
+        reach(line.index + line[0].length);
+      }
+    } catch (error) {
+      fail(error);
+    } finally {
+      analyser.disconnect();
+      if (reading === speaking.current) {
+        setPreparing(false);
+        corona.current?.setLevel(null);
+      }
+      setMessages((prev) => prev.map((m) => (m.reading === reading ? { ...m, shown: undefined } : m)));
+    }
+  }
+
+  // One customer turn, typed or spoken (`heard`: the language Whisper heard it in). With the voice
+  // on the reply is also read aloud, without making the customer wait: they can type or talk
+  // while it reads.
+  async function submit(text: string, heard?: string) {
+    setMessages((prev) => [...prev, { role: "customer", text }]);
+    setPending(true);
+    try {
+      let response = await post(text, false);
+      if (response.status === 401 && customerId.trim()) response = await post(text, true); // session expired: sign in again once
+      if (response.status === 401) throw new Error("Elige un ID de cliente para iniciar sesión");
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data: ChatResponse = await response.json();
+      const reply = data.reply;
+      if (reply === null) return;
+      if (sound) void speak(reply, trace(data), heard ?? (PORTUGUESE.test(text + reply) ? "pt" : "es"));
+      else {
+        setMessages((prev) => [...prev, { role: "assistant", text: reply, ...trace(data) }]);
+        setAnswering(true);
+        clearTimeout(answered.current);
+        answered.current = setTimeout(() => setAnswering(false), ANSWERING);
+      }
+    } catch (error) {
+      fail(error);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function sampleChart() {
+    const finances = await getOwnFinances(customerId.trim());
+    const top = finances.categories[0];
+    const share = Math.round((top.amount / finances.totals.spend) * 100);
+    const text = `En los últimos ${finances.windowDays} días gastaste **${formatAmount(finances.totals.spend)} ${finances.currency}**. Lo que más pesa es **${top.name.toLowerCase()}**: ${share}% del total.`;
+    setMessages((prev) => [...prev, { role: "customer", text: SPENDING }, { role: "assistant", text, chart: finances.categories }]);
+  }
+
+  function ask(text: string) {
+    if (pending) return;
+    hush(); // a new question: stop reading the previous answer
+    void submit(text);
+  }
+
+  function send(event: FormEvent) {
+    event.preventDefault();
+    const text = draft.trim();
+    if (!text || pending) return;
+    setDraft("");
+    ask(text);
+  }
+
+  // The mic button: the first click records, the second sends what was said as a normal message.
+  async function talk() {
+    try {
+      if (!recording) {
+        hush(); // or the microphone would record Quipu
+        return await start();
+      }
+      const recorded = await stop();
+      setPending(true);
+      const heard: { text: string; language: string } = await (await speech("transcribe", recorded)).json();
+      if (heard.text) await submit(heard.text, heard.language); // empty: silence
+    } catch (error) {
+      fail(error);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  function toggleSound() {
+    if (sound) hush();
+    else {
+      audio.current ??= new AudioContext();
+      void audio.current.resume();
+    }
+    setSound(!sound);
+  }
+
+  // A reply at `shown` 0 is waiting for its voice: it comes on screen when the voice starts.
+  const thread = messages.filter((message) => message.shown !== 0);
+  const reading = thread.some((message) => message.shown !== undefined);
+  const mode: CoronaMode = recording ? "listening" : pending || preparing ? "thinking" : reading || answering ? "speaking" : "idle";
+  const last = thread[thread.length - 1];
+  const withPerson = messages.some((message) => message.handoff || message.role === "operator");
+
+  return (
+    <div className={`s-chat q-st-${mode}`}>
+      <AppHeader area="cliente" active="/chat">
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--q-fog)" }}>
+            Cliente
+            <input
+              className="field"
+              value={customerId}
+              onChange={(event) => changeCustomer(event.target.value)}
+              list="demo-customers"
+              placeholder="Tu ID de cliente"
+              style={{ width: 190 }}
+            />
+            <datalist id="demo-customers">
+              {demoCustomers.map((c) => (
+                <option key={c.customer_id} value={c.customer_id} label={`${c.first_name} · ${c.country} · ${c.segment}`} />
+              ))}
+            </datalist>
+          </label>
+          <button
+            type="button"
+            className="q-btn q-btn-sm q-btn-ghost"
+            onClick={() => allow().catch(fail)}
+            style={{ color: MICROPHONE[access].color }}
+          >
+            {MICROPHONE[access].label}
+          </button>
+          <button
+            type="button"
+            className="q-btn q-btn-sm q-btn-ghost"
+            onClick={toggleSound}
+            aria-pressed={sound}
+            aria-label={sound ? "Silenciar la voz de Quipu" : "Activar la voz de Quipu"}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <path d="M11 5 6 9H3v6h3l5 4V5z" />
+              {sound ? <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" /> : <path d="m22 9-6 6M16 9l6 6" />}
+            </svg>
+            <span>{sound ? "Voz" : "Silencio"}</span>
+          </button>
+        </div>
+      </AppHeader>
+
+      <div className="cols">
+        <aside
+          className="q-grid-bg side"
+          style={{
+            position: "relative", flex: "1 1 420px", display: "flex", flexDirection: "column", alignItems: "center",
+            justifyContent: "center", gap: 26, padding: "36px 24px", borderRight: "1px solid rgba(230,244,241,.07)", boxSizing: "border-box",
+          }}
+        >
+          <div style={{ position: "absolute", inset: 0, background: "radial-gradient(55% 45% at 50% 42%, rgba(27,153,139,.24), rgba(4,20,26,0) 72%)", pointerEvents: "none" }} />
+          <div className="orbbox" style={{ position: "relative", width: 340, maxWidth: "80vw", aspectRatio: "1 / 1" }}>
+            <div className="sonar" style={{ inset: 0 }} />
+            <div className="sonar" style={{ inset: "12%", borderStyle: "dashed", borderColor: "rgba(230,244,241,.12)" }} />
+            <div className="sonar live" style={{ inset: "22%", borderColor: "rgba(46,196,182,.6)" }} />
+            <div style={{ position: "absolute", inset: 0 }}>
+              <Corona mode={mode} ref={corona} />
+            </div>
+          </div>
+          <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, textAlign: "center" }} aria-live="polite">
+            <span style={{ fontSize: 26, fontWeight: 500, letterSpacing: "-0.035em" }}>{STATUS[mode].title}</span>
+            <span style={{ fontFamily: "var(--q-mono)", fontSize: 12, color: "var(--q-muted)" }}>
+              {preparing ? "tts · generando la voz" : STATUS[mode].code}
+            </span>
+          </div>
+          <button
+            type="button"
+            className={`mic ${recording ? "mic-live" : "mic-idle"}`}
+            onClick={talk}
+            disabled={pending}
+            aria-label={recording ? "Dejar de grabar" : "Hablar con Quipu"}
+            style={{ position: "relative" }}
+          >
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <rect x="9" y="3" width="6" height="11" rx="3" />
+              <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+            </svg>
+          </button>
+        </aside>
+
+        <main style={{ flex: "999 1 560px", minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
+          <div
+            className="msgs"
+            style={{
+              flex: "1 1 auto", overflowY: "auto", padding: 32, display: "flex", flexDirection: "column", gap: 26,
+              maxWidth: 780, width: "100%", boxSizing: "border-box", margin: "0 auto",
+            }}
+          >
+            <span style={{ alignSelf: "center", fontFamily: "var(--q-mono)", fontSize: 12, color: "var(--q-muted)" }}>
+              {customerId.trim() ? "sesión iniciada · datos sintéticos" : "elige un cliente para empezar · datos sintéticos"}
+            </span>
+
+            {!started && (
+              <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
+                {SUGGESTIONS.map((text) => (
+                  <button key={text} type="button" className="sug" onClick={() => (text === SPENDING ? void sampleChart() : ask(text))}>
+                    {text}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {thread.map((message, index) =>
+              message.role === "customer" ? (
+                <div
+                  key={index}
+                  style={{
+                    alignSelf: "flex-end", maxWidth: "80%", padding: "12px 16px", borderRadius: "16px 16px 4px 16px",
+                    background: "var(--q-mist)", color: "var(--q-abyss)", fontSize: 15, whiteSpace: "pre-wrap",
+                  }}
+                >
+                  {message.text}
+                </div>
+              ) : (
+                <div key={index} style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+                  {message.role === "operator" ? <AgentIcon size={28} style={{ flex: "0 0 auto" }} /> : <Logo animated={message === last} />}
+                  <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+                    {message.role === "operator" && (
+                      <span style={{ fontFamily: "var(--q-mono)", fontSize: 12, color: "var(--q-sky)" }}>Agente de soporte</span>
+                    )}
+                    <div className="reply">
+                      <Markdown>{message.shown === undefined ? message.text : visible(message.text, message.shown)}</Markdown>
+                    </div>
+                    {message.chart && <SpendingChart categories={message.chart} />}
+                    {message.chart && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        <span className="q-chip">render_chart</span>
+                        <span className="q-chip" style={{ color: "var(--q-amber-soft)" }}>respuesta de muestra</span>
+                      </div>
+                    )}
+                    {message.shown !== undefined && (
+                      <button
+                        type="button"
+                        className="link"
+                        style={{ alignSelf: "flex-start" }}
+                        onClick={() => setMessages((prev) => prev.map((m) => (m === message ? { ...m, shown: undefined } : m)))}
+                      >
+                        Mostrar todo
+                      </button>
+                    )}
+                    {message.shown === undefined && message === last && !withPerson && Boolean(message.tools?.length) && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                        <button type="button" className="q-btn q-btn-sm q-btn-ghost" onClick={() => ask(ASK_FOR_A_PERSON)} disabled={pending}>
+                          Conectar con un agente
+                        </button>
+                      </div>
+                    )}
+                    {message.shown === undefined && (message.skill || message.handoff) && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {message.skill && <span className="q-chip q-chip-on">{message.skill}</span>}
+                        {message.tools?.map((tool) => (
+                          <span key={tool} className="q-chip">
+                            {tool}
+                          </span>
+                        ))}
+                        {message.handoff && (
+                          <span className="q-chip" style={{ color: "var(--q-sky)", boxShadow: "inset 0 0 0 1px rgba(93,169,233,.45)" }}>
+                            → agente de soporte
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ),
+            )}
+            <div ref={end} />
+          </div>
+
+          <form className="composer" onSubmit={send} style={{ padding: "16px 32px 24px", maxWidth: 780, width: "100%", boxSizing: "border-box", margin: "0 auto" }}>
+            <div
+              style={{
+                display: "flex", alignItems: "center", gap: 8, padding: "6px 6px 6px 18px", borderRadius: 16,
+                background: "rgba(11,42,51,.6)", boxShadow: "inset 0 0 0 1px rgba(230,244,241,.12)",
+              }}
+            >
+              <label htmlFor="q-input" className="q-sr-only">
+                Escribe tu consulta
+              </label>
+              <input
+                id="q-input"
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                placeholder="Pregunta por tu saldo, un cargo o una queja…"
+                autoComplete="off"
+                style={{ flex: "1 1 auto", minWidth: 0, minHeight: 44, border: "none", background: "transparent", font: "inherit", fontSize: 15, color: "var(--q-mist)", outline: "none" }}
+              />
+              <button type="submit" className="q-btn q-btn-sm q-btn-primary" disabled={pending} aria-label="Enviar" style={{ width: 44, padding: 0 }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M12 19V5M6 11l6-6 6 6" />
+                </svg>
+              </button>
+            </div>
+          </form>
+        </main>
+      </div>
+    </div>
+  );
+}

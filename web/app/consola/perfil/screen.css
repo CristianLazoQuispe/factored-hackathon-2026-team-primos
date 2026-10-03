@@ -1,0 +1,30 @@
+/* Perfil 360. Every rule is nested under the screen's root class. */
+.s-profile {
+  .q-panel { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .h { font-size: 15px; font-weight: 500; letter-spacing: -.01em; }
+
+  /* This screen's buttons are smaller than `q-btn-sm`, and the primary one has no glow. */
+  .q-btn { gap: 8px; min-height: 40px; padding: 0 14px; border-radius: 10px; font-size: 13px; }
+  .q-btn-primary { box-shadow: none; }
+  .q-btn-primary:hover { box-shadow: 0 0 0 4px rgba(46,196,182,.28); }
+
+  .kpi { gap: 6px; }
+  .kpi-v { font-size: 30px; font-weight: 500; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+
+  .bar { flex: 1 1 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 6px;
+    height: 100%; background: transparent; border: none; padding: 0; cursor: default; font: inherit; color: inherit; }
+  .bar-fill { width: 60%; max-width: 34px; border-radius: 4px 4px 0 0; background: var(--q-cat-1); }
+
+  .legend-row { display: grid; grid-template-columns: 12px 1fr auto auto; gap: 10px; align-items: center; padding: 8px 6px;
+    border-radius: 8px; font-size: 13px; background: transparent; border: none; color: var(--q-mist); font-family: inherit;
+    text-align: left; cursor: default; }
+  .legend-row:hover, .legend-row:focus-visible { background: rgba(230,244,241,.05); outline: none; }
+  .sw { width: 12px; height: 12px; border-radius: 3px; }
+
+  .tl { display: grid; grid-template-columns: 20px 1fr; gap: 12px; }
+
+  @media (max-width: 640px) {
+    .kpi-v { font-size: 26px; }
+    .legend-row { font-size: 12px; }
+  }
+}
