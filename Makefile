@@ -120,8 +120,8 @@ etl-cloud:        ## Full ETL into Cloud SQL through `make db-proxy`: raw CSV ->
 	uv run python -m data_pipeline.silver --source full
 	@DATABASE_URL=postgresql://agent:$$($(GCLOUD) secrets versions access latest --secret factored-db-password)@127.0.0.1:5433/agent \
 		uv run python -m data_pipeline.load --source full
-	cp data/silver/_quality_report.json docs/documentation/technical/quality_report_full.json
-	@echo "ok   evidence in docs/documentation/technical/quality_report_full.json (data/silver now holds the full set: make demo-data rebuilds the sample)"
+	cp data/silver/_quality_report.json docs/documentation/technical/data/quality_report_full.json
+	@echo "ok   evidence in docs/documentation/technical/data/quality_report_full.json (data/silver now holds the full set: make demo-data rebuilds the sample)"
 
 deploy-api:       ## Build the API image and deploy factored-api (keeps CORS pointed at factored-web)
 	$(GCLOUD) builds submit --region $(GCP_REGION) --tag $(REGISTRY)/api:$(TAG) .

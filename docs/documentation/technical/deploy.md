@@ -18,7 +18,7 @@ anywhere. Settings live in repository *variables*; there are no GitHub secrets.
 - Region `us-central1`; Artifact Registry repo `factored`.
 - Cloud SQL `factored-510201:us-central1:factored-db` (Postgres 16), database and user `agent`.
   It holds `core`, `ops` and the `dwh_reader` role. `core` is loaded by `make etl-cloud`
-  (see [data_pipeline.md](data_pipeline.md)): it **replaces** `core`, so coordinate before running it.
+  (see [data/pipeline.md](data/pipeline.md)): it **replaces** `core`, so coordinate before running it.
 - Runtime account `factored-api@…` with `cloudsql.client`, `secretmanager.secretAccessor` and
   `aiplatform.user` (so it can read every secret and call Gemini through Vertex AI: no API key).
 - Secrets `factored-database-url`, `factored-db-password`, `jwt-secret` (signs the bearer tokens) and

@@ -35,46 +35,21 @@ flowchart LR
 |---|---|---|
 | raw | `python -m data_pipeline.download` | Resumable S3 download that keeps the `year=/month=/day=` partitions |
 | bronze | `python -m data_pipeline.bronze` | CSV → one Parquet per table. `union_by_name` absorbs schema evolution; the source `filename` is kept for lineage |
-| sample | `python -m data_pipeline.sample` | Deterministic, referentially closed mini-set (see [11_data_model.md](../../strategy_analysis_01/11_data_model.md)) |
+| sample | `python -m data_pipeline.sample` | Deterministic, referentially closed mini-set (see [11_data_model.md](../../../strategy_analysis_01/11_data_model.md)) |
 | fixtures | `python -m data_pipeline.fixtures` | 8 team-made demo customers, labeled `is_synthetic_fixture` |
 | silver | `python -m data_pipeline.silver --source sample\|full` | Deduplicates by primary key (latest `last_updated`), normalizes country names, completes `transaction_category` from the merchant, drops rows whose customer doesn't exist, counts soft-FK orphans and source anomalies, validates pandera contracts, and writes `_quality_report.json` |
 | serving | `python -m data_pipeline.load --source sample\|full` | Builds `core` from `schema.sql` as `core_staging`, bulk-loads silver + fixtures, generates `core.billing`, checks that every row arrived, then swaps it in for `core` in one transaction. `ops` is never touched. Idempotent |
 
 `--source` in the load must match what silver was built from, so a stale `data/silver/` never puts the mini-set where the full dataset was meant. A load that fails halfway leaves the `core` the agent is reading untouched.
 
-## What is in `core`, and where it comes from
-
-![Data model of the core schema](diagrams/data_model.svg)
-
-The same eight tables in the local Postgres and in Cloud SQL; only the amount of data differs. The diagram shows the columns the tools read (full definition: `app/adapters/outbound/postgres/schema.sql`). `fx_rates` has no foreign key: it is looked up by currency and date. Source: [`diagrams/data_model.mmd`](diagrams/data_model.mmd); regenerate the SVG and the 300-dpi PNG with `make diagrams`.
-
-The brief asks to label every input. Each table carries its provenance as a `COMMENT ON TABLE` in `schema.sql`, and the load copies those labels into the quality report.
-
-| Table | Rows are | Provenance |
-|---|---|---|
-| `customers`, `products`, `transactions`, `fx_rates`, `complaints` | the organizer's rows, only the columns the agent may use | organizer dataset (itself synthetic) |
-| `app_sessions` | one row per app/web session | derived from the organizer's `digital_events` |
-| `customer_service_summary` | one row per customer: contacts, escalations, open complaints, last CSAT | derived from the organizer's interactions, complaints and surveys |
-| `billing` | one row per credit card and loan: statement date, due date, statement balance, minimum payment or installment, past-due amount | **team-generated** by a fixed rule (below) |
-| rows with `is_synthetic_fixture = true` | the 8 demo customers and their dispute scenarios | **team-generated** (`fixtures.py`) |
-
-Not loaded: `call_transcripts`, `call_center_interactions` and `satisfaction_surveys`. Their text is templates (every transcript still has `{monto}` placeholders) and the survey scores do not follow their own scales, so the agent only gets what the summary aggregates from them. `service_agents` and `branches` are not loaded either: no question uses them.
-
-**The billing rule.** The dataset has balances, rates and `days_past_due`, but no due dates, statements or installments. `load.py` derives them, as of the dataset's last day (2026-06-18), from a stable hash of the product id, so the same product always gets the same figures:
-
-- a product that is past due was due exactly `days_past_due` days ago; any other is due 1 to 20 days ahead;
-- the statement closes 20 days before the due date;
-- a card's statement is its whole balance when past due, otherwise 70-100% of it; its minimum is 5% of the statement with a floor per currency, plus what is past due, never more than the statement;
-- a loan's installment is the level payment for its balance, annual rate and remaining installments (6-60 personal, 60-360 mortgage).
-
-The load refuses to run if a past-due product's due date disagrees with its `days_past_due`. The tools return these figures with `billing_provenance: team_generated` and the agent states them as illustrative.
+What ends up in `core`, table by table, and where each one comes from: [model.md](model.md).
 
 ## Data contracts and quality
 
 - **Contracts** (pandera, in `silver.py`):
   - primary keys unique and not null;
   - closed vocabularies for the columns the tools branch on (`transaction_status`, `currency`).
-- **Quality report:** `data/silver/_quality_report.json` records, per table, the input rows, dropped duplicates, dropped customer orphans, soft-FK orphans, counted anomalies and output rows; the load adds the target host, the rows that arrived in each `core` table and their provenance. It is the lineage evidence for each run. `make etl-cloud` copies the full-dataset report to `quality_report_full.json` in this folder.
+- **Quality report:** `data/silver/_quality_report.json` records, per table, the input rows, dropped duplicates, dropped customer orphans, soft-FK orphans, counted anomalies and output rows; the load adds the target host, the rows that arrived in each `core` table and their provenance. It is the lineage evidence for each run. `make etl-cloud` copies the full-dataset report to [`quality_report_full.json`](quality_report_full.json) in this folder.
 - **Known source issues:**
   - "Mexico" vs "México" in `transaction_country` (normalized);
   - `transaction_category` empty on purchases whose merchant has one (completed);
