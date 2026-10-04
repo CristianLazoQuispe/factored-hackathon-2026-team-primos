@@ -360,3 +360,44 @@ def test_the_progress_line_shows_the_reason_of_a_wrong_answer():
     }  # fmt: skip
     line = harness.progress_line([wrong], 3)
     assert "wrong (" in line and "different values" in line
+
+
+# ---- scoring a saved report again ----
+
+
+async def test_a_saved_report_is_scored_again_with_todays_rules(demo_data):
+    from evals.text_to_sql import rescore
+
+    saved = await harness.run_eval(Fake(oracle), CASES)
+    stale = [a | {"correct": False, "reason": "old rule"} for a in saved]  # as an old run left it
+    again = await rescore.rescore(stale)
+    assert summarize(again)["answerable"]["execution_accuracy"] == 1.0
+    assert rescore.changes(stale, again) and all(
+        "wrong -> ok" in line for line in rescore.changes(stale, again)
+    )
+    assert rescore.changes(saved, again) == []
+
+
+async def test_rescoring_leaves_refused_calls_and_unknown_cases_as_they_were(demo_data):
+    from evals.text_to_sql import rescore
+
+    refused = {"id": "tx_count", "provider_error": "429", "sql": None, "correct": None, "repeat": 1}
+    unknown = {
+        "id": "a_case_that_was_removed",
+        "provider_error": None,
+        "sql": "SELECT 1",
+        "correct": True,
+    }
+    unknown |= {"repeat": 1}
+    assert await rescore.rescore([refused, unknown]) == [refused, unknown]
+
+
+async def test_the_sql_the_model_wrote_is_what_gets_scored_again(demo_data):
+    from evals.text_to_sql import rescore
+
+    case = next(c for c in CASES if c.id == "tx_count")
+    wrong = Fake(lambda q: "```sql\nSELECT count(*) + 1 AS n FROM transactions\n```")
+    (attempt,) = await harness.run_eval(wrong, [case])
+    assert attempt["correct"] is False
+    (again,) = await rescore.rescore([attempt])
+    assert again["correct"] is False and again["sql"] == attempt["sql"]
