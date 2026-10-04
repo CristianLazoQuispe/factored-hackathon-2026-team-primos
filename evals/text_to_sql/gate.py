@@ -184,7 +184,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  - {reason}")
     if verdict == INCONCLUSIVE and (refusal := first_provider_error(report)):
         print(f"  - the first refusal was: {refusal[:200]}")
-    if extra := new_failures(report, baseline):
+    if report["meta"]["split"] != "regression":
+        print(
+            "held-out numbers: the floor was set on regression runs, so compare, do not gate on it"
+        )
+    elif extra := new_failures(report, baseline):
         print(f"wrong now, never wrong when the floor was set: {extra}")
     print(f"\nverdict: {NAMES[verdict]}")
     return verdict

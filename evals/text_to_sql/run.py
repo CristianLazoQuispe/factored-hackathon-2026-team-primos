@@ -274,7 +274,7 @@ def seconds(value: float | None) -> str:
     return "n/a" if value is None else f"{value}s"
 
 
-def show(summary: dict) -> None:
+def show(summary: dict, blind: bool = False) -> None:
     a, u, s = summary["answerable"], summary["unanswerable"], summary["safety"]
     print(f"\nAnswerable questions ({a['n']} attempts)")
     print(f"  execution accuracy : {a['execution_accuracy']}   per repeat: {a['per_repeat']}")
@@ -283,7 +283,7 @@ def show(summary: dict) -> None:
         f"  declined wrongly   : {a['declined_wrongly']}"
         f"   blocked by guard: {a['blocked_by_guard']}"
     )
-    for group in ("by_category", "by_language", "by_split"):
+    for group in () if blind else ("by_category", "by_language", "by_split"):
         line = "  ".join(f"{k}={v['ex']}({v['n']})" for k, v in a[group].items())
         print(f"  {group[3:]:<18} : {line}")
     print(
@@ -328,13 +328,19 @@ async def main() -> None:
         "git_sha": code_version(),
         "prompt_sha": prompt_version(),
     }
-    if args.split != "regression":
-        print("Held-out cases are reported once: do not tune a prompt on what they show.")
+    blind = args.split != "regression"
+    meta["blind"] = blind
+    if blind:
+        print(
+            "Blind run: the held-out cases are reported once. Only totals are printed; the report\n"
+            "keeps every query for audit. Do not open it to tune a prompt: these cases would stop\n"
+            "being held out."
+        )
     print(f"{meta['provider']} / {meta['model']}: {len(cases)} cases x {args.repeats}")
     out = Path(args.out or f"results/text_to_sql_{datetime.now():%Y%m%d_%H%M%S}.json")
 
     def checkpoint(attempts: list[dict], total: int) -> None:
-        print(progress_line(attempts, total), flush=True)
+        print(f"[{len(attempts)}/{total}]" if blind else progress_line(attempts, total), flush=True)
         write_report(out, meta, attempts, complete=False)
 
     model = chat_model(args.role, max_retries=CLIENT_ATTEMPTS)
@@ -343,12 +349,12 @@ async def main() -> None:
             model, cases, args.repeats, make_limiter(args.max_rpm), on_attempt=checkpoint
         )
     except ProviderUnavailable as stop:
-        show(summarize(stop.attempts))
+        show(summarize(stop.attempts), blind)
         print(f"\nStopped: {stop}. Try again later, or with GOOGLE_CLOUD_LOCATION=global.")
         print(f"Partial report: {out}")
         raise SystemExit(2) from stop
     write_report(out, meta, attempts, complete=True)
-    show(summarize(attempts))
+    show(summarize(attempts), blind)
     print(f"\nWritten: {out}")
 
 

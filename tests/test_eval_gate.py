@@ -212,3 +212,13 @@ def test_an_inconclusive_run_shows_why_the_provider_refused(tmp_path, capsys):
         "the first refusal was: PermissionError: 403 PERMISSION_DENIED" in capsys.readouterr().out
     )
     assert gate.first_provider_error(make_run()) is None
+
+
+def test_the_gate_does_not_name_the_failing_cases_of_a_held_out_report(tmp_path, capsys):
+    base = write(tmp_path / "baseline.json", BASELINE)
+    held_out = make_run(wrong={"a5"}, split="heldout")
+    gate.main([write(tmp_path / "held.json", held_out), "--baseline", base])
+    out = capsys.readouterr().out
+    assert "a5" not in out and "held-out numbers" in out
+    gate.main([write(tmp_path / "regression.json", make_run(wrong={"a5"})), "--baseline", base])
+    assert "['a5']" in capsys.readouterr().out

@@ -409,3 +409,58 @@ async def test_the_report_records_where_the_model_was_served_from(demo_data, mon
     monkeypatch.setattr(harness, "get_settings", lambda: Settings(google_cloud_location="global"))
     report = await run_command(monkeypatch, tmp_path, "--ids", "credit_score")
     assert report["meta"]["location"] == "global"
+
+
+# ---- a held-out run is blind: seeing what failed would be tuning ----
+
+HELD_OUT_IDS = [case.id for case in CASES if case.split == "heldout"]
+
+
+async def test_a_held_out_run_prints_totals_and_no_case(demo_data, monkeypatch, tmp_path, capsys):
+    report = await run_command(monkeypatch, tmp_path, "--split", "heldout")
+    out = capsys.readouterr().out
+    assert "Blind run" in out and f"[{len(HELD_OUT_IDS)}/{len(HELD_OUT_IDS)}]" in out
+    assert not [case_id for case_id in HELD_OUT_IDS if case_id in out]
+    assert "category" not in out and "language" not in out
+    assert report["meta"]["blind"] is True
+    assert {a["id"] for a in report["attempts"]} == set(HELD_OUT_IDS)  # kept for audit
+
+
+async def test_a_regression_run_still_shows_every_case(demo_data, monkeypatch, tmp_path, capsys):
+    report = await run_command(monkeypatch, tmp_path, "--ids", "credit_score,tx_count")
+    out = capsys.readouterr().out
+    assert "credit_score" in out and "category" in out and "Blind run" not in out
+    assert report["meta"]["blind"] is False
+
+
+def test_the_summary_of_a_blind_run_has_no_breakdown(capsys):
+    group = {"x": {"n": 1, "ex": 0.0}}
+    answerable = {
+        "n": 1, "execution_accuracy": 0.0, "ran_without_error": 1.0, "declined_wrongly": 0,
+        "blocked_by_guard": 0, "per_repeat": [0.0], "by_category": group,
+        "by_language": group, "by_split": group,
+    }  # fmt: skip
+    summary = {
+        "answerable": answerable, "unanswerable": {"n": 0, "declined": None, "answered_anyway": 0},
+        "safety": {
+            "n": 0, "safe": 0, "declined": 0, "forbidden_sql_blocked_by_guard": 0, "leaks": 0,
+        },
+        "latency_model_seconds": {"p50": 1.0, "p95": 1.0}, "model_calls": 1, "provider_errors": 0,
+    }  # fmt: skip
+    harness.show(summary, blind=True)
+    assert "x=" not in capsys.readouterr().out
+    harness.show(summary)
+    assert "x=0.0(1)" in capsys.readouterr().out
+
+
+async def test_rescoring_a_held_out_report_says_how_many_changed_not_which(demo_data):
+    from evals.text_to_sql import rescore
+
+    saved = await harness.run_eval(Fake(oracle), CASES)
+    stale = [a | {"correct": False} for a in saved[:2]] + saved[2:]
+    again = await rescore.rescore(stale)
+    assert rescore.changes(stale, again, blind=True) == ["2 verdicts changed"]
+    assert rescore.changes(saved, again, blind=True) == []
+    assert all(
+        a["id"] in line for a, line in zip(saved[:2], rescore.changes(stale, again), strict=True)
+    )

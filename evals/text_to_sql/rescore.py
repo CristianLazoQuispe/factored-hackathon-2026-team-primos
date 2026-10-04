@@ -31,11 +31,16 @@ async def rescore(attempts: list[dict], db=None) -> list[dict]:
     return rescored
 
 
-def changes(before: list[dict], after: list[dict]) -> list[str]:
+def changes(before: list[dict], after: list[dict], blind: bool = False) -> list[str]:
+    """What changed verdict. For held-out cases only how many: which ones would be tuning."""
+    changed = [
+        (old, new) for old, new in zip(before, after, strict=True) if verdict(old) != verdict(new)
+    ]
+    if blind:
+        return [f"{len(changed)} verdicts changed"] if changed else []
     return [
         f"{new['id']} (repeat {new['repeat']}): {verdict(old)} -> {verdict(new)}"
-        for old, new in zip(before, after, strict=True)
-        if verdict(old) != verdict(new)
+        for old, new in changed
     ]
 
 
@@ -46,9 +51,10 @@ async def main() -> None:
     args = parser.parse_args()
     report = json.loads(Path(args.report).read_text())
     attempts = await rescore(report["attempts"])
-    for line in changes(report["attempts"], attempts) or ["no verdict changed"]:
+    blind = report["meta"]["split"] != "regression"
+    for line in changes(report["attempts"], attempts, blind) or ["no verdict changed"]:
         print(line)
-    show(summarize(attempts))
+    show(summarize(attempts), blind)
     out = Path(args.out or args.report.replace(".json", ".rescored.json"))
     meta = report["meta"] | {"rescored_from": args.report}
     write_report(out, meta, attempts, complete=report["meta"].get("complete", True))
