@@ -7,6 +7,14 @@ from the table's own latest date, e.g.
 Values below are the real ones in the data (Spanish for products and countries, English for most
 statuses). Use them exactly: a wrong spelling returns no rows. A NULL means "not recorded".
 
+## Writing the query (PostgreSQL)
+
+- Dates: `date_trunc('month', col)`, `extract(year FROM col)`, `to_char(col, 'YYYY-MM')`, `col::date`,
+  `col >= date '2026-06-01'`. Functions from SQLite or MySQL (`strftime`, `date_format`, `julianday`)
+  do not exist here and are rejected.
+- Names of merchants, cities and products are written as the bank recorded them and vary in spelling
+  (`Uber` and `Uber Trip` are both Uber): match them with `ILIKE '%text%'`, never with `=`.
+
 ## transactions  (one row per card/account movement)
 transaction_id, product_id, transaction_date (timestamp), transaction_type
 (Purchase|Payment|Transfer|Deposit|Withdrawal|Adjustment), transaction_category
@@ -54,6 +62,8 @@ session_id, started_at, ended_at, channel, platform, ip_country, ip_city, had_lo
 contacts_in_window, escalated_contacts, last_contact_at, last_contact_reason, open_complaints,
 unrecognized_charge_complaints, is_repeat_complainer, last_csat.
 
-## fx_rates  (public reference, not customer data)
+## fx_rates  (public reference: use it for any exchange-rate question)
 date, source_currency, target_currency (MXN|COP|ARS|USD), exchange_rate (1 source = rate target),
 buy_rate, sell_rate.
+- "The dollar in Mexican pesos" is source USD, target MXN. For the current rate take the row with the
+  greatest `date`: `ORDER BY date DESC LIMIT 1`.
