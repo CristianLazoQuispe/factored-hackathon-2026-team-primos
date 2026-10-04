@@ -201,3 +201,14 @@ def test_a_floor_is_rounded_down_so_the_margin_it_promises_is_real():
         gate.check(run, {"floors": gate.floors_from(run, 2), "measured": BASELINE["measured"]})[0]
         == 0
     )
+
+
+def test_an_inconclusive_run_shows_why_the_provider_refused(tmp_path, capsys):
+    run = make_run(provider_errors=15)
+    run["attempts"][0]["provider_error"] = "PermissionError: 403 PERMISSION_DENIED aiplatform.user"
+    base = write(tmp_path / "baseline.json", BASELINE)
+    assert gate.main([write(tmp_path / "run.json", run), "--baseline", base]) == 2
+    assert (
+        "the first refusal was: PermissionError: 403 PERMISSION_DENIED" in capsys.readouterr().out
+    )
+    assert gate.first_provider_error(make_run()) is None

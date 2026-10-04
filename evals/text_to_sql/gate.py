@@ -83,6 +83,12 @@ def new_failures(report: dict, baseline: dict) -> list[str]:
     return sorted(wrong - known)
 
 
+def first_provider_error(report: dict) -> str | None:
+    """Why the provider refused, in its own words: a permission error looks like a busy one
+    in the verdict, and the difference decides what to do next."""
+    return next((a["provider_error"] for a in report["attempts"] if a["provider_error"]), None)
+
+
 def floors_from(report: dict, margin_cases: int) -> dict:
     """The floors a measured report suggests: its worst repeat, minus a margin of whole cases
     (a model does not answer the same every time), and at most one refusal missed."""
@@ -176,6 +182,8 @@ def main(argv: list[str] | None = None) -> int:
     print("\n".join(table(report, baseline)))
     for reason in reasons:
         print(f"  - {reason}")
+    if verdict == INCONCLUSIVE and (refusal := first_provider_error(report)):
+        print(f"  - the first refusal was: {refusal[:200]}")
     if extra := new_failures(report, baseline):
         print(f"wrong now, never wrong when the floor was set: {extra}")
     print(f"\nverdict: {NAMES[verdict]}")
