@@ -101,3 +101,24 @@ async def test_the_data_behind_the_unanswerable_cases_is_still_missing(demo_data
         f"{r['table_name']}.{r['column_name']}" for r in rows if r["column_name"] in MISSING_COLUMNS
     )
     assert not present, f"now answerable, rewrite the unanswerable cases: {present}"
+
+
+# Only DEMO-MX-FX has purchases abroad, and it only buys.
+CANNOT_TELL_THE_PURCHASE_RULE = {"foreign_spend"}
+
+
+@pytest.mark.anyio
+async def test_the_purchase_cases_use_customers_that_do_more_than_buy(demo_data):
+    """If every customer only buys, a model that ignores the "Approved purchases" rule still
+    passes: the DEMO customers are like that, and an eval that cannot fail measures nothing."""
+    db = ReadOnlyPostgres()
+    sql = (
+        "SELECT count(*) AS n FROM transactions "
+        "WHERE transaction_status = 'Approved' AND transaction_type <> 'Purchase'"
+    )
+    for case in ANSWERABLE:
+        asks_for_purchases = any("transaction_type = 'Purchase'" in gold for gold in case.golds)
+        if case.id in CANNOT_TELL_THE_PURCHASE_RULE or not asks_for_purchases:
+            continue
+        counts = [(await run_scoped_sql(db, c, sql))["rows"][0]["n"] for c in case.customers]
+        assert any(counts), f"{case.id}: every customer only buys, the Purchase filter is untested"
