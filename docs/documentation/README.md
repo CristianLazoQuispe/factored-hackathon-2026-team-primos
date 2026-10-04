@@ -18,7 +18,7 @@
 | [deploy.md](technical/deploy.md) | Living | Cloud Run and Cloud SQL: what exists, how a deploy runs, rollback, limits |
 | [diagrams/](technical/diagrams/) | Living | Mermaid sources (`.mmd`) + rendered SVG / 300-dpi PNG (`make diagrams`) |
 | [adr/](technical/adr/) | Ongoing | Architecture decision records (`NNNN-title.md`) |
-| `evaluation.md` | Planned | Held-out set, metrics, repeated runs, judge validation, results, failures |
+| [evaluation.md](technical/evaluation.md) | Living | What the text-to-SQL eval measures and does not, the cases and the held-out split, the quality floor that stops a deploy, results, known failures, limits |
 | `security.md` | Planned | Auth, authorization, prompt-injection defense, data handling and retention |
 | `operations.md` | Planned | Deployment, tracing, monitoring, capacity limits, remaining production work |
 | `limitations.md` | Planned | Data, language coverage, known risks |
