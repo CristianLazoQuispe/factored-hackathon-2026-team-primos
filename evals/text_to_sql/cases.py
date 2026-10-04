@@ -37,10 +37,19 @@ class Case:
     language: str  # "es" or "pt"
     question: str
     kind: Kind = "answerable"
-    gold_sql: str | None = None
+    gold_sql: str | tuple[str, ...] | None = (
+        None  # several when the question has two valid readings
+    )
     customers: tuple[str, ...] = TX
     ordered: bool = False  # True when the gold SQL has a meaningful ORDER BY
     split: Split = "regression"
+
+    @property
+    def golds(self) -> tuple[str, ...]:
+        """Every SQL that counts as a correct answer."""
+        if self.gold_sql is None:
+            return ()
+        return (self.gold_sql,) if isinstance(self.gold_sql, str) else self.gold_sql
 
 
 CASES: tuple[Case, ...] = (

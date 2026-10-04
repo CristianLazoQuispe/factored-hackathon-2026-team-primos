@@ -14,7 +14,7 @@ from langchain_core.rate_limiters import InMemoryRateLimiter
 from app.adapters.outbound import postgres
 from app.application.run_sql import run_scoped_sql
 from evals.text_to_sql import run as harness
-from evals.text_to_sql.cases import CASES
+from evals.text_to_sql.cases import CASES, Case
 from evals.text_to_sql.scoring import summarize
 
 pytestmark = pytest.mark.anyio
@@ -46,7 +46,7 @@ class Fake:
 
 def oracle(question: str) -> str:
     case = BY_QUESTION[question]
-    return f"```sql\n{case.gold_sql}\n```" if case.kind == "answerable" else "CANNOT_ANSWER"
+    return f"```sql\n{case.golds[0]}\n```" if case.kind == "answerable" else "CANNOT_ANSWER"
 
 
 def test_every_question_is_different_so_the_fake_oracle_can_tell_them_apart():
@@ -299,3 +299,64 @@ def test_the_progress_line_says_what_happened():
     assert harness.progress_line([ok], 3) == "[1/3] x (repeat 1): ok, 2.5s"
     assert "wrong" in harness.progress_line([ok | {"correct": False}], 3)
     assert "provider error" in harness.progress_line([ok | {"provider_error": "429"}], 3)
+
+
+# ---- more than one correct SQL, and the reason an answer was wrong ----
+
+ME = ("DEMO-MX-DUPLICATE",)
+
+
+def make_case(kind="answerable", gold=None, ordered=False) -> Case:
+    return Case(
+        "x", "test", "es", "question", kind=kind, gold_sql=gold, customers=ME, ordered=ordered
+    )
+
+
+def test_a_case_lists_every_sql_that_counts_as_correct():
+    assert make_case(gold="SELECT 1").golds == ("SELECT 1",)
+    assert make_case(gold=("SELECT 1", "SELECT 2")).golds == ("SELECT 1", "SELECT 2")
+    assert make_case(kind="safety").golds == ()
+
+
+async def verdict_of(case: Case, sql: str | None) -> dict:
+    db = harness.ReadOnlyPostgres()
+    gold = await harness.gold_rows(db, case) if case.kind == "answerable" else {}
+    return await harness.judge(db, case, sql, gold)
+
+
+async def test_any_of_the_correct_sqls_is_accepted(demo_data):
+    case = make_case(gold=("SELECT 1 AS a", "SELECT 2 AS a"))
+    assert (await verdict_of(case, "SELECT 2 AS a"))["correct"] is True
+    assert (await verdict_of(case, "SELECT 1 AS a"))["correct"] is True
+    wrong = await verdict_of(case, "SELECT 3 AS a")
+    assert wrong["correct"] is False and "different values" in wrong["reason"]
+
+
+async def test_a_wrong_answer_says_why(demo_data):
+    case = make_case(gold="SELECT 1 AS a, 2 AS b")
+    ok = await verdict_of(case, "SELECT 1 AS a, 2 AS b, 3 AS c")
+    assert ok["correct"] is True and ok["reason"] is None
+    short = await verdict_of(case, "SELECT 1 AS a")
+    assert "1 rows x 1 columns, the gold has 1 rows x 2 columns" in short["reason"]
+    several = await verdict_of(case, "SELECT 1 AS a, 2 AS b UNION ALL SELECT 1, 2")
+    assert "2 rows x 2 columns, the gold has 1 rows x 2 columns" in several["reason"]
+    broken = await verdict_of(case, "SELECT nothing FROM transactions")
+    assert broken["ran"] is False and "DEMO-MX-DUPLICATE" in broken["reason"]
+    declined = await verdict_of(case, None)
+    assert "declined" in declined["reason"]
+
+
+async def test_answering_what_the_tables_cannot_answer_says_so(demo_data):
+    case = make_case(kind="unanswerable")
+    answered = await verdict_of(case, "SELECT 1 AS a")
+    assert answered["correct"] is False and "cannot answer" in answered["reason"]
+    assert (await verdict_of(case, None))["reason"] is None
+
+
+def test_the_progress_line_shows_the_reason_of_a_wrong_answer():
+    wrong = {
+        "id": "x", "repeat": 1, "model_seconds": 2.0, "provider_error": None,
+        "correct": False, "reason": "same shape (1 rows x 1 columns), different values",
+    }  # fmt: skip
+    line = harness.progress_line([wrong], 3)
+    assert "wrong (" in line and "different values" in line

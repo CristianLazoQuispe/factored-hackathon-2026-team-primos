@@ -44,7 +44,8 @@ def test_every_case_is_complete(case):
 
 @pytest.mark.parametrize("case", ANSWERABLE, ids=lambda case: case.id)
 def test_the_gold_sql_passes_the_sql_guard(case):
-    scope_query(case.gold_sql, case.customers[0])  # raises PolicyViolation if it would be refused
+    for sql in case.golds:
+        scope_query(sql, case.customers[0])  # raises PolicyViolation if it would be refused
 
 
 def test_every_category_with_three_cases_or_more_is_in_both_splits():
@@ -74,9 +75,12 @@ async def test_each_gold_query_returns_real_data_for_most_of_its_customers(demo_
     for case in ANSWERABLE:
         useful = 0
         for customer in case.customers:
-            result = await run_scoped_sql(db, customer, case.gold_sql)
-            assert "error" not in result, f"{case.id} for {customer}: {result.get('error')}"
-            useful += not is_vacuous(result["rows"])
+            has_data = True
+            for sql in case.golds:
+                result = await run_scoped_sql(db, customer, sql)
+                assert "error" not in result, f"{case.id} for {customer}: {result.get('error')}"
+                has_data = has_data and not is_vacuous(result["rows"])
+            useful += has_data
         assert useful >= math.ceil(len(case.customers) / 2), f"{case.id}: gold is mostly empty"
 
 
