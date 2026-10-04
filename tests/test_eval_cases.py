@@ -78,3 +78,22 @@ async def test_each_gold_query_returns_real_data_for_most_of_its_customers(demo_
             assert "error" not in result, f"{case.id} for {customer}: {result.get('error')}"
             useful += not is_vacuous(result["rows"])
         assert useful >= math.ceil(len(case.customers) / 2), f"{case.id}: gold is mostly empty"
+
+
+# Columns whose absence is what makes the "unanswerable" cases unanswerable. The raw sample has a
+# credit_score, but nobody loads it today: the day someone does, `credit_score` stops being a
+# question to refuse and the case must be rewritten, or it would punish a correct answer.
+MISSING_COLUMNS = {"credit_score", "interest_paid", "interest_charged"}
+
+
+@pytest.mark.anyio
+async def test_the_data_behind_the_unanswerable_cases_is_still_missing(demo_data):
+    rows = await postgres.query(
+        "SELECT table_name, column_name FROM information_schema.columns "
+        "WHERE table_schema = 'core'",
+        {},
+    )
+    present = sorted(
+        f"{r['table_name']}.{r['column_name']}" for r in rows if r["column_name"] in MISSING_COLUMNS
+    )
+    assert not present, f"now answerable, rewrite the unanswerable cases: {present}"
