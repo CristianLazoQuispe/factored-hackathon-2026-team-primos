@@ -3,7 +3,7 @@
     "date": "2026-10-04T01:43:50+00:00",
     "provider": "google_genai",
     "model": "gemini-2.5-flash",
-    "location": null,
+    "location": "global",
     "git_sha": "728f5b8",
     "prompt_sha": "766f0b5a8fce",
     "repeats": 3,
