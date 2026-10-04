@@ -177,7 +177,8 @@ def test_a_successful_login_clears_the_failures_before_the_lock(cloud):
         for _ in range(2):
             assert client.post("/api/auth/token", json=wrong).status_code == 401
         assert client.post("/api/auth/token", json=LUCIA).status_code == 200
-        # The next miss is the first again. A success that did not clear the count would lock here.
+        # The next miss is the first again. A success that did not
+        # clear the count would lock the account here.
         assert client.post("/api/auth/token", json=wrong).status_code == 401
 
 

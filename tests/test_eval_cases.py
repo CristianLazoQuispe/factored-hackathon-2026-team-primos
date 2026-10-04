@@ -44,7 +44,8 @@ def test_every_case_is_complete(case):
 
 @pytest.mark.parametrize("case", ANSWERABLE, ids=lambda case: case.id)
 def test_the_gold_sql_passes_the_sql_guard(case):
-    scope_query(case.gold_sql, case.customers[0])  # raises PolicyViolation if it would be refused
+    for sql in case.golds:
+        scope_query(sql, case.customers[0])  # raises PolicyViolation if it would be refused
 
 
 def test_every_category_with_three_cases_or_more_is_in_both_splits():
@@ -74,9 +75,12 @@ async def test_each_gold_query_returns_real_data_for_most_of_its_customers(demo_
     for case in ANSWERABLE:
         useful = 0
         for customer in case.customers:
-            result = await run_scoped_sql(db, customer, case.gold_sql)
-            assert "error" not in result, f"{case.id} for {customer}: {result.get('error')}"
-            useful += not is_vacuous(result["rows"])
+            has_data = True
+            for sql in case.golds:
+                result = await run_scoped_sql(db, customer, sql)
+                assert "error" not in result, f"{case.id} for {customer}: {result.get('error')}"
+                has_data = has_data and not is_vacuous(result["rows"])
+            useful += has_data
         assert useful >= math.ceil(len(case.customers) / 2), f"{case.id}: gold is mostly empty"
 
 
@@ -97,3 +101,24 @@ async def test_the_data_behind_the_unanswerable_cases_is_still_missing(demo_data
         f"{r['table_name']}.{r['column_name']}" for r in rows if r["column_name"] in MISSING_COLUMNS
     )
     assert not present, f"now answerable, rewrite the unanswerable cases: {present}"
+
+
+# Only DEMO-MX-FX has purchases abroad, and it only buys.
+CANNOT_TELL_THE_PURCHASE_RULE = {"foreign_spend"}
+
+
+@pytest.mark.anyio
+async def test_the_purchase_cases_use_customers_that_do_more_than_buy(demo_data):
+    """If every customer only buys, a model that ignores the "Approved purchases" rule still
+    passes: the DEMO customers are like that, and an eval that cannot fail measures nothing."""
+    db = ReadOnlyPostgres()
+    sql = (
+        "SELECT count(*) AS n FROM transactions "
+        "WHERE transaction_status = 'Approved' AND transaction_type <> 'Purchase'"
+    )
+    for case in ANSWERABLE:
+        asks_for_purchases = any("transaction_type = 'Purchase'" in gold for gold in case.golds)
+        if case.id in CANNOT_TELL_THE_PURCHASE_RULE or not asks_for_purchases:
+            continue
+        counts = [(await run_scoped_sql(db, c, sql))["rows"][0]["n"] for c in case.customers]
+        assert any(counts), f"{case.id}: every customer only buys, the Purchase filter is untested"
