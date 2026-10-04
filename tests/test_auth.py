@@ -145,7 +145,7 @@ def test_a_wrong_email_or_password_is_refused_the_same_way(cloud, seen, body):
         refused = client.post("/api/auth/token", json=body)
         chat = client.post("/api/chat", json={"message": "hola"})
     assert refused.status_code == 401
-    assert refused.json()["detail"] == "Correo o contraseña incorrectos."
+    assert refused.json()["detail"] == "ID o contraseña incorrectos."
     assert chat.status_code == 401 and seen == []
 
 
