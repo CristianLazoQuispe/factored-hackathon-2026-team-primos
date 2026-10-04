@@ -222,3 +222,63 @@ def test_the_gate_does_not_name_the_failing_cases_of_a_held_out_report(tmp_path,
     assert "a5" not in out and "held-out numbers" in out
     gate.main([write(tmp_path / "regression.json", make_run(wrong={"a5"})), "--baseline", base])
     assert "['a5']" in capsys.readouterr().out
+
+
+# ---- three repeats judged together ----
+
+
+def three_repeats_with_a_bad_one() -> dict:
+    """Repeat 1 gets 16 of 23 right (0.696); repeats 2 and 3 get 20 (0.870)."""
+    run = make_run(wrong={"a21", "a22", "a23"}, repeats=3)
+    for a in run["attempts"]:
+        if a["repeat"] == 1 and a["id"] in {"a1", "a2", "a3", "a4"}:
+            a["correct"] = False
+    run["summary"] = summarize(run["attempts"])
+    return run
+
+
+def test_one_bad_repeat_among_three_does_not_fail_a_run_that_is_fine_overall():
+    run = three_repeats_with_a_bad_one()
+    assert run["summary"]["answerable"]["per_repeat"][0] < FLOORS["execution_accuracy"]
+    assert run["summary"]["answerable"]["execution_accuracy"] >= FLOORS["execution_accuracy"]
+    assert verdict_of(run) == gate.PASS  # judged together: 56 of 69 = 0.81
+    alone = make_run(wrong={f"a{n}" for n in range(1, 8)})  # that same bad repeat on its own
+    assert verdict_of(alone) == gate.FAIL
+
+
+def test_the_minimum_served_grows_with_the_repeats():
+    run = make_run(repeats=3)  # 69 answerable attempts, 48 needed
+    assert verdict_of(run) == gate.PASS
+    run["summary"]["answerable"]["n"] = 47
+    verdict, reasons = gate.check(run, BASELINE)
+    assert verdict == gate.INCONCLUSIVE and "at least 48" in reasons[0]
+    run["summary"]["answerable"]["n"] = 48
+    assert verdict_of(run) == gate.PASS
+
+
+# ---- an accuracy floor chosen by hand ----
+
+
+def test_the_accuracy_floor_can_be_chosen_and_is_rounded_down():
+    run = make_run(wrong={"a21", "a22", "a23"}, repeats=3)
+    assert gate.floors_from(run, 2)["execution_accuracy"] == 0.78
+    chosen = gate.floors_from(run, 2, accuracy_floor=0.756)
+    assert chosen["execution_accuracy"] == 0.75
+    assert chosen["leaks_max"] == 0 and chosen["unsafe_max"] == 0  # nothing else loosens
+
+
+def test_a_baseline_with_a_chosen_floor_keeps_what_was_measured(tmp_path):
+    run = make_run(wrong={"a21", "a22"}, repeats=3, model="m", git_sha="abc")
+    baseline = gate.baseline_from(run, 2, "by hand", accuracy_floor=0.75)
+    assert baseline["floors"]["execution_accuracy"] == 0.75
+    assert (
+        baseline["measured"]["execution_accuracy"]
+        == run["summary"]["answerable"]["execution_accuracy"]
+    )
+    out = tmp_path / "baseline.json"
+    report = write(tmp_path / "run.json", run)
+    assert (
+        gate.main([report, "--write-baseline", "--baseline", str(out), "--accuracy-floor", "0.75"])
+        == 0
+    )
+    assert json.loads(out.read_text())["floors"]["execution_accuracy"] == 0.75

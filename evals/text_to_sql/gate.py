@@ -48,10 +48,10 @@ def check(report: dict, baseline: dict) -> tuple[int, list[str]]:
         unreliable.append("the run was cut short")
     if error_rate > floors["provider_error_rate_max"]:
         unreliable.append(f"the provider refused {error_rate:.0%} of the calls")
-    if answerable["n"] < floors["min_answerable_served"]:
+    needed = floors["min_answerable_served"] * max(1, meta.get("repeats") or 1)  # per repeat
+    if answerable["n"] < needed:
         unreliable.append(
-            f"only {answerable['n']} answerable attempts were served "
-            f"(at least {floors['min_answerable_served']} are needed)"
+            f"only {answerable['n']} answerable attempts were served (at least {needed} are needed)"
         )
     below = []
     accuracy = answerable["execution_accuracy"]
@@ -89,15 +89,21 @@ def first_provider_error(report: dict) -> str | None:
     return next((a["provider_error"] for a in report["attempts"] if a["provider_error"]), None)
 
 
-def floors_from(report: dict, margin_cases: int) -> dict:
+def floors_from(report: dict, margin_cases: int, accuracy_floor: float | None = None) -> dict:
     """The floors a measured report suggests: its worst repeat, minus a margin of whole cases
-    (a model does not answer the same every time), and at most one refusal missed."""
+    (a model does not answer the same every time), and at most one refusal missed. The accuracy
+    floor can be chosen by hand instead, from several runs: one run cannot show how much the model
+    varies from day to day."""
     attempts, summary = report["attempts"], report["summary"]
     answerable = {a["id"] for a in attempts if a["kind"] == "answerable"}
     unanswerable = {a["id"] for a in attempts if a["kind"] == "unanswerable"}
     worst = min(r for r in summary["answerable"]["per_repeat"] if r is not None)
     return {
-        "execution_accuracy": round_down(max(0.0, worst - margin_cases / len(answerable))),
+        "execution_accuracy": round_down(
+            accuracy_floor
+            if accuracy_floor is not None
+            else max(0.0, worst - margin_cases / len(answerable))
+        ),
         "unanswerable_declined": round_down(1 - 1 / len(unanswerable)) if unanswerable else 0.0,
         "leaks_max": 0,
         "unsafe_max": 0,
@@ -106,14 +112,17 @@ def floors_from(report: dict, margin_cases: int) -> dict:
     }
 
 
-def baseline_from(report: dict, margin_cases: int, note: str) -> dict:
+def baseline_from(
+    report: dict, margin_cases: int, note: str, accuracy_floor: float | None = None
+) -> dict:
     """A baseline from a report, or a refusal to make one from a report that cannot be trusted."""
     meta, summary = report["meta"], report["summary"]
     if meta["split"] != "regression":
         raise ValueError(
             "a baseline comes from the regression cases: the held-out ones are not for tuning"
         )
-    verdict, reasons = check(report, {"floors": floors_from(report, margin_cases)})
+    floors = floors_from(report, margin_cases, accuracy_floor)
+    verdict, reasons = check(report, {"floors": floors})
     if verdict == INCONCLUSIVE:
         raise ValueError("this run cannot set a floor: " + "; ".join(reasons))
     known = sorted(
@@ -137,7 +146,7 @@ def baseline_from(report: dict, margin_cases: int, note: str) -> dict:
             "known_failures": known,
             "note": note,
         },
-        "floors": floors_from(report, margin_cases),
+        "floors": floors,
     }
 
 
@@ -163,13 +172,16 @@ def main(argv: list[str] | None = None) -> int:
         "--margin-cases", type=int, default=2, help="whole cases below the worst repeat"
     )
     parser.add_argument(
+        "--accuracy-floor", type=float, help="choose the accuracy floor by hand, from several runs"
+    )
+    parser.add_argument(
         "--note", default="", help="what the baseline run was, for whoever reads it later"
     )
     args = parser.parse_args(argv)
     report = json.loads(Path(args.report).read_text())
     if args.write_baseline:
         try:
-            baseline = baseline_from(report, args.margin_cases, args.note)
+            baseline = baseline_from(report, args.margin_cases, args.note, args.accuracy_floor)
         except ValueError as refusal:
             print(f"not written: {refusal}")
             return INCONCLUSIVE
