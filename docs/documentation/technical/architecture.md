@@ -161,6 +161,8 @@ transaction, like `get_spending_summary`, whose lookups it reuses (`app/applicat
 On top of them it adds the product and country, the duplicate charges and the largest purchase
 (`app/adapters/outbound/postgres/finances.py`). The JSON is camelCase and has the shape of
 `OwnFinances` in `web/lib/profile.ts`; a test pins the field names on both sides.
+The web keeps one session for the customer app (`web/lib/session.ts`): the chat signs in and
+"Mis finanzas" sends that same token, so neither screen can choose another customer.
 
 - **One currency.** The screen shows the currency the customer buys in most often, by number of
   purchases and never by amount. Spending in the others comes in `otherCurrencies` and is never
