@@ -166,7 +166,15 @@ switch.
 
 1. Run `run --repeats 3` before the change and keep the report.
 2. Make the change (a prompt rule, a catalog line, a model).
-3. Run it again, and compare per case, not only the total: the cases that flip show what the change did.
+3. Run it again with the same flags, and compare per case, not only the total: the cases that flip
+   show what the change did, and a better total can hide a case that got worse.
+
+   ```bash
+   uv run python -m evals.text_to_sql.compare results/before.json results/after.json
+   ```
+
+   It exits 1 if any case got worse, flags runs from another model or region, and refuses held-out
+   runs.
 4. Prefer a general rule grounded in the schema to a fix for one question: a rule written for one case
    passes it without making the agent better.
 5. Never tune on the held-out cases. Run `--split heldout` once, at the end, and report it as it is.
@@ -258,6 +266,7 @@ measured with this eval, and not a patch per question.
 | `evals/text_to_sql/scoring.py` | Reads the model's SQL, compares results, summarizes a run |
 | `evals/text_to_sql/run.py` | Runs the cases against a model and writes the report |
 | `evals/text_to_sql/rescore.py` | Scores a saved report again without calling the model |
+| `evals/text_to_sql/compare.py` | Compares two regression runs case by case |
 | `evals/text_to_sql/gate.py` | Compares a report with the floor; writes `baseline.json` |
 | `evals/text_to_sql/baseline.json` | What was measured and the floors |
 | `tests/test_eval_*.py` | Tests of all of the above with fake models: no real model is called |
