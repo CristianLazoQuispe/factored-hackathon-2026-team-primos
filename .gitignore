@@ -232,3 +232,7 @@ web/out/
 # Speech models: `make models`
 models/
 .DS_Store
+
+# eval runs: the SQL a model wrote and what it returned
+results/*
+!results/.gitkeep

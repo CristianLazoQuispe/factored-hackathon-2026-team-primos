@@ -1,0 +1,185 @@
+"""The eval runner itself, with fake models: no real model is called.
+
+A model that knows every answer must score 100 %, and a model that guesses, attacks or fails must
+not. That is what shows the runner measures something.
+"""
+
+import json
+import sys
+
+import pytest
+from langchain_core.messages import AIMessage
+from langchain_core.rate_limiters import InMemoryRateLimiter
+
+from app.adapters.outbound import postgres
+from app.application.run_sql import run_scoped_sql
+from evals.text_to_sql import run as harness
+from evals.text_to_sql.cases import CASES
+from evals.text_to_sql.scoring import summarize
+
+pytestmark = pytest.mark.anyio
+BY_QUESTION = {case.question: case for case in CASES}
+
+
+@pytest.fixture
+def anyio_backend() -> str:
+    return "asyncio"
+
+
+@pytest.fixture
+def demo_data():
+    try:
+        postgres.ping()
+    except Exception:
+        pytest.skip("Postgres with the demo data is not running")
+
+
+class Fake:
+    """A model that answers every question with `answer(question)`."""
+
+    def __init__(self, answer):
+        self.answer = answer
+
+    async def ainvoke(self, messages):
+        return AIMessage(self.answer(messages[-1].content))
+
+
+def oracle(question: str) -> str:
+    case = BY_QUESTION[question]
+    return f"```sql\n{case.gold_sql}\n```" if case.kind == "answerable" else "CANNOT_ANSWER"
+
+
+def test_every_question_is_different_so_the_fake_oracle_can_tell_them_apart():
+    assert len(BY_QUESTION) == len(CASES)
+
+
+# ---- which cases run ----
+
+
+def test_only_the_regression_cases_run_by_default():
+    chosen = harness.select(CASES, "regression", None)
+    assert chosen and all(case.split == "regression" for case in chosen)
+
+
+def test_the_held_out_cases_run_only_when_asked_for():
+    chosen = harness.select(CASES, "heldout", None)
+    assert chosen and all(case.split == "heldout" for case in chosen)
+    assert len(harness.select(CASES, "all", None)) == len(CASES)
+
+
+def test_asking_for_a_held_out_case_by_id_needs_its_split():
+    with pytest.raises(SystemExit):
+        harness.select(CASES, "regression", "forecast")
+    assert [c.id for c in harness.select(CASES, "heldout", "forecast")] == ["forecast"]
+
+
+def test_the_limiter_is_off_at_zero_and_paces_calls_otherwise():
+    assert harness.make_limiter(0) is None
+    limiter = harness.make_limiter(30)
+    assert isinstance(limiter, InMemoryRateLimiter) and limiter.requests_per_second == 0.5
+
+
+# ---- whole runs against the real demo data (skipped without Postgres) ----
+
+
+async def test_a_model_that_knows_the_answers_scores_perfectly(demo_data):
+    attempts = await harness.run_eval(Fake(oracle), CASES, repeats=2)
+    summary = summarize(attempts)
+    assert len(attempts) == 2 * len(CASES) and summary["provider_errors"] == 0
+    assert summary["answerable"]["execution_accuracy"] == 1.0
+    assert summary["answerable"]["per_repeat"] == [1.0, 1.0]
+    assert summary["unanswerable"]["declined"] == 1.0
+    assert summary["safety"]["safe"] == summary["safety"]["n"] and summary["safety"]["leaks"] == 0
+    assert summary["model_calls"] == 2 * len(CASES)  # one call per question: nothing was retried
+
+
+async def test_a_model_that_guesses_scores_badly_and_never_declines(demo_data):
+    summary = summarize(await harness.run_eval(Fake(lambda q: "```sql\nSELECT 1 AS n\n```"), CASES))
+    assert summary["answerable"]["execution_accuracy"] < 0.2
+    assert summary["unanswerable"]["answered_anyway"] == summary["unanswerable"]["n"]
+    assert summary["safety"]["leaks"] == 0  # a wrong answer is still never someone else's data
+
+
+async def test_a_model_that_attacks_is_stopped_by_the_guard_and_seen_by_the_run(demo_data):
+    db = harness.ReadOnlyPostgres()
+    count = "SELECT count(*) AS n FROM transactions"
+    before = (await run_scoped_sql(db, "DEMO-MX-DUPLICATE", count))["rows"]
+    summary = summarize(await harness.run_eval(Fake(lambda q: "DELETE FROM transactions"), CASES))
+    assert summary["answerable"]["execution_accuracy"] == 0.0
+    assert summary["answerable"]["blocked_by_guard"] == summary["answerable"]["n"]
+    assert summary["safety"]["forbidden_sql_blocked_by_guard"] == summary["safety"]["n"]
+    assert summary["safety"]["safe"] == summary["safety"]["n"]
+    assert (await run_scoped_sql(db, "DEMO-MX-DUPLICATE", count))["rows"] == before
+
+
+@pytest.fixture
+def no_wait(monkeypatch):
+    """Retries wait seconds in real life; in a test they must not."""
+
+    async def instant(seconds):
+        return None
+
+    monkeypatch.setattr(harness.asyncio, "sleep", instant)
+
+
+class SpyLimiter:
+    def __init__(self):
+        self.waits = 0
+
+    async def aacquire(self):
+        self.waits += 1
+
+
+async def test_a_busy_provider_is_retried_counted_and_not_blamed_on_the_sql(demo_data, no_wait):
+    def down(question):
+        raise RuntimeError("429 RESOURCE_EXHAUSTED")
+
+    spy = SpyLimiter()
+    summary = summarize(await harness.run_eval(Fake(down), CASES[:6], limiter=spy))
+    assert summary["provider_errors"] == 6 and summary["answerable"]["n"] == 0
+    assert summary["answerable"]["execution_accuracy"] is None
+    assert summary["model_calls"] == 6 * harness.MAX_ATTEMPTS
+    assert spy.waits == summary["model_calls"]  # every try, retries included, waited its turn
+
+
+async def test_a_failure_that_is_not_a_busy_provider_is_not_retried(demo_data, no_wait):
+    def broken(question):
+        raise ValueError("invalid model name")
+
+    summary = summarize(await harness.run_eval(Fake(broken), CASES[:3]))
+    assert summary["provider_errors"] == 3 and summary["model_calls"] == 3
+
+
+# ---- the whole command ----
+
+
+async def run_command(monkeypatch, tmp_path, *flags):
+    monkeypatch.setattr(harness, "chat_model", lambda role: Fake(oracle))
+    out = tmp_path / "run.json"
+    monkeypatch.setattr(sys, "argv", ["run", "--max-rpm", "0", "--out", str(out), *flags])
+    await harness.main()
+    return json.loads(out.read_text())
+
+
+async def test_the_command_writes_a_report_tied_to_the_code_and_the_prompt(
+    demo_data, monkeypatch, tmp_path
+):
+    report = await run_command(monkeypatch, tmp_path, "--ids", "tx_count,credit_score")
+    meta = report["meta"]
+    assert meta["split"] == "regression" and meta["cases"] == 2
+    assert meta["git_sha"] and len(meta["prompt_sha"]) == 12
+    assert {a["id"] for a in report["attempts"]} == {"tx_count", "credit_score"}
+
+
+async def test_the_held_out_split_runs_only_the_held_out_cases(demo_data, monkeypatch, tmp_path):
+    report = await run_command(monkeypatch, tmp_path, "--split", "heldout")
+    assert report["meta"]["split"] == "heldout"
+    assert {a["split"] for a in report["attempts"]} == {"heldout"}
+    assert report["summary"]["answerable"]["by_split"].keys() == {"heldout"}
+
+
+def test_the_prompt_fingerprint_changes_with_the_prompt(monkeypatch):
+    first = harness.prompt_version()
+    assert first == harness.prompt_version()
+    monkeypatch.setattr(harness, "build_prompt", lambda: "another prompt")
+    assert harness.prompt_version() != first
