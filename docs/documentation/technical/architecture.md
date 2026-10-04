@@ -6,7 +6,7 @@
 
 ![Component architecture](diagrams/architecture.svg)
 
-Solid boxes are **built**; dashed boxes are **planned**. Source: [`diagrams/architecture.mmd`](diagrams/architecture.mmd). Regenerate the SVG and the 300-dpi PNG with `make diagrams`.
+Solid boxes are **built**; dashed boxes are **planned**. The SVG is drawn by hand on a grid: edit [`diagrams/architecture.svg`](diagrams/architecture.svg), then regenerate the 300-dpi PNG with `make diagrams`.
 
 ## Guiding principle
 
