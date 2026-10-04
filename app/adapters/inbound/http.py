@@ -8,7 +8,7 @@ from dataclasses import asdict
 from typing import Annotated
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -17,12 +17,17 @@ from telegram import Update
 from app.adapters.inbound.agent import reply
 from app.adapters.inbound.auth import issue_token, operator, token_customer
 from app.adapters.inbound.conversations import Conversation, conversations
+from app.adapters.inbound.finances_schema import OwnFinances
 from app.adapters.inbound.telegram import build_application
 from app.adapters.outbound import llm, postgres, speech
 from app.adapters.outbound.postgres.accounts import list_customers
+from app.adapters.outbound.postgres.finances import PostgresFinances
 from app.adapters.outbound.postgres.readonly import ReadOnlyPostgres
+from app.adapters.outbound.postgres.spending import PostgresSpending
+from app.application.finances import FinancesUnavailable, own_finances
 from app.application.run_sql import run_scoped_sql
 from app.config import get_settings
+from app.domain.finances import NoSpending, UnknownCustomer
 
 # Our own loggers at LOG_LEVEL; libraries stay at the default (warnings and errors).
 logging.basicConfig(format="%(levelname)s:     %(name)s: %(message)s")
@@ -178,6 +183,29 @@ async def chat(
     if result["handoff"]:
         conversation.status, conversation.case_file = "waiting", result["handoff"]
     return ChatResponse(thread_id=thread_id, **result)
+
+
+@app.get("/api/me/finances")
+async def my_finances(
+    token_customer_id: Annotated[str | None, Depends(token_customer)],
+    days: Annotated[int, Query(ge=7, le=365)] = 90,
+    customer_id: str | None = None,  # local only, like the chat's: the token decides
+) -> OwnFinances:
+    """The "Mis finanzas" screen: the customer's own spending, and nothing internal to the bank.
+
+    The customer is the one the token proves; `days` counts back from the dataset's last day.
+    """
+    customer = resolve_customer(token_customer_id, customer_id)
+    if customer is None:
+        raise HTTPException(400, "customer_id is required without a token (local only).")
+    try:
+        return await own_finances(PostgresSpending(), PostgresFinances(), customer, days)
+    except UnknownCustomer:
+        raise HTTPException(404, "unknown_customer") from None
+    except NoSpending:
+        raise HTTPException(404, "no_spending_in_period") from None
+    except FinancesUnavailable:
+        raise HTTPException(503, "finances_unavailable") from None
 
 
 class Transcript(BaseModel):
