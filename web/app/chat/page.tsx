@@ -8,7 +8,9 @@ import { Corona, type CoronaHandle } from "@/components/corona";
 import { AgentIcon, Logo } from "@/components/logo";
 import { revealed, visible } from "@/components/spoken";
 import { type MicrophoneAccess, useRecorder } from "@/components/use-recorder";
+import { useDemoCustomers } from "@/lib/demo-customers";
 import { type Category, formatAmount, getOwnFinances } from "@/lib/profile";
+import { readSession, saveSession, useSession } from "@/lib/session";
 import type { CoronaMode } from "@/lib/quipu-corona";
 
 import "./screen.css";
@@ -48,10 +50,8 @@ type Attachment = { mediaType: string; base64: string; preview: string };
 function loginFailure(status: number): string {
   if (status === 423) return "Cuenta bloqueada. Espera 15 minutos.";
   if (status === 429) return "Demasiados intentos. Espera un minuto.";
-  return "Correo o contraseña incorrectos.";
+  return "ID o contraseña incorrectos.";
 }
-
-type Session = { customer: string; email: string; password: string; token: string; expiresAt: number };
 
 const MICROPHONE: Record<MicrophoneAccess, { label: string; color: string }> = {
   "not asked": { label: "Permitir micrófono", color: "var(--q-mist)" },
@@ -166,8 +166,10 @@ function SpendingChart({ categories }: { categories: Category[] }) {
 }
 
 export default function Chat() {
-  const [customerId, setCustomerId] = useState("");
-  const [email, setEmail] = useState("");
+  const session = useSession(); // shared with Mis finanzas
+  const customerId = session?.customer ?? "";
+  const [user, setUser] = useState("");
+  const demoCustomers = useDemoCustomers();
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [threadId, setThreadId] = useState(newThread);
@@ -186,7 +188,7 @@ export default function Chat() {
   const audio = useRef<AudioContext | null>(null);
   const voice = useRef<AudioBufferSourceNode | null>(null); // the line being read aloud
   const speaking = useRef(0); // counts the replies read aloud, and the times one was stopped
-  const session = useRef<Session | null>(null);
+  const secret = useRef(""); // the password, only in memory: after a reload the token cannot be renewed
   const operatorCursor = useRef(0); // how many messages of this thread were already checked
   const fileRef = useRef<HTMLInputElement>(null);
   const corona = useRef<CoronaHandle>(null);
@@ -198,23 +200,27 @@ export default function Chat() {
     if (messages.length) end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, pending, preparing, transcribing]);
 
-  // The token was issued for this email and password. Renew it the same way when it is about to expire.
+  // The token was issued for this ID and password. Renew it the same way when it is about to expire.
   const authHeader = useCallback(async (renew: boolean): Promise<Record<string, string>> => {
-    const current = session.current;
+    const current = readSession();
     if (!current) return {};
     if (!renew && current.expiresAt - Date.now() > 30_000) {
       return { Authorization: `Bearer ${current.token}` };
     }
+    if (!secret.current) {
+      saveSession(null);
+      throw new Error("Tu sesión expiró. Vuelve a entrar.");
+    }
     const response = await fetch(`${API_URL}/api/auth/token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: current.email, password: current.password }),
+      body: JSON.stringify({ user: current.user, password: secret.current }),
     });
     if (!response.ok) {
       throw new Error(loginFailure(response.status));
     }
     const data: { access_token: string; expires_in: number; customer_id: string } = await response.json();
-    session.current = { ...current, customer: data.customer_id, token: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 };
+    saveSession({ ...current, customer: data.customer_id, token: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 });
     return { Authorization: `Bearer ${data.access_token}` };
   }, []);
 
@@ -224,21 +230,20 @@ export default function Chat() {
     const response = await fetch(`${API_URL}/api/auth/token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: email.trim(), password }),
+      body: JSON.stringify({ user: user.trim(), password }),
     });
     if (!response.ok) {
       setLoginError(loginFailure(response.status));
       return;
     }
     const data: { access_token: string; expires_in: number; customer_id: string } = await response.json();
-    session.current = {
+    secret.current = password;
+    saveSession({
       customer: data.customer_id,
-      email: email.trim(),
-      password,
+      user: user.trim(),
       token: data.access_token,
       expiresAt: Date.now() + data.expires_in * 1000,
-    };
-    setCustomerId(data.customer_id);
+    });
     setThreadId(newThread());
     setMessages([]);
     operatorCursor.current = 0;
@@ -246,8 +251,8 @@ export default function Chat() {
   }
 
   function signOut() {
-    session.current = null;
-    setCustomerId("");
+    secret.current = "";
+    saveSession(null);
     setPassword("");
     setLoginError("");
     setThreadId(newThread());
@@ -398,16 +403,16 @@ export default function Chat() {
   // on the reply is also read aloud, without making the customer wait: they can type or talk
   // while it reads.
   async function submit(text: string, heard?: string, image?: Attachment | null) {
-    if (!session.current) {
-      setLoginError("Entra con tu correo y contraseña.");
+    if (!readSession()) {
+      setLoginError("Entra con tu ID y contraseña.");
       return;
     }
     setMessages((prev) => [...prev, { role: "customer", text, image: image?.preview }]);
     setPending(true);
     try {
       let response = await post(text, false, image);
-      if (response.status === 401 && session.current) response = await post(text, true, image); // session expired: sign in again once
-      if (response.status === 401) throw new Error("Entra con tu correo y contraseña.");
+      if (response.status === 401 && readSession()) response = await post(text, true, image); // session expired: sign in again once
+      if (response.status === 401) throw new Error("Entra con tu ID y contraseña.");
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data: ChatResponse = await response.json();
       const reply = data.reply;
@@ -427,7 +432,13 @@ export default function Chat() {
   }
 
   async function sampleChart() {
-    const finances = await getOwnFinances(customerId.trim());
+    let finances;
+    try {
+      finances = await getOwnFinances(await authHeader(false));
+    } catch (error) {
+      fail(error);
+      return;
+    }
     const top = finances.categories[0];
     const share = Math.round((top.amount / finances.totals.spend) * 100);
     const text = `En los últimos ${finances.windowDays} días gastaste **${formatAmount(finances.totals.spend)} ${finances.currency}**. Lo que más pesa es **${top.name.toLowerCase()}**: ${share}% del total.`;
@@ -435,7 +446,7 @@ export default function Chat() {
   }
 
   function ask(text: string) {
-    if (pending || !session.current) return;
+    if (pending || !readSession()) return;
     hush(); // a new question: stop reading the previous answer
     void submit(text);
   }
@@ -513,7 +524,7 @@ export default function Chat() {
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
           {customerId ? (
             <>
-              <span style={{ fontSize: 13, color: "var(--q-fog)" }}>{session.current?.email}</span>
+              <span style={{ fontSize: 13, color: "var(--q-fog)" }}>{session?.user}</span>
               <button type="button" className="q-btn q-btn-sm q-btn-ghost" onClick={signOut}>
                 Salir
               </button>
@@ -522,15 +533,22 @@ export default function Chat() {
             <form onSubmit={signIn} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
               <input
                 className="field"
-                type="email"
+                type="text"
                 autoComplete="username"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="Correo"
-                aria-label="Correo"
+                list="demo-customers"
+                spellCheck={false}
+                value={user}
+                onChange={(event) => setUser(event.target.value)}
+                placeholder="ID de cliente"
+                aria-label="ID de cliente"
                 required
-                style={{ width: 220 }}
+                style={{ width: 200 }}
               />
+              <datalist id="demo-customers">
+                {demoCustomers.map((c) => (
+                  <option key={c.customer_id} value={c.customer_id} label={`${c.first_name} · ${c.country} · ${c.segment}`} />
+                ))}
+              </datalist>
               <input
                 className="field"
                 type="password"
@@ -538,6 +556,7 @@ export default function Chat() {
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 placeholder="Contraseña"
+                title="En la demostración, la contraseña es el mismo ID"
                 aria-label="Contraseña"
                 required
                 style={{ width: 140 }}
@@ -621,7 +640,7 @@ export default function Chat() {
             }}
           >
             <span style={{ alignSelf: "center", fontFamily: "var(--q-mono)", fontSize: 12, color: "var(--q-muted)" }}>
-              {customerId ? "sesión iniciada · datos sintéticos" : "entra con tu correo para empezar · datos sintéticos"}
+              {customerId ? "sesión iniciada · datos sintéticos" : "entra con tu ID para empezar · datos sintéticos"}
             </span>
 
             {!started && customerId && (
@@ -769,7 +788,7 @@ export default function Chat() {
                 id="q-input"
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
-                placeholder={customerId ? "Pregunta por tu saldo, un cargo o una queja…" : "Entra con tu correo para preguntar"}
+                placeholder={customerId ? "Pregunta por tu saldo, un cargo o una queja…" : "Entra con tu ID para preguntar"}
                 disabled={!customerId}
                 autoComplete="off"
                 style={{ flex: "1 1 auto", minWidth: 0, minHeight: 44, border: "none", background: "transparent", font: "inherit", fontSize: 15, color: "var(--q-mist)", outline: "none" }}
