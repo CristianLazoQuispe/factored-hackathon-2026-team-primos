@@ -49,7 +49,8 @@ jobs:
       # Tests that need the demo Postgres skip themselves when it is not running.
       - run: uv run pytest -q
 
-  # Runs the regression questions through Gemini on Vertex and compares the result with the floor.
+  # Runs the regression questions through Gemini on Vertex three times, judged together (one run of
+  # the same agent varies by 10 points or more), and compares the result with the floor.
   # Exit codes of the gate: 0 pass, 1 fail, 2 proves nothing (the provider refused too many calls).
   # A run that proves nothing is tried once more; if it still proves nothing the deploy stops.
   # From a branch (Run workflow) only this job runs: it is how to try it without deploying.
@@ -96,7 +97,7 @@ jobs:
         run: |
           code=0
           for attempt in 1 2; do
-            uv run python -m evals.text_to_sql.run --repeats 1 --out results/gate.json \
+            uv run python -m evals.text_to_sql.run --repeats 3 --out results/gate.json \
               || echo "the run ended early (exit $?): the floor decides what that means"
             code=0
             uv run python -m evals.text_to_sql.gate results/gate.json | tee gate.txt || code=$?
