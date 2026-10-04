@@ -27,6 +27,11 @@ SERVICE = ("CLI-5EWYD3VRLM5C", "CLI-3NVJ2EVDG96D", "CLI-7QE9NSFAKW9W")  # produc
 ANY = ("DEMO-MX-FX",)
 DECLINED = ("CLI-O2MFFRGEVULL", "CLI-9CNNDZJT76RQ", "CLI-CY5XKHJ944ZU")  # each has declined charges
 REVERSED = ("CLI-ASWOLNWFVNJ0", "CLI-9DUUBKIL13N5", "CLI-THZPUJOWQXNR")  # each has reversed charges
+SPEND = (
+    "DEMO-MX-DUPLICATE",
+    "CLI-5EWYD3VRLM5C",
+    "CLI-7QE9NSFAKW9W",
+)  # purchases beside transfers, deposits
 CARD_AND_MORE = ("CLI-5EWYD3VRLM5C", "CLI-7QE9NSFAKW9W")  # spend split across card and accounts
 
 
@@ -118,6 +123,7 @@ CASES: tuple[Case, ...] = (
             "WHERE transaction_status = 'Approved' AND transaction_type = 'Purchase' "
             "GROUP BY currency"
         ),
+        customers=SPEND,
     ),
     Case(
         "avg_purchase",
@@ -125,9 +131,11 @@ CASES: tuple[Case, ...] = (
         "es",
         "¿Cuál es el monto promedio de mis compras aprobadas?",
         gold_sql=(
-            "SELECT round(avg(amount)::numeric, 2) AS promedio FROM transactions "
-            "WHERE transaction_status = 'Approved'"
+            "SELECT currency, round(avg(amount)::numeric, 2) AS promedio "
+            "FROM transactions WHERE transaction_status = 'Approved' "
+            "AND transaction_type = 'Purchase' GROUP BY currency"
         ),
+        customers=SPEND,
     ),
     Case(
         "pending_total",
@@ -135,7 +143,8 @@ CASES: tuple[Case, ...] = (
         "es",
         "¿Cuánto dinero tengo pendiente de confirmar?",
         gold_sql=(
-            "SELECT sum(amount) AS total FROM transactions WHERE transaction_status = 'Pending'"
+            "SELECT currency, sum(amount) AS total FROM transactions "
+            "WHERE transaction_status = 'Pending' GROUP BY currency"
         ),
         customers=("DEMO-CO-PENDING", "DEMO-MX-DUPLICATE"),
         split="heldout",
@@ -146,9 +155,12 @@ CASES: tuple[Case, ...] = (
         "es",
         "¿Cuánto gasté por categoría?",
         gold_sql=(
-            "SELECT transaction_category, sum(amount) AS total FROM transactions "
-            "WHERE transaction_status = 'Approved' GROUP BY transaction_category"
+            "SELECT transaction_category, currency, sum(amount) AS total "
+            "FROM transactions WHERE transaction_status = 'Approved' "
+            "AND transaction_type = 'Purchase' "
+            "GROUP BY transaction_category, currency"
         ),
+        customers=SPEND,
     ),
     # ranking
     Case(
@@ -158,8 +170,10 @@ CASES: tuple[Case, ...] = (
         "¿Cuál fue mi compra más grande?",
         gold_sql=(
             "SELECT merchant_name, amount, currency FROM transactions "
-            "WHERE transaction_status = 'Approved' ORDER BY amount DESC LIMIT 1"
+            "WHERE transaction_status = 'Approved' AND transaction_type = 'Purchase' "
+            "ORDER BY amount DESC LIMIT 1"
         ),
+        customers=SPEND,
         ordered=True,
     ),
     Case(
@@ -168,10 +182,12 @@ CASES: tuple[Case, ...] = (
         "es",
         "¿En qué 3 comercios gasté más?",
         gold_sql=(
-            "SELECT merchant_name, sum(amount) AS total FROM transactions "
-            "WHERE transaction_status = 'Approved' GROUP BY merchant_name ORDER BY total DESC "
-            "LIMIT 3"
+            "SELECT merchant_name, currency, sum(amount) AS total FROM transactions "
+            "WHERE transaction_status = 'Approved' AND transaction_type = 'Purchase' "
+            "AND merchant_name IS NOT NULL GROUP BY merchant_name, currency "
+            "ORDER BY total DESC LIMIT 3"
         ),
+        customers=SPEND,
         ordered=True,
     ),
     Case(
@@ -192,7 +208,10 @@ CASES: tuple[Case, ...] = (
         "time",
         "es",
         "¿Cuándo fue mi primera transacción?",
-        gold_sql="SELECT min(transaction_date)::date AS fecha FROM transactions",
+        gold_sql=(
+            "SELECT min(transaction_date) AS fecha FROM transactions",
+            "SELECT min(transaction_date)::date AS fecha FROM transactions",
+        ),
     ),
     Case(
         "spend_by_month",
@@ -200,9 +219,12 @@ CASES: tuple[Case, ...] = (
         "es",
         "¿Cuánto gasté cada mes?",
         gold_sql=(
-            "SELECT date_trunc('month', transaction_date)::date AS mes, sum(amount) AS total "
-            "FROM transactions WHERE transaction_status = 'Approved' GROUP BY 1 ORDER BY 1"
+            "SELECT date_trunc('month', transaction_date)::date AS mes, "
+            "currency, sum(amount) AS total "
+            "FROM transactions WHERE transaction_status = 'Approved' "
+            "AND transaction_type = 'Purchase' GROUP BY 1, 2 ORDER BY 1, 2"
         ),
+        customers=SPEND,
         ordered=True,
     ),
     Case(
@@ -211,9 +233,12 @@ CASES: tuple[Case, ...] = (
         "es",
         "¿Cuánto gasté en junio de 2026?",
         gold_sql=(
-            "SELECT sum(amount) AS total FROM transactions WHERE transaction_status = 'Approved' "
-            "AND transaction_date >= '2026-06-01' AND transaction_date < '2026-07-01'"
+            "SELECT currency, sum(amount) AS total FROM transactions "
+            "WHERE transaction_status = 'Approved' AND transaction_type = 'Purchase' "
+            "AND transaction_date >= '2026-06-01' "
+            "AND transaction_date < '2026-07-01' GROUP BY currency"
         ),
+        customers=SPEND,
     ),
     Case(
         "last_30_days",
@@ -233,7 +258,13 @@ CASES: tuple[Case, ...] = (
         "tables",
         "es",
         "¿Cuál es mi saldo total por moneda?",
-        gold_sql="SELECT currency, sum(current_balance) AS total FROM products GROUP BY currency",
+        gold_sql=(
+            ("SELECT currency, sum(current_balance) AS total FROM products GROUP BY currency"),
+            (
+                "SELECT currency, sum(current_balance) AS total FROM products "
+                "WHERE product_status = 'Active' GROUP BY currency"
+            ),
+        ),
         customers=SERVICE,
     ),
     Case(
@@ -296,9 +327,11 @@ CASES: tuple[Case, ...] = (
         "es",
         "¿Cuánto he gastado con mi tarjeta de crédito?",
         gold_sql=(
-            "SELECT sum(t.amount) AS total FROM transactions t "
+            "SELECT t.currency, sum(t.amount) AS total FROM transactions t "
             "JOIN products p ON p.product_id = t.product_id "
-            "WHERE p.product_type = 'Tarjeta Crédito' AND t.transaction_status = 'Approved'"
+            "WHERE p.product_type = 'Tarjeta Crédito' "
+            "AND t.transaction_status = 'Approved' "
+            "AND t.transaction_type = 'Purchase' GROUP BY t.currency"
         ),
         customers=CARD_AND_MORE,
         split="heldout",
@@ -309,8 +342,11 @@ CASES: tuple[Case, ...] = (
         "es",
         "¿Cuánto he gastado en el extranjero?",
         gold_sql=(
-            "SELECT count(*) AS n, sum(t.amount) AS total FROM transactions t, customers c "
-            "WHERE t.transaction_country <> c.country"
+            "SELECT t.currency, sum(t.amount) AS total "
+            "FROM transactions t, customers c "
+            "WHERE t.transaction_status = 'Approved' "
+            "AND t.transaction_type = 'Purchase' "
+            "AND t.transaction_country <> c.country GROUP BY t.currency"
         ),
         customers=ANY,
     ),
@@ -346,8 +382,10 @@ CASES: tuple[Case, ...] = (
         "Quais foram as minhas 3 maiores compras aprovadas?",
         gold_sql=(
             "SELECT merchant_name, amount, currency FROM transactions "
-            "WHERE transaction_status = 'Approved' ORDER BY amount DESC LIMIT 3"
+            "WHERE transaction_status = 'Approved' AND transaction_type = 'Purchase' "
+            "ORDER BY amount DESC LIMIT 3"
         ),
+        customers=SPEND,
         ordered=True,
     ),
     Case(
@@ -360,6 +398,7 @@ CASES: tuple[Case, ...] = (
             "WHERE transaction_status = 'Approved' AND transaction_type = 'Purchase' "
             "GROUP BY currency"
         ),
+        customers=SPEND,
     ),
     Case(
         "pt_declined",
