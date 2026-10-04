@@ -319,6 +319,7 @@ async def main() -> None:
     meta = {
         "provider": settings.provider,
         "model": settings.model(args.role),
+        "location": settings.google_cloud_location,  # where Vertex serves it; "global" or a region
         "date": datetime.now(UTC).isoformat(timespec="seconds"),
         "split": args.split,
         "cases": len(cases),

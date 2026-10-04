@@ -401,3 +401,11 @@ async def test_the_sql_the_model_wrote_is_what_gets_scored_again(demo_data):
     assert attempt["correct"] is False
     (again,) = await rescore.rescore([attempt])
     assert again["correct"] is False and again["sql"] == attempt["sql"]
+
+
+async def test_the_report_records_where_the_model_was_served_from(demo_data, monkeypatch, tmp_path):
+    from app.config import Settings
+
+    monkeypatch.setattr(harness, "get_settings", lambda: Settings(google_cloud_location="global"))
+    report = await run_command(monkeypatch, tmp_path, "--ids", "credit_score")
+    assert report["meta"]["location"] == "global"
