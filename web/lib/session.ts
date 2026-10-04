@@ -6,7 +6,8 @@ import { useSyncExternalStore } from "react";
 
 const STORED = "session";
 
-export type Session = { customer: string; email: string; token: string; expiresAt: number };
+// `user` is what was typed to sign in: the ID of a customer (or one of the demo emails).
+export type Session = { customer: string; user: string; token: string; expiresAt: number };
 
 const listeners = new Set<() => void>();
 
