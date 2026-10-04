@@ -208,7 +208,7 @@ switch.
 | Provider errors | 1 of 93 attempts. 121 calls for 93 attempts: 30% more, all from 429s |
 | First `eval-gate` run in CI | 0.87, 36 calls, 3 min 9 s for the whole job |
 | `eval-gate` with 3 repeats in CI | 0.824 (0.864, 0.783, 0.826), 8 min 11 s for the whole job |
-| Held-out (13 cases) | Not run yet. It is reported once, at the end |
+| Held-out (13 cases), blind, 3 repeats | Old catalog: 24 of 26, and 24 of 25 on another day. With the three catalog rules: 18 of 26. See [A change that did not generalize](#a-change-that-did-not-generalize) |
 
 Known failures, from the five attempts per case made across three runs (the first measurement, the
 3 repeats and the first run in CI). They look like general defects of the agent, not noise:
@@ -221,7 +221,34 @@ Known failures, from the five attempts per case made across three runs (the firs
 | `usd_to_mxn` | 1 of 5 | Unstable: it declined once. `fx_rates` is described as a public reference, not customer data |
 
 Fixing them means general catalog rules (dialect, partial matching of names, reference tables), each
-measured with this eval, and not a patch per question.
+measured with this eval, and not a patch per question. The first attempt did not generalize: see
+[A change that did not generalize](#a-change-that-did-not-generalize).
+
+## A change that did not generalize
+
+Three catalog rules (write dates in PostgreSQL, match names with `ILIKE`, say that `fx_rates` answers any
+exchange-rate question) came from three defects the regression cases showed: the model wrote `strftime`,
+searched merchants with `=`, and declined an exchange-rate question. Against a control on the same day
+they looked like a small gain on the regression cases: accuracy 0.803 to 0.836, queries blocked by the
+guard 3 to 0, three cases better and one worse.
+
+On the held-out cases they did not hold up. Blind, 3 repeats each:
+
+| Catalog | Correct |
+|---|---|
+| Old, first day | 24 of 26 |
+| Old, the day of the experiment (the control) | 24 of 25 |
+| With the three rules | 18 of 26 |
+
+The decision rule was written before the control was run: a difference of 0.20 or more meant the rules do
+not generalize. It was 0.27 (Fisher exact test, p = 0.02, which overstates the evidence because the
+attempts repeat the same nine cases), so the rules were taken out.
+
+Two things follow. A gain on the cases a rule was written from did not carry to unseen ones, which is what
+the held-out set is for. And the held-out set was used for a go/no-go decision, so the estimate for the
+agent that ships (the old catalog: 48 of 51, 0.94) may be a little high, because the choice between the two
+agents was made looking at these numbers. `--catalog` and `variants` stay: they are how the rules were
+tested, and how the next change should be.
 
 ## What it does not measure
 
@@ -249,7 +276,9 @@ measured with this eval, and not a patch per question.
   failures showed that the comparator rejected extra columns, that several gold queries contradicted the
   catalog, and that the `DEMO-*` customers could not test the purchase rule. They were fixed by
   principle, not by copying the model's SQL, and three real errors still fail, but the regression number
-  is optimistic. The held-out cases were not touched by that; they are the unbiased measure.
+  is optimistic. The held-out cases were not touched by that, so they are the less biased measure, with one
+  caveat: they were later used once for a go/no-go decision (see
+  [A change that did not generalize](#a-change-that-did-not-generalize)).
 - **One person wrote the gold queries.** A second reviewer should confirm them: a wrong gold query
   punishes a correct model.
 - **One model, one region.** The gate uses the `global` endpoint, where Gemini refuses fewer calls;
