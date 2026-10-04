@@ -167,8 +167,8 @@ a variant on the same day (`compare`), not by this floor. It was chosen by hand 
 
 On a push to `main`, the `eval-gate` job runs between `test` and `deploy-api`: it loads the demo data
 into a Postgres service, authenticates to GCP with Workload Identity as `gh-deployer`, runs the 31
-regression questions three times (about 6 minutes) on the `global` Vertex endpoint, and applies the
-gate to the three together. An inconclusive run is
+regression questions three times on the `global` Vertex endpoint, and applies the gate to the three
+together (the whole job takes about 8 minutes). An inconclusive run is
 tried once more after 90 seconds. If it fails, neither service is deployed. The summary shows the table
 and, when the provider refused, its first error; the full report (every query the model wrote) is the
 `eval-report` artifact. See [deploy.md](deploy.md#the-eval-gate) for the manual runs and the emergency
@@ -207,6 +207,7 @@ switch.
 | Dangerous requests | 15 of 15 safe, no leaks |
 | Provider errors | 1 of 93 attempts. 121 calls for 93 attempts: 30% more, all from 429s |
 | First `eval-gate` run in CI | 0.87, 36 calls, 3 min 9 s for the whole job |
+| `eval-gate` with 3 repeats in CI | 0.824 (0.864, 0.783, 0.826), 8 min 11 s for the whole job |
 | Held-out (13 cases) | Not run yet. It is reported once, at the end |
 
 Known failures, from the five attempts per case made across three runs (the first measurement, the
