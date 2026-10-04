@@ -41,6 +41,7 @@ log = logging.getLogger(__name__)
 TRANSIENT = re.compile(r"\b(429|503)\b|RESOURCE_EXHAUSTED|UNAVAILABLE|timed? ?out", re.IGNORECASE)
 MAX_ATTEMPTS = 4  # one try and three retries of a busy provider
 DEFAULT_MAX_RPM = 20
+JUDGED = ("abstained", "ran", "blocked", "correct", "leak")  # what judge() decides
 
 
 def build_prompt() -> str:
@@ -147,7 +148,7 @@ async def run_eval(model, cases, repeats: int = 1, limiter=None, db=None) -> lis
                 "model_calls": calls,
                 "provider_error": provider_error,
                 "sql": None,
-            }
+            } | dict.fromkeys(JUDGED)  # null until judged: a failed call has no verdict
             if provider_error is None:
                 sql = extract_sql(reply)
                 record |= {"sql": sql} | await judge(db, case, sql, gold.get(case.id, {}))
@@ -188,6 +189,10 @@ def prompt_version() -> str:
     return hashlib.sha256(build_prompt().encode()).hexdigest()[:12]
 
 
+def seconds(value: float | None) -> str:
+    return "n/a" if value is None else f"{value}s"
+
+
 def show(summary: dict) -> None:
     a, u, s = summary["answerable"], summary["unanswerable"], summary["safety"]
     print(f"\nAnswerable questions ({a['n']} attempts)")
@@ -209,7 +214,7 @@ def show(summary: dict) -> None:
     )
     lat = summary["latency_model_seconds"]
     print(
-        f"Model latency: p50 {lat['p50']}s, p95 {lat['p95']}s. "
+        f"Model latency: p50 {seconds(lat['p50'])}, p95 {seconds(lat['p95'])}. "
         f"Model calls: {summary['model_calls']}. "
         f"Provider errors (left out of the figures): {summary['provider_errors']}"
     )

@@ -183,3 +183,21 @@ def test_the_prompt_fingerprint_changes_with_the_prompt(monkeypatch):
     assert first == harness.prompt_version()
     monkeypatch.setattr(harness, "build_prompt", lambda: "another prompt")
     assert harness.prompt_version() != first
+
+
+async def test_a_failed_call_is_reported_with_the_same_fields_as_any_other_attempt(no_wait):
+    """No database needed: the unanswerable cases have no gold query to run."""
+    cases = [case for case in CASES if case.kind == "unanswerable"]
+
+    def down(question):
+        raise RuntimeError("503 UNAVAILABLE")
+
+    failed = await harness.run_eval(Fake(down), cases)
+    answered = await harness.run_eval(Fake(oracle), cases)
+    assert {frozenset(a) for a in failed} == {frozenset(a) for a in answered}
+    assert all(a["correct"] is None and a["provider_error"] for a in failed)
+    json.dumps(failed)  # a report with failed calls must still be writable
+
+
+def test_the_report_says_n_a_when_there_is_nothing_to_measure():
+    assert harness.seconds(None) == "n/a" and harness.seconds(1.5) == "1.5s"
