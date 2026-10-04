@@ -23,9 +23,12 @@ export default function FinancePage() {
   const [data, setData] = useState<OwnFinances | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const [alertsOn, setAlertsOn] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getOwnFinances(DEMO_CLIENT_ID).then(setData);
+    getOwnFinances(DEMO_CLIENT_ID)
+      .then(setData)
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : "No pudimos cargar tus finanzas."));
   }, []);
 
   const alert = data?.alerts[0];
@@ -39,6 +42,12 @@ export default function FinancePage() {
         {data && <span className="q-sub">{data.product} · datos sintéticos</span>}
       </AppHeader>
 
+      {error && !data && (
+        <main style={{ flex: "1 1 auto", maxWidth: 1120, width: "100%", margin: "0 auto", padding: "28px 24px", boxSizing: "border-box" }}>
+          <p role="alert" style={{ margin: 0, fontSize: 17, color: "var(--q-fog)" }}>{error}</p>
+        </main>
+      )}
+
       {data && (
         <main
           style={{
@@ -51,10 +60,21 @@ export default function FinancePage() {
               Tus últimos {data.windowDays} días
             </h1>
             <p style={{ margin: 0, fontSize: 17, lineHeight: 1.55, color: "var(--q-fog)", maxWidth: "60ch" }}>
-              Gastaste <span style={{ color: "var(--q-mist)" }}>{formatAmount(data.totals.spend)} {data.currency}</span>, un{" "}
-              {Math.abs(data.totals.prevChangePct)}% {data.totals.prevChangePct < 0 ? "menos" : "más"} que en los {data.windowDays} días
-              anteriores. {data.notes.spending}
+              Gastaste <span style={{ color: "var(--q-mist)" }}>{formatAmount(data.totals.spend)} {data.currency}</span>
+              {data.totals.prevChangePct !== null && (
+                <>
+                  , un {Math.abs(data.totals.prevChangePct)}% {data.totals.prevChangePct < 0 ? "menos" : "más"} que en los{" "}
+                  {data.windowDays} días anteriores
+                </>
+              )}
+              . {data.notes.spending}
             </p>
+            {data.otherCurrencies.length > 0 && (
+              <p className="q-sub" style={{ margin: 0, fontSize: 14 }}>
+                También gastaste {data.otherCurrencies.map((c) => `${formatAmount(c.spend)} ${c.currency}`).join(" y ")}; no se suma
+                a este total porque es otra moneda.
+              </p>
+            )}
           </div>
 
           {alert && !dismissed && (
@@ -80,7 +100,7 @@ export default function FinancePage() {
                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                   <span className="h">Posible cargo duplicado</span>
                   <span className="q-sub" style={{ fontSize: 14, lineHeight: 1.5 }}>
-                    Dos cargos de {alert.merchant} por {formatAmount(alert.amount, 2)} {data.currency} el {Number(alert.date.slice(8))} de{" "}
+                    Dos cargos de {alert.merchant} por {formatAmount(alert.amount, 2)} {alert.currency} el {Number(alert.date.slice(8))} de{" "}
                     {MONTHS[Number(alert.date.slice(5, 7)) - 1]}, con {alert.deltaSeconds} segundos de diferencia.
                   </span>
                 </div>

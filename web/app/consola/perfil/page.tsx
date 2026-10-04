@@ -72,7 +72,9 @@ function ProfileScreen() {
               <span className="q-sub">Gasto total · {data.windowDays} días</span>
               <span className="kpi-v">{formatAmount(data.totals.spend)} <span style={UNIT}>{data.currency}</span></span>
               <span className="q-sub">
-                {data.totals.prevChangePct > 0 ? "+" : ""}{data.totals.prevChangePct}% vs. {data.windowDays} días previos
+                {data.totals.prevChangePct === null
+                  ? "sin gasto en los días previos"
+                  : `${data.totals.prevChangePct > 0 ? "+" : ""}${data.totals.prevChangePct}% vs. ${data.windowDays} días previos`}
               </span>
             </div>
             <div className="q-panel kpi">

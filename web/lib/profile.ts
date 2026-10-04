@@ -14,7 +14,8 @@ export type Alert = {
   type: "duplicate_charge";
   merchant: string;
   amount: number;
-  date: string; // YYYY-MM-DD
+  currency: string;
+  date: string; // YYYY-MM-DD, the day of the first of the two charges
   deltaSeconds: number;
 };
 
@@ -35,7 +36,7 @@ export type ClientProfile = {
   windowDays: number;
   totals: {
     spend: number;
-    prevChangePct: number;
+    prevChangePct: number | null; // null: there was no spending in the period before
     transactions: number;
     txPerWeek: number;
     avgTicket: number;
@@ -46,6 +47,8 @@ export type ClientProfile = {
   monthly: [month: string, amount: number][]; // month is YYYY-MM
   topMerchants: Merchant[];
   alerts: Alert[];
+  // Spending in currencies the screen does not show; they are never added to the total.
+  otherCurrencies: { currency: string; spend: number }[];
   // Sentences written for the customer.
   notes: { spending: string; monthly: string; tip: string };
   // Console only: it never reaches the customer.
@@ -67,6 +70,7 @@ export type OwnFinances = Omit<ClientProfile, "internal">;
 
 export const DEMO_CLIENT_ID = "DEMO-MX-DUPLICATE";
 
+// Sample figures: `getProfile` (the staff console) still uses them until its endpoint exists.
 const OWN: OwnFinances = {
   clientId: DEMO_CLIENT_ID,
   product: "Tarjeta de crédito",
@@ -96,7 +100,8 @@ const OWN: OwnFinances = {
     { name: "Pemex", count: 5, unit: "cargas", amount: 2140 },
     { name: "Liverpool", count: 3, unit: "compras", amount: 1620 },
   ],
-  alerts: [{ type: "duplicate_charge", merchant: "Uber Trip", amount: 312.4, date: "2026-06-11", deltaSeconds: 4 }],
+  alerts: [{ type: "duplicate_charge", merchant: "Uber Trip", amount: 312.4, currency: "MXN", date: "2026-06-11", deltaSeconds: 4 }],
+  otherCurrencies: [],
   notes: {
     spending: "Más de la mitad se fue en súper y transporte.",
     monthly: "Junio fue tu mes más alto. Incluye el cargo que estamos revisando.",
@@ -130,9 +135,45 @@ export async function getProfile(clientId: string): Promise<ClientProfile> {
   return { ...OWN, clientId, internal: INTERNAL };
 }
 
-// The customer's endpoint: the same profile without the `internal` block.
-export async function getOwnFinances(clientId: string): Promise<OwnFinances> {
-  return { ...OWN, clientId };
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
+
+export class FinancesError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+// Test identity service: the API signs a short-lived token for a demo customer.
+export async function demoAuth(clientId: string): Promise<Record<string, string>> {
+  const response = await fetch(`${API_URL}/api/auth/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ customer_id: clientId }),
+  });
+  if (!response.ok) throw new FinancesError(response.status, "No pudimos iniciar la sesión de demostración.");
+  const data: { access_token: string } = await response.json();
+  return { Authorization: `Bearer ${data.access_token}` };
+}
+
+// What the API says when it cannot serve the screen, in the customer's words.
+const FINANCES_ERRORS: Record<number, string> = {
+  401: "Tu sesión expiró. Vuelve a entrar.",
+  404: "Todavía no hay movimientos en este periodo.",
+  503: "No pudimos cargar tus finanzas ahora. Inténtalo de nuevo en un momento.",
+};
+
+// `GET /api/me/finances`: the customer's own screen, without the `internal` block. Who the customer
+// is comes from the token, never from the URL. Without `auth` it signs in as `clientId` (demo).
+export async function getOwnFinances(clientId: string, auth?: Record<string, string>): Promise<OwnFinances> {
+  const headers = auth ?? (await demoAuth(clientId));
+  const response = await fetch(`${API_URL}/api/me/finances`, { headers });
+  if (!response.ok) {
+    throw new FinancesError(response.status, FINANCES_ERRORS[response.status] ?? `Error ${response.status}`);
+  }
+  return response.json();
 }
 
 // Amounts are written the same way on every screen: 13,620 and 312.40.

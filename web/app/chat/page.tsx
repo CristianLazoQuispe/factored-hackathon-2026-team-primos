@@ -389,7 +389,14 @@ export default function Chat() {
   }
 
   async function sampleChart() {
-    const finances = await getOwnFinances(customerId.trim());
+    const customer = customerId.trim();
+    let finances;
+    try {
+      finances = await getOwnFinances(customer, await authHeader(customer, false));
+    } catch (error) {
+      fail(error);
+      return;
+    }
     const top = finances.categories[0];
     const share = Math.round((top.amount / finances.totals.spend) * 100);
     const text = `En los últimos ${finances.windowDays} días gastaste **${formatAmount(finances.totals.spend)} ${finances.currency}**. Lo que más pesa es **${top.name.toLowerCase()}**: ${share}% del total.`;
