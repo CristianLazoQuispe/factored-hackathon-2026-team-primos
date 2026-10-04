@@ -5,10 +5,9 @@ import { useEffect, useState } from "react";
 
 import { AppHeader } from "@/components/app-header";
 import { CategoryDonut, MonthlyBars } from "@/components/charts";
-import { CustomerField } from "@/components/customer-field";
 import { Logo } from "@/components/logo";
-import { LOOKS_LIKE_CUSTOMER_ID, useCustomerSelection, useDebounced } from "@/lib/customer";
-import { formatAmount, getOwnFinances, type OwnFinances } from "@/lib/profile";
+import { FinancesError, formatAmount, getOwnFinances, type OwnFinances } from "@/lib/profile";
+import { saveSession, useSession } from "@/lib/session";
 
 import "./screen.css";
 
@@ -22,43 +21,38 @@ const QUESTIONS = [
 ];
 
 export default function FinancePage() {
-  const { customerId, demoCustomers, setCustomerId } = useCustomerSelection(); // shared with the chat
-  const typed = customerId.trim();
-  const wanted = useDebounced(typed, 400); // not every prefix of an ID typed by hand
-  const settled = typed === wanted;
-  const valid = LOOKS_LIKE_CUSTOMER_ID.test(wanted);
-  // What came back, and for whom: one customer's figures are never shown under another's ID.
+  const session = useSession(); // the chat's: whoever signed in there is the customer here
+  const customer = session?.customer ?? "";
+  const token = session?.token ?? "";
+  // What came back, and for whom: one customer's figures are never shown under another's session.
   const [result, setResult] = useState<{ customer: string; data?: OwnFinances; error?: string } | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const [alertsOn, setAlertsOn] = useState(false);
 
   useEffect(() => {
-    if (!valid) return;
+    if (!token) return;
     let live = true;
-    getOwnFinances(wanted)
+    getOwnFinances({ Authorization: `Bearer ${token}` })
       .then((data) => {
         if (!live) return;
-        setResult({ customer: wanted, data });
+        setResult({ customer, data });
         setDismissed(false);
         setAlertsOn(false);
       })
       .catch((e: unknown) => {
-        if (live) setResult({ customer: wanted, error: e instanceof Error ? e.message : "No pudimos cargar tus finanzas." });
+        if (!live) return;
+        if (e instanceof FinancesError && e.status === 401) saveSession(null); // expired: sign in again
+        else setResult({ customer, error: e instanceof Error ? e.message : "No pudimos cargar tus finanzas." });
       });
     return () => {
       live = false;
     };
-  }, [wanted, valid]);
+  }, [customer, token]);
 
-  const current = settled && valid && result?.customer === wanted ? result : null;
+  const current = session && result?.customer === customer ? result : null;
   const data = current?.data ?? null;
   const error = current?.error ?? null;
-  const status =
-    typed === ""
-      ? "Elige un cliente o escribe su ID."
-      : settled && !valid
-        ? "Ese ID no parece de un cliente: empieza con CLI- o DEMO-."
-        : error ?? (data ? null : "Cargando…");
+  const status = session ? error ?? (data ? null : "Cargando…") : null;
 
   const alert = data?.alerts[0];
 
@@ -69,10 +63,18 @@ export default function FinancePage() {
     >
       <AppHeader area="cliente" active="/mis-finanzas">
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
-          <CustomerField value={customerId} onChange={setCustomerId} customers={demoCustomers} />
+          {session && <span style={{ fontSize: 13, color: "var(--q-fog)" }}>{session.email}</span>}
           {data && <span className="q-sub">{data.product} · datos sintéticos</span>}
         </div>
       </AppHeader>
+
+      {!session && (
+        <main style={{ flex: "1 1 auto", maxWidth: 1120, width: "100%", margin: "0 auto", padding: "28px 24px", boxSizing: "border-box" }}>
+          <p role="status" style={{ margin: 0, fontSize: 17, color: "var(--q-fog)" }}>
+            Entra con tu correo en el <Link href="/chat" style={{ color: "var(--q-teal)" }}>chat</Link> para ver tus finanzas.
+          </p>
+        </main>
+      )}
 
       {status && (
         <main style={{ flex: "1 1 auto", maxWidth: 1120, width: "100%", margin: "0 auto", padding: "28px 24px", boxSizing: "border-box" }}>

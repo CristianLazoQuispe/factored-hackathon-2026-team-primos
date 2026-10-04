@@ -9,6 +9,7 @@ import { AgentIcon, Logo } from "@/components/logo";
 import { revealed, visible } from "@/components/spoken";
 import { type MicrophoneAccess, useRecorder } from "@/components/use-recorder";
 import { type Category, formatAmount, getOwnFinances } from "@/lib/profile";
+import { readSession, saveSession, useSession } from "@/lib/session";
 import type { CoronaMode } from "@/lib/quipu-corona";
 
 import "./screen.css";
@@ -50,8 +51,6 @@ function loginFailure(status: number): string {
   if (status === 429) return "Demasiados intentos. Espera un minuto.";
   return "Correo o contraseña incorrectos.";
 }
-
-type Session = { customer: string; email: string; password: string; token: string; expiresAt: number };
 
 const MICROPHONE: Record<MicrophoneAccess, { label: string; color: string }> = {
   "not asked": { label: "Permitir micrófono", color: "var(--q-mist)" },
@@ -166,7 +165,8 @@ function SpendingChart({ categories }: { categories: Category[] }) {
 }
 
 export default function Chat() {
-  const [customerId, setCustomerId] = useState("");
+  const session = useSession(); // shared with Mis finanzas
+  const customerId = session?.customer ?? "";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
@@ -186,7 +186,7 @@ export default function Chat() {
   const audio = useRef<AudioContext | null>(null);
   const voice = useRef<AudioBufferSourceNode | null>(null); // the line being read aloud
   const speaking = useRef(0); // counts the replies read aloud, and the times one was stopped
-  const session = useRef<Session | null>(null);
+  const secret = useRef(""); // the password, only in memory: after a reload the token cannot be renewed
   const operatorCursor = useRef(0); // how many messages of this thread were already checked
   const fileRef = useRef<HTMLInputElement>(null);
   const corona = useRef<CoronaHandle>(null);
@@ -200,21 +200,25 @@ export default function Chat() {
 
   // The token was issued for this email and password. Renew it the same way when it is about to expire.
   const authHeader = useCallback(async (renew: boolean): Promise<Record<string, string>> => {
-    const current = session.current;
+    const current = readSession();
     if (!current) return {};
     if (!renew && current.expiresAt - Date.now() > 30_000) {
       return { Authorization: `Bearer ${current.token}` };
     }
+    if (!secret.current) {
+      saveSession(null);
+      throw new Error("Tu sesión expiró. Vuelve a entrar.");
+    }
     const response = await fetch(`${API_URL}/api/auth/token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: current.email, password: current.password }),
+      body: JSON.stringify({ email: current.email, password: secret.current }),
     });
     if (!response.ok) {
       throw new Error(loginFailure(response.status));
     }
     const data: { access_token: string; expires_in: number; customer_id: string } = await response.json();
-    session.current = { ...current, customer: data.customer_id, token: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 };
+    saveSession({ ...current, customer: data.customer_id, token: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 });
     return { Authorization: `Bearer ${data.access_token}` };
   }, []);
 
@@ -231,14 +235,13 @@ export default function Chat() {
       return;
     }
     const data: { access_token: string; expires_in: number; customer_id: string } = await response.json();
-    session.current = {
+    secret.current = password;
+    saveSession({
       customer: data.customer_id,
       email: email.trim(),
-      password,
       token: data.access_token,
       expiresAt: Date.now() + data.expires_in * 1000,
-    };
-    setCustomerId(data.customer_id);
+    });
     setThreadId(newThread());
     setMessages([]);
     operatorCursor.current = 0;
@@ -246,8 +249,8 @@ export default function Chat() {
   }
 
   function signOut() {
-    session.current = null;
-    setCustomerId("");
+    secret.current = "";
+    saveSession(null);
     setPassword("");
     setLoginError("");
     setThreadId(newThread());
@@ -398,7 +401,7 @@ export default function Chat() {
   // on the reply is also read aloud, without making the customer wait: they can type or talk
   // while it reads.
   async function submit(text: string, heard?: string, image?: Attachment | null) {
-    if (!session.current) {
+    if (!readSession()) {
       setLoginError("Entra con tu correo y contraseña.");
       return;
     }
@@ -406,7 +409,7 @@ export default function Chat() {
     setPending(true);
     try {
       let response = await post(text, false, image);
-      if (response.status === 401 && session.current) response = await post(text, true, image); // session expired: sign in again once
+      if (response.status === 401 && readSession()) response = await post(text, true, image); // session expired: sign in again once
       if (response.status === 401) throw new Error("Entra con tu correo y contraseña.");
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data: ChatResponse = await response.json();
@@ -427,7 +430,13 @@ export default function Chat() {
   }
 
   async function sampleChart() {
-    const finances = await getOwnFinances(customerId.trim());
+    let finances;
+    try {
+      finances = await getOwnFinances(await authHeader(false));
+    } catch (error) {
+      fail(error);
+      return;
+    }
     const top = finances.categories[0];
     const share = Math.round((top.amount / finances.totals.spend) * 100);
     const text = `En los últimos ${finances.windowDays} días gastaste **${formatAmount(finances.totals.spend)} ${finances.currency}**. Lo que más pesa es **${top.name.toLowerCase()}**: ${share}% del total.`;
@@ -435,7 +444,7 @@ export default function Chat() {
   }
 
   function ask(text: string) {
-    if (pending || !session.current) return;
+    if (pending || !readSession()) return;
     hush(); // a new question: stop reading the previous answer
     void submit(text);
   }
@@ -513,7 +522,7 @@ export default function Chat() {
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
           {customerId ? (
             <>
-              <span style={{ fontSize: 13, color: "var(--q-fog)" }}>{session.current?.email}</span>
+              <span style={{ fontSize: 13, color: "var(--q-fog)" }}>{session?.email}</span>
               <button type="button" className="q-btn q-btn-sm q-btn-ghost" onClick={signOut}>
                 Salir
               </button>

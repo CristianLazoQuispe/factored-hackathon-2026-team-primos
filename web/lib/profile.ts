@@ -146,23 +146,6 @@ export class FinancesError extends Error {
   }
 }
 
-// Test identity service: the API signs a short-lived token for a demo customer.
-export async function demoAuth(clientId: string): Promise<Record<string, string>> {
-  const response = await fetch(`${API_URL}/api/auth/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ customer_id: clientId }),
-  });
-  if (!response.ok) {
-    const message = response.status === 403 ? NO_SESSION : "No pudimos iniciar la sesión de demostración.";
-    throw new FinancesError(response.status, message);
-  }
-  const data: { access_token: string } = await response.json();
-  return { Authorization: `Bearer ${data.access_token}` };
-}
-
-const NO_SESSION = "Ese cliente no tiene sesión de demostración.";
-
 // What the API says when it cannot serve the screen, in the customer's words: by its `detail`, which
 // tells apart the two 404s, and otherwise by status.
 const FINANCES_DETAIL: Record<string, string> = {
@@ -170,13 +153,12 @@ const FINANCES_DETAIL: Record<string, string> = {
   no_spending_in_period: "Todavía no hay movimientos en este periodo.",
   finances_unavailable: "No pudimos cargar tus finanzas ahora. Inténtalo de nuevo en un momento.",
 };
-const FINANCES_STATUS: Record<number, string> = { 401: "Tu sesión expiró. Vuelve a entrar.", 403: NO_SESSION };
+const FINANCES_STATUS: Record<number, string> = { 401: "Tu sesión expiró. Vuelve a entrar." };
 
 // `GET /api/me/finances`: the customer's own screen, without the `internal` block. Who the customer
-// is comes from the token, never from the URL. Without `auth` it signs in as `clientId` (demo).
-export async function getOwnFinances(clientId: string, auth?: Record<string, string>): Promise<OwnFinances> {
-  const headers = auth ?? (await demoAuth(clientId));
-  const response = await fetch(`${API_URL}/api/me/finances`, { headers });
+// is comes from the token of the session (`auth`), never from the URL.
+export async function getOwnFinances(auth: Record<string, string>): Promise<OwnFinances> {
+  const response = await fetch(`${API_URL}/api/me/finances`, { headers: auth });
   if (!response.ok) {
     const body: { detail?: unknown } = await response.json().catch(() => ({}));
     const detail = typeof body.detail === "string" ? FINANCES_DETAIL[body.detail] : undefined;
