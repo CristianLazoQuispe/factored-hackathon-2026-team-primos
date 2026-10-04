@@ -5,7 +5,7 @@ A customer-service assistant for a Latin American bank. You chat with it in **Sp
 ## Open it
 
 - **Local:** `cp .env.example .env && make up`, then open http://localhost:3000 and press **Hablar con Quipu**, or go straight to http://localhost:3000/chat (see the [root README](../../../README.md)).
-- **Sign in:** at the top of the chat, one of the five demo emails and its password from the [root README](../../../README.md). That starts the session. **Salir** ends it.
+- **Sign in:** at the top of the chat, one of the eight demo emails and its password from the [root README](../../../README.md). That starts the session. **Salir** ends it.
 
 ## What you can ask today
 
@@ -20,6 +20,7 @@ A customer-service assistant for a Latin American bank. You chat with it in **Sp
 | *¿Cuántas quejas tengo?* | Counts your complaints and says in what state they are |
 | *¿A cuánto está el dólar?* | Gives the bank's reference exchange rate |
 | *No reconozco un cargo de Uber* | Finds the charge and checks the bank's records: charged twice, still pending, already reversed, or bought abroad |
+| Attach a photo of the charge and write *No reconozco estas transacciones* | Reads the merchant, amount and date from the photo and checks that charge. Sample photos for each demo customer are in `web/public/casos/` |
 | *¿Desde cuándo soy cliente?* | Shows your own data on record |
 | *Quiero hablar con una persona* | Transfers you to a human agent at once, with your case summarized |
 | Anything else (advice, other topics) | Answers briefly, says what it can help with, and offers a person |
