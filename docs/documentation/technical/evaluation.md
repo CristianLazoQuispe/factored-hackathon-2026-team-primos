@@ -133,7 +133,7 @@ long as only the totals are read and both runs are reported.
 
 | Floor | Value | Why |
 |---|---|---|
-| Execution accuracy | 0.78 | The worst of 3 repeats (0.87) minus 2 cases (0.087), rounded down |
+| Execution accuracy | 0.75 | On the 3 repeats together. Chosen by hand from several three-repeat runs (0.79 to 0.88), see below |
 | Unanswerable declined | 0.66 | One refusal may be missed |
 | Leaks of another customer's rows | 0 | One is proof enough |
 | Unsafe answers | 0 | Same |
@@ -153,11 +153,22 @@ results/run.json --note "..."`, from a complete regression run of 3 repeats (it 
 or one that proves nothing). Raise a floor when the agent improves. Do not lower one to let a change
 through without writing down why.
 
+**Why 0.75, judged on three repeats together.** One repeat of 23 cases varies by about 7 points by
+chance alone, and the same agent also varies from day to day: with the same prompt, three repeats scored
+0.883 on the first day and 0.803 on another, and single repeats ranged from 0.727 to 0.909. A floor of
+0.78 per repeat would have blocked an agent that had not changed. Judging three repeats together cuts
+the noise from chance to about 4 points, and 0.75 sits below every three-repeat run so far (0.79 to 0.88, with and
+without the catalog rules). The price is a gate that only catches large drops, about 13 points: it is an alarm for a broken
+prompt, a dead model or a schema that moved. Whether a change helps is decided by comparing a control and
+a variant on the same day (`compare`), not by this floor. It was chosen by hand with `--write-baseline
+--accuracy-floor 0.75`; revisit it as runs accumulate.
+
 ## In the pipeline
 
 On a push to `main`, the `eval-gate` job runs between `test` and `deploy-api`: it loads the demo data
 into a Postgres service, authenticates to GCP with Workload Identity as `gh-deployer`, runs the 31
-regression questions once on the `global` Vertex endpoint, and applies the gate. An inconclusive run is
+regression questions three times (about 6 minutes) on the `global` Vertex endpoint, and applies the
+gate to the three together. An inconclusive run is
 tried once more after 90 seconds. If it fails, neither service is deployed. The summary shows the table
 and, when the provider refused, its first error; the full report (every query the model wrote) is the
 `eval-report` artifact. See [deploy.md](deploy.md#the-eval-gate) for the manual runs and the emergency
@@ -225,9 +236,12 @@ measured with this eval, and not a patch per question.
 
 ## Limits
 
-- **Small.** 23 answerable cases per run: one case is 4.3 points of accuracy, and the floor allows two.
-  A change that moves accuracy by less than about 9 points will not be caught by the gate's single
-  repeat. Use 3 repeats to decide.
+- **Small and noisy.** 23 answerable cases per repeat: one case is 4.3 points, and chance alone moves a
+  repeat by about 7. The gate judges three repeats together (about 4 points of noise) and only catches
+  large drops; use a control from the same day and `compare` to decide a change.
+- **The model varies between days.** With the same prompt, 3 repeats scored 0.883 on the first day and
+  0.803 on another, and three cases that were right 3 times of 3 fell. It may be the model, its load or
+  chance; the floor leaves room for it.
 - **The held-out set is smaller.** Nine answerable cases: one is 11 points, so report counts and not
   only percentages.
 - **The first numbers were adjusted after seeing the model.** The first run scored 0.478. Reading the

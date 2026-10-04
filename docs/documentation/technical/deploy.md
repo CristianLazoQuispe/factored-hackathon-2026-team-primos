@@ -113,8 +113,8 @@ deployed UI. Use only synthetic customers that exist in the Cloud SQL data.
 1. Work on your `dev-<name>` branch (only its owner can push to it), open a PR to `dev` (lint + tests
    run), then a PR from `dev` to `main`. Repository rulesets reject direct pushes to `dev` and `main`
    and require a green `test`.
-2. Merging into `main` deploys: `test` → `eval-gate` → `deploy-api` → `deploy-web`, about 8 minutes (the
-   gate adds about 3). Follow it with
+2. Merging into `main` deploys: `test` → `eval-gate` → `deploy-api` → `deploy-web`, about 11 minutes (the
+   gate adds about 6). Follow it with
    `gh run watch --repo CristianLazoQuispe/factored-hackathon-2026-team-primos`; re-run it without a commit with
    `gh workflow run "CI and deploy to Cloud Run" --ref main`.
 3. Do not run `make deploy`, `deploy-api` or `deploy-web` by hand: the last deploy wins and can bring
@@ -158,8 +158,8 @@ the agent got worse, nothing is deployed: `deploy-web` waits for `deploy-api`, w
 What it measures, and what it does not, is in [evaluation.md](evaluation.md).
 
 - **It does not run on pull requests**, only on a push to `main` and on a manual run.
-- **It needs Gemini capacity.** It runs the 31 regression questions once on the `global` Vertex endpoint
-  (31 to 40 calls, about 3 minutes). A run that proves nothing because the provider refused too many
+- **It needs Gemini capacity.** It runs the 31 regression questions three times on the `global` Vertex endpoint
+  (93 to 125 calls, about 6 minutes) and judges them together. A run that proves nothing because the provider refused too many
   calls is tried once more after 90 seconds; if it still proves nothing, the deploy stops. Run the
   workflow again a few minutes later.
 - **It authenticates as `gh-deployer`**, which therefore needs `roles/aiplatform.user` (see the setup).
