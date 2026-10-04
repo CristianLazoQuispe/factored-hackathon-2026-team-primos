@@ -40,6 +40,6 @@ def test_demo_customers_are_only_the_listed_ones_in_any_environment(monkeypatch)
         assert [c["customer_id"] for c in client.get("/api/demo-customers").json()] == [
             "CLI-A",
             "CLI-B",
-        ]  # same list in the cloud: it is the allowlist for demo sessions
+        ]  # the same list in the cloud: this endpoint only echoes DEMO_CUSTOMER_IDS
         monkeypatch.setattr(get_settings(), "demo_customer_ids", "")
         assert client.get("/api/demo-customers").json() == []

@@ -164,8 +164,26 @@ def build_graph():
 agent = build_graph()
 
 
-async def reply(message: str, thread_id: str, customer_id: str | None = None) -> dict:
-    turn: dict = {"messages": [HumanMessage(message)]}
+def customer_message(text: str, image: tuple[str, str] | None = None) -> HumanMessage:
+    """The customer's turn. A photo rides along as an image block; routing still reads `.text`."""
+    if image is None:
+        return HumanMessage(text)
+    data, media_type = image
+    return HumanMessage(
+        content=[
+            {"type": "text", "text": text},
+            {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{data}"}},
+        ]
+    )
+
+
+async def reply(
+    message: str,
+    thread_id: str,
+    customer_id: str | None = None,
+    image: tuple[str, str] | None = None,
+) -> dict:
+    turn: dict = {"messages": [customer_message(message, image)]}
     if customer_id:
         turn["customer_id"] = customer_id
     config: RunnableConfig = {

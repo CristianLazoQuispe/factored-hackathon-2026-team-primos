@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 
 import { AppHeader } from "@/components/app-header";
@@ -20,6 +20,7 @@ import "./screen.css";
 type Message = {
   role: "customer" | "assistant" | "operator";
   text: string;
+  image?: string; // data URL of a photo the customer attached; it stays on this screen
   skill?: string | null;
   tools?: string[];
   handoff?: boolean;
@@ -39,10 +40,18 @@ type ChatResponse = {
 };
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
+const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const MAX_IMAGE_BYTES = 4_000_000;
 
-type DemoCustomer = { customer_id: string; first_name: string; country: string; segment: string };
+type Attachment = { mediaType: string; base64: string; preview: string };
 
-type Session = { customer: string; token: string; expiresAt: number };
+function loginFailure(status: number): string {
+  if (status === 423) return "Cuenta bloqueada. Espera 15 minutos.";
+  if (status === 429) return "Demasiados intentos. Espera un minuto.";
+  return "Correo o contraseña incorrectos.";
+}
+
+type Session = { customer: string; email: string; password: string; token: string; expiresAt: number };
 
 const MICROPHONE: Record<MicrophoneAccess, { label: string; color: string }> = {
   "not asked": { label: "Permitir micrófono", color: "var(--q-mist)" },
@@ -158,10 +167,13 @@ function SpendingChart({ categories }: { categories: Category[] }) {
 
 export default function Chat() {
   const [customerId, setCustomerId] = useState("");
-  const [demoCustomers, setDemoCustomers] = useState<DemoCustomer[]>([]);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
   const [threadId, setThreadId] = useState(newThread);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
+  const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [pending, setPending] = useState(false);
   const [transcribing, setTranscribing] = useState(false); // what was just said is being written down
   const [sound, setSound] = useState(false); // Quipu's voice: off until the customer turns it on
@@ -176,6 +188,7 @@ export default function Chat() {
   const speaking = useRef(0); // counts the replies read aloud, and the times one was stopped
   const session = useRef<Session | null>(null);
   const operatorCursor = useRef(0); // how many messages of this thread were already checked
+  const fileRef = useRef<HTMLInputElement>(null);
   const corona = useRef<CoronaHandle>(null);
   const answered = useRef<ReturnType<typeof setTimeout>>(undefined);
   const end = useRef<HTMLDivElement>(null);
@@ -185,42 +198,62 @@ export default function Chat() {
     if (messages.length) end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, pending, preparing, transcribing]);
 
-  // The customers offered here are the ones the API lets start a demo session (DEMO_CUSTOMER_IDS).
-  useEffect(() => {
-    fetch(`${API_URL}/api/demo-customers`)
-      .then((response) => (response.ok ? response.json() : []))
-      .then((customers: DemoCustomer[]) => {
-        setDemoCustomers(customers);
-        if (customers.length) setCustomerId(customers[0].customer_id);
-      })
-      .catch(() => setDemoCustomers([]));
-  }, []);
-
-  function changeCustomer(value: string) {
-    setCustomerId(value);
-    setThreadId(newThread());
-    setMessages([]);
-    operatorCursor.current = 0;
-  }
-
-  // Test identity service: the API signs a short-lived token for the chosen demo customer.
-  const authHeader = useCallback(async (customer: string, renew: boolean): Promise<Record<string, string>> => {
+  // The token was issued for this email and password. Renew it the same way when it is about to expire.
+  const authHeader = useCallback(async (renew: boolean): Promise<Record<string, string>> => {
     const current = session.current;
-    if (!renew && current?.customer === customer && current.expiresAt - Date.now() > 30_000) {
+    if (!current) return {};
+    if (!renew && current.expiresAt - Date.now() > 30_000) {
       return { Authorization: `Bearer ${current.token}` };
     }
     const response = await fetch(`${API_URL}/api/auth/token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ customer_id: customer }),
+      body: JSON.stringify({ email: current.email, password: current.password }),
     });
     if (!response.ok) {
-      throw new Error(response.status === 403 ? "Ese cliente no tiene sesión de demostración" : `HTTP ${response.status}`);
+      throw new Error(loginFailure(response.status));
     }
-    const data: { access_token: string; expires_in: number } = await response.json();
-    session.current = { customer, token: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 };
+    const data: { access_token: string; expires_in: number; customer_id: string } = await response.json();
+    session.current = { ...current, customer: data.customer_id, token: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 };
     return { Authorization: `Bearer ${data.access_token}` };
   }, []);
+
+  async function signIn(event: FormEvent) {
+    event.preventDefault();
+    setLoginError("");
+    const response = await fetch(`${API_URL}/api/auth/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: email.trim(), password }),
+    });
+    if (!response.ok) {
+      setLoginError(loginFailure(response.status));
+      return;
+    }
+    const data: { access_token: string; expires_in: number; customer_id: string } = await response.json();
+    session.current = {
+      customer: data.customer_id,
+      email: email.trim(),
+      password,
+      token: data.access_token,
+      expiresAt: Date.now() + data.expires_in * 1000,
+    };
+    setCustomerId(data.customer_id);
+    setThreadId(newThread());
+    setMessages([]);
+    operatorCursor.current = 0;
+    setPassword("");
+  }
+
+  function signOut() {
+    session.current = null;
+    setCustomerId("");
+    setPassword("");
+    setLoginError("");
+    setThreadId(newThread());
+    setMessages([]);
+    operatorCursor.current = 0;
+  }
 
   // Once the chat has started, ask every few seconds for what a person of the team wrote in it
   // (they answer from /consola). Quipu's own replies arrive with each POST, not here.
@@ -233,8 +266,7 @@ export default function Chat() {
       if (busy) return;
       busy = true;
       try {
-        const customer = customerId.trim();
-        const auth = customer ? await authHeader(customer, false) : {};
+        const auth = await authHeader(false);
         const response = await fetch(`${API_URL}/api/chat/${threadId}/operator?after=${operatorCursor.current}`, {
           headers: auth,
         });
@@ -254,15 +286,18 @@ export default function Chat() {
       active = false;
       clearInterval(timer);
     };
-  }, [started, threadId, customerId, authHeader]);
+  }, [started, threadId, authHeader]);
 
-  async function post(text: string, renew: boolean) {
-    const customer = customerId.trim();
-    const auth = customer ? await authHeader(customer, renew) : {};
+  async function post(text: string, renew: boolean, image?: Attachment | null) {
+    const auth = await authHeader(renew);
     return fetch(`${API_URL}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...auth },
-      body: JSON.stringify({ message: text, thread_id: threadId }),
+      body: JSON.stringify({
+        message: text,
+        thread_id: threadId,
+        ...(image ? { image: image.base64, image_type: image.mediaType } : {}),
+      }),
     });
   }
 
@@ -271,8 +306,7 @@ export default function Chat() {
   }
 
   async function speech(path: "transcribe" | "synthesize", body: BodyInit, headers: Record<string, string> = {}) {
-    const customer = customerId.trim();
-    const auth = customer ? await authHeader(customer, false) : {};
+    const auth = await authHeader(false);
     const response = await fetch(`${API_URL}/api/speech/${path}`, { method: "POST", headers: { ...headers, ...auth }, body });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return response;
@@ -363,13 +397,17 @@ export default function Chat() {
   // One customer turn, typed or spoken (`heard`: the language Whisper heard it in). With the voice
   // on the reply is also read aloud, without making the customer wait: they can type or talk
   // while it reads.
-  async function submit(text: string, heard?: string) {
-    setMessages((prev) => [...prev, { role: "customer", text }]);
+  async function submit(text: string, heard?: string, image?: Attachment | null) {
+    if (!session.current) {
+      setLoginError("Entra con tu correo y contraseña.");
+      return;
+    }
+    setMessages((prev) => [...prev, { role: "customer", text, image: image?.preview }]);
     setPending(true);
     try {
-      let response = await post(text, false);
-      if (response.status === 401 && customerId.trim()) response = await post(text, true); // session expired: sign in again once
-      if (response.status === 401) throw new Error("Elige un ID de cliente para iniciar sesión");
+      let response = await post(text, false, image);
+      if (response.status === 401 && session.current) response = await post(text, true, image); // session expired: sign in again once
+      if (response.status === 401) throw new Error("Entra con tu correo y contraseña.");
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data: ChatResponse = await response.json();
       const reply = data.reply;
@@ -397,17 +435,39 @@ export default function Chat() {
   }
 
   function ask(text: string) {
-    if (pending) return;
+    if (pending || !session.current) return;
     hush(); // a new question: stop reading the previous answer
     void submit(text);
+  }
+
+  function onFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!IMAGE_TYPES.includes(file.type) || file.size > MAX_IMAGE_BYTES) {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", text: "La imagen tiene que ser jpeg, png o webp, de hasta 4 MB." },
+      ]);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const preview = String(reader.result);
+      setAttachment({ mediaType: file.type, base64: preview.slice(preview.indexOf(",") + 1), preview });
+    };
+    reader.readAsDataURL(file);
   }
 
   function send(event: FormEvent) {
     event.preventDefault();
     const text = draft.trim();
     if (!text || pending) return;
+    const image = attachment;
     setDraft("");
-    ask(text);
+    setAttachment(null);
+    hush();
+    void submit(text, undefined, image);
   }
 
   // The mic button: the first click records, the second sends what was said as a normal message.
@@ -451,22 +511,43 @@ export default function Chat() {
     <div className={`s-chat q-st-${mode}`}>
       <AppHeader area="cliente" active="/chat">
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--q-fog)" }}>
-            Cliente
-            <input
-              className="field"
-              value={customerId}
-              onChange={(event) => changeCustomer(event.target.value)}
-              list="demo-customers"
-              placeholder="Tu ID de cliente"
-              style={{ width: 190 }}
-            />
-            <datalist id="demo-customers">
-              {demoCustomers.map((c) => (
-                <option key={c.customer_id} value={c.customer_id} label={`${c.first_name} · ${c.country} · ${c.segment}`} />
-              ))}
-            </datalist>
-          </label>
+          {customerId ? (
+            <>
+              <span style={{ fontSize: 13, color: "var(--q-fog)" }}>{session.current?.email}</span>
+              <button type="button" className="q-btn q-btn-sm q-btn-ghost" onClick={signOut}>
+                Salir
+              </button>
+            </>
+          ) : (
+            <form onSubmit={signIn} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+              <input
+                className="field"
+                type="email"
+                autoComplete="username"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="Correo"
+                aria-label="Correo"
+                required
+                style={{ width: 220 }}
+              />
+              <input
+                className="field"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="Contraseña"
+                aria-label="Contraseña"
+                required
+                style={{ width: 140 }}
+              />
+              <button type="submit" className="q-btn q-btn-sm q-btn-primary">
+                Entrar
+              </button>
+              {loginError && <span style={{ fontSize: 13, color: "var(--q-amber-soft)" }}>{loginError}</span>}
+            </form>
+          )}
           <button
             type="button"
             className="q-btn q-btn-sm q-btn-ghost"
@@ -540,10 +621,10 @@ export default function Chat() {
             }}
           >
             <span style={{ alignSelf: "center", fontFamily: "var(--q-mono)", fontSize: 12, color: "var(--q-muted)" }}>
-              {customerId.trim() ? "sesión iniciada · datos sintéticos" : "elige un cliente para empezar · datos sintéticos"}
+              {customerId ? "sesión iniciada · datos sintéticos" : "entra con tu correo para empezar · datos sintéticos"}
             </span>
 
-            {!started && (
+            {!started && customerId && (
               <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
                 {SUGGESTIONS.map((text) => (
                   <button key={text} type="button" className="sug" onClick={() => (text === SPENDING ? void sampleChart() : ask(text))}>
@@ -562,6 +643,13 @@ export default function Chat() {
                     background: "var(--q-mist)", color: "var(--q-abyss)", fontSize: 15, whiteSpace: "pre-wrap",
                   }}
                 >
+                  {message.image && (
+                    <img
+                      src={message.image}
+                      alt=""
+                      style={{ display: "block", width: "100%", maxWidth: 240, borderRadius: 8, marginBottom: 8 }}
+                    />
+                  )}
                   {message.text}
                 </div>
               ) : (
@@ -645,12 +733,35 @@ export default function Chat() {
           </div>
 
           <form className="composer" onSubmit={send} style={{ padding: "16px 32px 24px", maxWidth: 780, width: "100%", boxSizing: "border-box", margin: "0 auto" }}>
+            {attachment && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                <img src={attachment.preview} alt="" style={{ height: 56, width: 56, objectFit: "cover", borderRadius: 8 }} />
+                <button type="button" className="link" onClick={() => setAttachment(null)}>
+                  Quitar
+                </button>
+              </div>
+            )}
             <div
               style={{
-                display: "flex", alignItems: "center", gap: 8, padding: "6px 6px 6px 18px", borderRadius: 16,
+                display: "flex", alignItems: "center", gap: 8, padding: "6px 6px 6px 8px", borderRadius: 16,
                 background: "rgba(11,42,51,.6)", boxShadow: "inset 0 0 0 1px rgba(230,244,241,.12)",
               }}
             >
+              <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={onFile} />
+              <button
+                type="button"
+                aria-label="Adjuntar imagen"
+                disabled={!customerId || pending}
+                onClick={() => fileRef.current?.click()}
+                style={{
+                  flex: "0 0 auto", width: 44, height: 44, border: "none", borderRadius: 12, cursor: "pointer",
+                  background: "transparent", color: "var(--q-mist)",
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                </svg>
+              </button>
               <label htmlFor="q-input" className="q-sr-only">
                 Escribe tu consulta
               </label>
@@ -658,11 +769,12 @@ export default function Chat() {
                 id="q-input"
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
-                placeholder="Pregunta por tu saldo, un cargo o una queja…"
+                placeholder={customerId ? "Pregunta por tu saldo, un cargo o una queja…" : "Entra con tu correo para preguntar"}
+                disabled={!customerId}
                 autoComplete="off"
                 style={{ flex: "1 1 auto", minWidth: 0, minHeight: 44, border: "none", background: "transparent", font: "inherit", fontSize: 15, color: "var(--q-mist)", outline: "none" }}
               />
-              <button type="submit" className="q-btn q-btn-sm q-btn-primary" disabled={pending} aria-label="Enviar" style={{ width: 44, padding: 0 }}>
+              <button type="submit" className="q-btn q-btn-sm q-btn-primary" disabled={pending || !customerId} aria-label="Enviar" style={{ width: 44, padding: 0 }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M12 19V5M6 11l6-6 6 6" />
                 </svg>

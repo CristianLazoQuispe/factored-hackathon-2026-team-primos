@@ -105,8 +105,7 @@ gh variable set DEMO_CUSTOMER_IDS  --repo $R --body "DEMO-MX-DUPLICATE,DEMO-CO-P
 gh variable list --repo $R
 ```
 
-`DEMO_CUSTOMER_IDS` is the allowlist for `POST /api/auth/token`: empty means nobody can log in to the
-deployed UI. Use only synthetic customers that exist in the Cloud SQL data.
+`DEMO_CUSTOMER_IDS` is the list `GET /api/demo-customers` returns. Login is the eight demo emails in the root README, not this list.
 
 ## Day to day
 
@@ -222,13 +221,12 @@ Every protected call needs `Authorization: Bearer <jwt>`. The token lives 15 min
 ```bash
 API=$(gcloud run services describe factored-api --region us-central1 --format='value(status.url)')
 TOKEN=$(curl -s $API/api/auth/token -H 'content-type: application/json' \
-  -d '{"customer_id":"DEMO-MX-DUPLICATE"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
+  -d '{"email":"demo-mx-duplicate@demo.bank","password":"demo-mx-duplicate@demo.bank"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
 curl -s $API/api/chat -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
   -d '{"message":"no reconozco un cargo de Uber"}'
 ```
 
-Without a token `/api/chat` answers `401`; a customer outside `DEMO_CUSTOMER_IDS` gets `403` when
-asking for a token. In Swagger (`$API/docs`) paste the token in **Authorize**.
+Without a token `/api/chat` answers `401`; a wrong email or password gets `401` from `/api/auth/token`, and the ninth try in a minute gets `429`. In Swagger (`$API/docs`) paste the token in **Authorize**.
 
 ## Known limits (state them in the submission)
 
@@ -247,9 +245,7 @@ asking for a token. In Swagger (`$API/docs`) paste the token in **Authorize**.
   container starts (5-10 s), so that no spoken message waits for them.
 - **One shared operator key.** Whoever has `OPERATOR_KEY` reads every chat; there are no operator
   accounts. Telegram chats do not reach the console.
-- **The token endpoint is a test identity service.** It is public and password-less by design, but
-  only for customers in `DEMO_CUSTOMER_IDS`. No rate limit. In production it is replaced by the
-  bank's identity provider; the rest stays. The Telegram webhook has its own secret.
+- **The token endpoint checks a demo password.** Five synthetic emails; the password is that same email. Three wrong passwords lock that account for 15 minutes. Eight tries per minute per client, then `429`. The lock lives in the API process, not in the database. In production the bank's identity provider replaces it; the rest stays. The Telegram webhook has its own secret.
 - **Conversations are keyed by customer**, so nobody can continue another customer's thread.
 - **`/docs` (Swagger) is public.**
 - **Cloud SQL has a public IP** (`ipv4Enabled`); the app reaches it through the Cloud SQL socket.

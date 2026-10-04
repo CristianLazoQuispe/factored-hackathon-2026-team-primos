@@ -36,13 +36,14 @@ No keys needed: it runs on Ollama (`qwen3.5:4b`) and a committed data sample.
 | `/consola/perfil` | A customer's 360 profile | Sample (`web/lib/profile.ts`) |
 | `/consola/gerencia` | Management dashboard | Sample (`web/lib/ops.ts`) |
 
-The sample pages show the idea with fixed figures until the API serves them. In `/chat`, the **Cliente** field lists the customers in `DEMO_CUSTOMER_IDS` (`.env`); choosing one logs you in (the UI asks `POST /api/auth/token` for a short-lived bearer token). The agent handles **balances**, **charges you don't recognize** and **questions about your own data**:
+The sample pages show the idea with fixed figures until the API serves them. In `/chat`, sign in with one of the eight demo emails and its password (the UI asks `POST /api/auth/token` and keeps the short-lived bearer token). The agent handles **balances**, **charges you don't recognize** and **questions about your own data**:
 
 | Ask | What happens |
 |---|---|
 | `¿cuál es mi saldo?` / `qual é o meu saldo?` | Skill `balance_inquiry` → MCP tool `get_balances` → real balances and totals from Postgres |
 | `¿cuánto debo en mi tarjeta y cuándo vence?` | Skill `balance_inquiry` → `get_debts`: debt, due date and minimum payment (the payment schedule is team-generated, see [data/model.md](docs/documentation/technical/data/model.md)) |
 | `no reconozco un cargo de Uber` (customer `DEMO-MX-DUPLICATE`) | Skill `charge_investigation` → `investigate_charges`: finds the charges and checks the bank's records (duplicate, pending, foreign) |
+| Attach `web/public/casos/lucia-uber.png` and write `no reconozco estas transacciones` | The same skill reads Uber, 312.40 MXN and the date from the photo, then reports the duplicate |
 | `dime mis últimos movimientos` / `¿en qué gasto más?` / `¿cuántas quejas tengo?` / `¿a cuánto está el dólar?` | Skill `data_lookup` → a tool with reviewed SQL (`get_movements`, `get_spending_summary`, `get_complaints`, `get_exchange_rate`) |
 | A question about their data that no tool covers | Skill `data_lookup` → the model writes one SQL `SELECT`; code checks it and only lets it see this customer's rows |
 | `¿y la de débito?` | Follows up in the same conversation |
@@ -51,7 +52,28 @@ The sample pages show the idea with fixed figures until the API serves them. In 
 | Empty Customer ID | The agent asks for it and validates it against the database |
 | Click the **microphone**, speak in Spanish or Portuguese, click again | faster-whisper transcribes it and the agent answers as above. With the **Silencio** button switched to **Voz**, Kokoro also reads the answer aloud |
 
-The API is `POST /api/chat {message, thread_id?}`. Outside `APP_ENV=local` it needs `Authorization: Bearer <token>` (from `POST /api/auth/token`, demo customers only) and the customer is the token's, never the body's. Locally it still accepts `customer_id` in the body, so `curl` works without a token. Swagger: http://localhost:8080/docs.
+The API is `POST /api/chat {message, thread_id?, image?, image_type?}`. Outside `APP_ENV=local` it needs `Authorization: Bearer <token>`. `POST /api/auth/token` takes `{email, password}` and the password is that same email. The customer is the token's, never the body's. Locally `curl` can still send `customer_id` in the body without a token. Swagger: http://localhost:8080/docs.
+
+The password of each account is the email itself. The statement images are in `web/public/casos/`. In `/chat`, sign in, attach that customer's image with the clip, and write the question. The text is required: the photo alone is not sent.
+
+| Email (also the password) | Case | Image |
+|---|---|---|
+| `demo-mx-duplicate@demo.bank` | Lucía, two Uber Trip charges of 312.40 MXN | `web/public/casos/lucia-uber.png` |
+| `demo-mx-fx@demo.bank` | Mariana, a Best Buy purchase in dollars | `web/public/casos/mariana-bestbuy.png` |
+| `demo-co-pending@demo.bank` | Andrés, an Amazon charge still pending | `web/public/casos/andres-amazon.png` |
+| `demo-br-portuguese@demo.bank` | Ana, two iFood charges | `web/public/casos/ana-ifood.png` |
+| `demo-ar-fraud@demo.bank` | Martina, three ElectroMax charges in Córdoba | `web/public/casos/martina-electromax.png` |
+| `demo-co-ambiguous@demo.bank` | Camilo, four charges on the same day | `web/public/casos/camilo-dia.png` |
+| `demo-mx-own-purchase@demo.bank` | Diego, a Liverpool purchase from the app | `web/public/casos/diego-liverpool.png` |
+| `demo-ar-reversed@demo.bank` | Sofía, a Mercado Libre charge already reversed | `web/public/casos/sofia-mercadolibre.png` |
+
+Example, Lucía's duplicate Uber charge:
+
+1. Sign in as `demo-mx-duplicate@demo.bank` with that same text as the password.
+2. Attach `web/public/casos/lucia-uber.png`.
+3. Write `no reconozco estas transacciones` and send.
+
+The assistant should name the two Uber Trip charges of 312.40 MXN on 11 Jun 2026, at 09:00:00 and 09:00:04, and say they are 4 seconds apart. The same question works for the other seven images. For Ana, write `não reconheço estas transações`.
 
 ### If something fails
 

@@ -48,6 +48,17 @@ def test_private_fields_are_redacted_inside_a_tool_result():
     }
 
 
+def test_an_attached_image_does_not_leave_for_langfuse():
+    photo = {"type": "image_url", "image_url": {"url": "data:image/png;base64," + "A" * 80}}
+    payload = {"messages": [{"content": [{"type": "text", "text": "no reconozco"}, photo]}]}
+    masked = mask(data=payload)
+    assert masked["messages"][0]["content"] == [
+        {"type": "text", "text": "no reconozco"},
+        "<image>",
+    ]
+    assert "AAAA" not in json.dumps(masked)
+
+
 def test_langchain_messages_are_masked():
     state = {"messages": [HumanMessage("mi tarjeta es 4111 1111 1111 1111")]}
     assert mask(data=state)["messages"][0]["content"] == "mi tarjeta es ****1111"

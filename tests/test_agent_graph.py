@@ -62,6 +62,15 @@ def bank(monkeypatch):
     return seen
 
 
+def test_a_charge_photo_stays_text_for_routing_and_an_image_for_the_model():
+    message = graph.customer_message("no reconozco estas transacciones", ("qq", "image/png"))
+    assert message.text == "no reconozco estas transacciones"
+    assert message.content[1] == {
+        "type": "image_url",
+        "image_url": {"url": "data:image/png;base64,qq"},
+    }
+
+
 async def ask(message: str, customer_id: str | None = None, thread: str | None = None) -> dict:
     return await graph.reply(message, thread or uuid.uuid4().hex, customer_id)
 
