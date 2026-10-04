@@ -15,6 +15,7 @@
 | [mcp/](technical/mcp/README.md) | Living | The tools the agent can call: which question each one answers, arguments, what it returns, the rules they all follow |
 | [data/model.md](technical/data/model.md) | Living | The `core` schema: tables, diagram, provenance of each table, the team-generated billing rule, design decisions |
 | [data/pipeline.md](technical/data/pipeline.md) | Living | The ETL: raw → bronze → sample → silver → Postgres, contracts, quality report, local vs. Cloud SQL |
+| [actions.md](technical/actions.md) | Living | How the agent acts: the propose-confirm-execute-verify cycle, what each request gets, where it writes, what is simulated, how it is tested |
 | [deploy.md](technical/deploy.md) | Living | Cloud Run and Cloud SQL: what exists, how a deploy runs, rollback, limits |
 | [diagrams/](technical/diagrams/) | Living | Hand-drawn `architecture.svg`, Mermaid sources (`.mmd`) + rendered SVG / 300-dpi PNG (`make diagrams`) |
 | [adr/](technical/adr/) | Ongoing | Architecture decision records (`NNNN-title.md`) |
