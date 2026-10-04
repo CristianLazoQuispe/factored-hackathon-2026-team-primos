@@ -151,6 +151,35 @@ production the bank's identity provider replaces it; `customer_from_token` is wh
 are keyed `customer:thread`, so nobody can continue another customer's thread.
 Code: `app/adapters/inbound/auth.py`, `http.py`. Tests: `tests/test_auth.py`.
 
+## The customer's own finances (implemented)
+
+`GET /api/me/finances?days=90` is what the "Mis finanzas" screen reads. The customer is the one the
+bearer token proves (`customer_id` in the query is accepted only locally, like the chat's); a token
+for another customer gets `403`. `days` goes from 7 to 365 and counts back from the dataset's last
+transaction, like `get_spending_summary`, whose lookups it reuses (`app/application/spending.py`).
+On top of them it adds the product and country, the duplicate charges and the largest purchase
+(`app/adapters/outbound/postgres/finances.py`). The JSON is camelCase and has the shape of
+`OwnFinances` in `web/lib/profile.ts`; a test pins the field names on both sides.
+
+- **One currency.** The screen shows the currency the customer buys in most often, by number of
+  purchases and never by amount. Spending in the others comes in `otherCurrencies` and is never
+  added to the total.
+- **Duplicate charges** follow the agent's own rule (`investigate_charge`): the same merchant,
+  amount and currency within 10 minutes, Approved or Pending purchases, each pair once.
+- **No comparison without history.** `totals.prevChangePct` is `null` when there was no spending in
+  the period before, and the screen then leaves the comparison out. All eight demo customers are in
+  that case: the demo data is shorter than two windows of 90 days.
+- **All or nothing.** If any lookup fails the answer is `503 finances_unavailable`: a missing
+  duplicate check would read as "no duplicate charges". A customer with no purchases in the period
+  gets `404 no_spending_in_period`, and one who is not in the warehouse `404 unknown_customer`.
+- **The sentences** (`notes`) are templates in `app/domain/finances.py`, not model output: they
+  cannot invent a figure.
+- **Nothing internal.** The staff console's `internal` block (segments, satisfaction, next action,
+  history) is not part of this endpoint, and a test checks that it never appears. The operator's
+  profile screen still shows sample figures until it has its own endpoint.
+- **Not done.** The switch for duplicate-charge alerts keeps its state in the page. Saving it needs
+  a table in `schema.sql`, and the deploy does not apply schema changes (see [deploy.md](deploy.md)).
+
 ## Operator console (implemented)
 
 A person of the team opens `/consola` on the web with the shared `OPERATOR_KEY` and sees every chat of
