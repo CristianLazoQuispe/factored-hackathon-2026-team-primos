@@ -10,7 +10,7 @@ The customer's movements on their accounts and cards, newest first.
 
 | Argument | Values |
 |---|---|
-| `days` | 1 to 365, default 30, counted back from the customer's latest transaction |
+| `days` | 1 to 365, default 30, counted back from the dataset's last day |
 | `product_type`, `last4` | Narrow to one account or card |
 | `transaction_type` | `Purchase`, `Payment`, `Transfer`, `Deposit`, `Withdrawal`, `Adjustment` |
 | `status` | `Approved`, `Declined`, `Pending`, `Reversed` |
@@ -39,7 +39,7 @@ Five lookups run at once. One that fails is listed in `unavailable` and its fiel
 
 ## `get_complaints()`
 
-`count`, `open` (Open, In Process or Escalated), `by_status`, and the `latest` ten with type, category, subcategory, channel, priority, status, claimed amount and dates. The template `description` and `resolution` texts are not returned.
+`count`, `open` (Open, In Process or Escalated, with news in the last 90 days), `stale_open` (still marked open but older than that: the agent says they have no recent update), `by_status`, and the `latest` ten with type, category, subcategory, channel, priority, status, claimed amount and dates. The template `description` and `resolution` texts are not returned.
 
 ## `get_exchange_rate(source, target, on?)`
 

@@ -24,6 +24,7 @@ import duckdb
 import psycopg
 
 from app.config import database_host, get_settings
+from app.domain.spending import OPEN_STATUSES, STALE_AFTER_DAYS
 from data_pipeline.fixtures import NOW
 
 SCHEMA = Path(__file__).resolve().parents[1] / "app/adapters/outbound/postgres/schema.sql"
@@ -80,7 +81,7 @@ BILLING = f"""
                product_type
         FROM core_products
         WHERE product_type IN ('Tarjeta Crédito', 'Préstamo Personal', 'Préstamo Hipotecario')
-          AND current_balance IS NOT NULL),
+          AND current_balance IS NOT NULL AND product_status <> 'Closed'),
     d AS (
         SELECT *, ceil(dpd / 30.0)::INT AS missed,
                CASE WHEN dpd > 0 THEN DATE '{AS_OF}' - dpd
@@ -119,7 +120,7 @@ APP_SESSIONS = """
     UNION ALL BY NAME
     SELECT *, true AS is_synthetic_fixture FROM fixtures.app_sessions
 """
-SERVICE_SUMMARY = """
+SERVICE_SUMMARY = f"""
     WITH it AS (
         SELECT customer_id, count(*) AS contacts, count(*) FILTER (was_escalated) AS escalated,
                max(interaction_date) AS last_at,
@@ -127,7 +128,9 @@ SERVICE_SUMMARY = """
         FROM silver.call_center_interactions GROUP BY 1),
     co AS (
         SELECT customer_id,
-               count(*) FILTER (status IN ('Open', 'In Process', 'Escalated')) AS open_complaints,
+               count(*) FILTER (status IN {OPEN_STATUSES} AND creation_date
+                                >= TIMESTAMP '{AS_OF}' - INTERVAL {STALE_AFTER_DAYS} DAY)
+                   AS open_complaints,
                count(*) FILTER (subcategory = 'Cargo no reconocido') AS unrecognized,
                bool_or(is_repeat_complainer) AS repeat
         FROM silver.complaints GROUP BY 1),

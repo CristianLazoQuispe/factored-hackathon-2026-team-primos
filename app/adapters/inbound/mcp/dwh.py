@@ -62,7 +62,7 @@ async def get_movements(
     withdrawals) on their accounts and cards. Use it for "my last movements", "my purchases at
     X", "my biggest purchases", "movements of my credit card".
 
-    days counts back from the customer's latest transaction. product_type or last4 (the last 4
+    days counts back from the dataset's last day. product_type or last4 (the last 4
     digits) narrow to one account or card. merchant is a case-insensitive substring ("uber").
     order="largest" sorts by amount. `truncated` true means there are more than `limit`.
     Amounts are in each movement's own currency: never add different currencies.
@@ -98,7 +98,7 @@ async def get_movements(
 @mcp.tool
 async def get_spending_summary(ctx: Context, days: Days = 30) -> dict:
     """How much the authenticated customer spent (Approved purchases) in the last `days`, counted
-    back from their latest transaction. One block per currency in `currencies`: `spend`,
+    back from the dataset's last day. One block per currency in `currencies`: `spend`,
     `previous_spend` (the same number of days before) and `change_pct`, `transactions`,
     `tx_per_week`, `avg_ticket`, `max_ticket`, `by_category`, `top_merchants` (5), `monthly` and
     `foreign` (purchases outside the customer's country). Use it for "how much did I spend",
@@ -122,7 +122,9 @@ async def get_spending_summary(ctx: Context, days: Days = 30) -> dict:
 async def get_complaints(ctx: Context) -> dict:
     """The complaints, claims, requests and suggestions the authenticated customer filed: `count`,
     how many are still `open`, `by_status`, and the `latest` ones (newest first) with type,
-    category, status, priority and dates."""
+    category, status, priority and dates. `stale_open` counts cases the records still show as
+    open but that had no news for months (`stale` on each one): say they have no recent update,
+    never that someone is working on them."""
     customer_id = session_customer(ctx)
     rows = await store.complaints(customer_id)
     summary = complaints_summary([present(row) for row in rows])

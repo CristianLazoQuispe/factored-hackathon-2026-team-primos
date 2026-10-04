@@ -8,6 +8,9 @@ the result instead of showing as zero.
 from typing import Any
 
 OPEN_STATUSES = ("Open", "In Process", "Escalated")
+# The source never closes most cases: two thirds of the "open" ones are over a year old. An open
+# case older than this (at the dataset's last day) is reported as stale, not as being handled.
+STALE_AFTER_DAYS = 90
 LATEST_COMPLAINTS = 10
 _LISTS = ("by_category", "top_merchants", "monthly")
 
@@ -53,13 +56,16 @@ def summarize(days: int, parts: dict[str, list[dict[str, Any]]]) -> list[dict[st
 
 
 def complaints_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """`rows`: the customer's complaints, newest first."""
+    """`rows`: the customer's complaints, newest first, each with `stale` (still open and older
+    than STALE_AFTER_DAYS)."""
     by_status: dict[str, int] = {}
     for row in rows:
         by_status[row["status"]] = by_status.get(row["status"], 0) + 1
+    stale = sum(1 for row in rows if row["status"] in OPEN_STATUSES and row.get("stale"))
     return {
         "count": len(rows),
-        "open": sum(by_status.get(status, 0) for status in OPEN_STATUSES),
+        "open": sum(by_status.get(status, 0) for status in OPEN_STATUSES) - stale,
+        "stale_open": stale,
         "by_status": [{"status": s, "count": by_status[s]} for s in sorted(by_status)],
         "latest": rows[:LATEST_COMPLAINTS],
     }

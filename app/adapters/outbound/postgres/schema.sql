@@ -70,6 +70,7 @@ CREATE TABLE core.transactions (
     is_synthetic_fixture   boolean NOT NULL DEFAULT false
 );
 CREATE INDEX ON core.transactions (customer_id, transaction_date DESC);
+CREATE INDEX ON core.transactions (transaction_date);  -- the dataset's last day, for every window
 COMMENT ON TABLE core.transactions IS
     'provenance: organizer dataset, transaction_category completed from the merchant in silver; demo rows are team fixtures';
 
