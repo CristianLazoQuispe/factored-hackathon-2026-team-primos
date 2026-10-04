@@ -9,10 +9,10 @@ from dataclasses import asdict
 from typing import Annotated
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, Field
 from telegram import Update
 
 from app.adapters.inbound.agent import reply
@@ -27,12 +27,17 @@ from app.adapters.inbound.auth import (
     token_customer,
 )
 from app.adapters.inbound.conversations import Conversation, conversations
+from app.adapters.inbound.finances_schema import OwnFinances
 from app.adapters.inbound.telegram import build_application
 from app.adapters.outbound import llm, postgres, speech
 from app.adapters.outbound.postgres.accounts import list_customers
+from app.adapters.outbound.postgres.finances import PostgresFinances
 from app.adapters.outbound.postgres.readonly import ReadOnlyPostgres
+from app.adapters.outbound.postgres.spending import PostgresSpending
+from app.application.finances import FinancesUnavailable, own_finances
 from app.application.run_sql import run_scoped_sql
 from app.config import get_settings
+from app.domain.finances import NoSpending, UnknownCustomer
 
 # Our own loggers at LOG_LEVEL; libraries stay at the default (warnings and errors).
 logging.basicConfig(format="%(levelname)s:     %(name)s: %(message)s")
@@ -126,13 +131,15 @@ def demo_ids() -> list[str]:
 
 @app.get("/api/demo-customers")
 async def demo_customers() -> list[dict]:
-    """Customers listed in DEMO_CUSTOMER_IDS. The chat signs in with email and password instead."""
+    """Customers listed in DEMO_CUSTOMER_IDS: the IDs that can sign in (password: the same ID)."""
     ids = demo_ids()
     return await list_customers(ids) if ids else []
 
 
 class TokenRequest(BaseModel):
-    email: str
+    # The ID of a customer in DEMO_CUSTOMER_IDS, or one of the eight demo emails. `email` is the old
+    # name of the field and is still accepted.
+    user: str = Field(validation_alias=AliasChoices("user", "email"))
     password: str
 
 
@@ -145,9 +152,10 @@ class TokenResponse(BaseModel):
 
 @app.post("/api/auth/token")
 def demo_token(body: TokenRequest, request: Request) -> TokenResponse:
-    """Demo login: one of eight emails plus its password, then the same short-lived bearer token.
+    """Demo login: a customer ID from DEMO_CUSTOMER_IDS (or one of eight emails) plus its password,
+    which is that same ID (or email), then the same short-lived bearer token.
 
-    A wrong email and a wrong password get the same 401. Three wrong passwords lock that account
+    A wrong login and a wrong password get the same 401. Three wrong passwords lock that account
     for 15 minutes (423), even with the right password afterwards. Eight attempts per minute per
     client; the ninth is 429. A real deployment swaps this for the bank's identity provider;
     everything downstream only trusts the token.
@@ -155,14 +163,14 @@ def demo_token(body: TokenRequest, request: Request) -> TokenResponse:
     origin = request.client.host if request.client else "unknown"
     if not allow_login(origin):
         raise HTTPException(429, "Demasiados intentos. Espera un minuto.")
-    if account_locked(body.email):
+    if account_locked(body.user):
         raise HTTPException(423, "Cuenta bloqueada. Espera 15 minutos.")
-    customer_id = customer_from_login(body.email, body.password)
+    customer_id = customer_from_login(body.user, body.password)
     if customer_id is None:
-        if register_failure(body.email):
+        if register_failure(body.user):
             raise HTTPException(423, "Cuenta bloqueada. Espera 15 minutos.")
-        raise HTTPException(401, "Correo o contraseña incorrectos.")
-    clear_failures(body.email)
+        raise HTTPException(401, "ID o contraseña incorrectos.")
+    clear_failures(body.user)
     token, expires_in = issue_token(customer_id)
     return TokenResponse(access_token=token, expires_in=expires_in, customer_id=customer_id)
 
@@ -223,6 +231,29 @@ async def chat(
     if result["handoff"]:
         conversation.status, conversation.case_file = "waiting", result["handoff"]
     return ChatResponse(thread_id=thread_id, **result)
+
+
+@app.get("/api/me/finances")
+async def my_finances(
+    token_customer_id: Annotated[str | None, Depends(token_customer)],
+    days: Annotated[int, Query(ge=7, le=365)] = 90,
+    customer_id: str | None = None,  # local only, like the chat's: the token decides
+) -> OwnFinances:
+    """The "Mis finanzas" screen: the customer's own spending, and nothing internal to the bank.
+
+    The customer is the one the token proves; `days` counts back from the dataset's last day.
+    """
+    customer = resolve_customer(token_customer_id, customer_id)
+    if customer is None:
+        raise HTTPException(400, "customer_id is required without a token (local only).")
+    try:
+        return await own_finances(PostgresSpending(), PostgresFinances(), customer, days)
+    except UnknownCustomer:
+        raise HTTPException(404, "unknown_customer") from None
+    except NoSpending:
+        raise HTTPException(404, "no_spending_in_period") from None
+    except FinancesUnavailable:
+        raise HTTPException(503, "finances_unavailable") from None
 
 
 class Transcript(BaseModel):

@@ -6,7 +6,8 @@ import { useEffect, useState } from "react";
 import { AppHeader } from "@/components/app-header";
 import { CategoryDonut, MonthlyBars } from "@/components/charts";
 import { Logo } from "@/components/logo";
-import { DEMO_CLIENT_ID, formatAmount, getOwnFinances, type OwnFinances } from "@/lib/profile";
+import { FinancesError, formatAmount, getOwnFinances, type OwnFinances } from "@/lib/profile";
+import { saveSession, useSession } from "@/lib/session";
 
 import "./screen.css";
 
@@ -20,13 +21,38 @@ const QUESTIONS = [
 ];
 
 export default function FinancePage() {
-  const [data, setData] = useState<OwnFinances | null>(null);
+  const session = useSession(); // the chat's: whoever signed in there is the customer here
+  const customer = session?.customer ?? "";
+  const token = session?.token ?? "";
+  // What came back, and for whom: one customer's figures are never shown under another's session.
+  const [result, setResult] = useState<{ customer: string; data?: OwnFinances; error?: string } | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const [alertsOn, setAlertsOn] = useState(false);
 
   useEffect(() => {
-    getOwnFinances(DEMO_CLIENT_ID).then(setData);
-  }, []);
+    if (!token) return;
+    let live = true;
+    getOwnFinances({ Authorization: `Bearer ${token}` })
+      .then((data) => {
+        if (!live) return;
+        setResult({ customer, data });
+        setDismissed(false);
+        setAlertsOn(false);
+      })
+      .catch((e: unknown) => {
+        if (!live) return;
+        if (e instanceof FinancesError && e.status === 401) saveSession(null); // expired: sign in again
+        else setResult({ customer, error: e instanceof Error ? e.message : "No pudimos cargar tus finanzas." });
+      });
+    return () => {
+      live = false;
+    };
+  }, [customer, token]);
+
+  const current = session && result?.customer === customer ? result : null;
+  const data = current?.data ?? null;
+  const error = current?.error ?? null;
+  const status = session ? error ?? (data ? null : "Cargando…") : null;
 
   const alert = data?.alerts[0];
 
@@ -36,8 +62,25 @@ export default function FinancePage() {
       style={{ minHeight: "100vh", display: "flex", flexDirection: "column", fontFamily: "var(--q-font)", color: "var(--q-mist)", background: "var(--q-abyss)" }}
     >
       <AppHeader area="cliente" active="/mis-finanzas">
-        {data && <span className="q-sub">{data.product} · datos sintéticos</span>}
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
+          {session && <span style={{ fontSize: 13, color: "var(--q-fog)" }}>{session.customer}</span>}
+          {data && <span className="q-sub">{data.product} · datos sintéticos</span>}
+        </div>
       </AppHeader>
+
+      {!session && (
+        <main style={{ flex: "1 1 auto", maxWidth: 1120, width: "100%", margin: "0 auto", padding: "28px 24px", boxSizing: "border-box" }}>
+          <p role="status" style={{ margin: 0, fontSize: 17, color: "var(--q-fog)" }}>
+            Entra con tu ID en el <Link href="/chat" style={{ color: "var(--q-teal)" }}>chat</Link> para ver tus finanzas.
+          </p>
+        </main>
+      )}
+
+      {status && (
+        <main style={{ flex: "1 1 auto", maxWidth: 1120, width: "100%", margin: "0 auto", padding: "28px 24px", boxSizing: "border-box" }}>
+          <p role={error ? "alert" : "status"} style={{ margin: 0, fontSize: 17, color: "var(--q-fog)" }}>{status}</p>
+        </main>
+      )}
 
       {data && (
         <main
@@ -51,10 +94,21 @@ export default function FinancePage() {
               Tus últimos {data.windowDays} días
             </h1>
             <p style={{ margin: 0, fontSize: 17, lineHeight: 1.55, color: "var(--q-fog)", maxWidth: "60ch" }}>
-              Gastaste <span style={{ color: "var(--q-mist)" }}>{formatAmount(data.totals.spend)} {data.currency}</span>, un{" "}
-              {Math.abs(data.totals.prevChangePct)}% {data.totals.prevChangePct < 0 ? "menos" : "más"} que en los {data.windowDays} días
-              anteriores. {data.notes.spending}
+              Gastaste <span style={{ color: "var(--q-mist)" }}>{formatAmount(data.totals.spend)} {data.currency}</span>
+              {data.totals.prevChangePct !== null && (
+                <>
+                  , un {Math.abs(data.totals.prevChangePct)}% {data.totals.prevChangePct < 0 ? "menos" : "más"} que en los{" "}
+                  {data.windowDays} días anteriores
+                </>
+              )}
+              . {data.notes.spending}
             </p>
+            {data.otherCurrencies.length > 0 && (
+              <p className="q-sub" style={{ margin: 0, fontSize: 14 }}>
+                También gastaste {data.otherCurrencies.map((c) => `${formatAmount(c.spend)} ${c.currency}`).join(" y ")}; no se suma
+                a este total porque es otra moneda.
+              </p>
+            )}
           </div>
 
           {alert && !dismissed && (
@@ -80,7 +134,7 @@ export default function FinancePage() {
                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                   <span className="h">Posible cargo duplicado</span>
                   <span className="q-sub" style={{ fontSize: 14, lineHeight: 1.5 }}>
-                    Dos cargos de {alert.merchant} por {formatAmount(alert.amount, 2)} {data.currency} el {Number(alert.date.slice(8))} de{" "}
+                    Dos cargos de {alert.merchant} por {formatAmount(alert.amount, 2)} {alert.currency} el {Number(alert.date.slice(8))} de{" "}
                     {MONTHS[Number(alert.date.slice(5, 7)) - 1]}, con {alert.deltaSeconds} segundos de diferencia.
                   </span>
                 </div>
