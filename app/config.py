@@ -55,6 +55,16 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_webhook_secret: str = ""
 
+    # Actions the customer confirms (see app/application/actions.py). Off unless asked for.
+    actions_enabled: bool = False
+    mail_mode: Literal["simulated", "smtp"] = "simulated"  # simulated: nothing leaves the process
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    mail_from: str = ""
+    demo_inboxes: str = ""  # comma-separated: the only addresses a demo message may reach
+
     @model_validator(mode="after")
     def database_matches_environment(self) -> "Settings":
         """Fail closed: local never touches a remote database, and cloud never falls back to a
@@ -85,6 +95,29 @@ class Settings(BaseSettings):
                     "outside APP_ENV=local (for example: openssl rand -hex 32)."
                 )
         return self
+
+    @model_validator(mode="after")
+    def smtp_needs_everything_it_uses(self) -> "Settings":
+        """A real mail server gets credentials and a closed list of recipients, or it does not
+        start: no message may go to an address nobody chose."""
+        if self.mail_mode == "smtp":
+            missing = [
+                name
+                for name, value in (
+                    ("SMTP_USER", self.smtp_user),
+                    ("SMTP_PASSWORD", self.smtp_password),
+                    ("MAIL_FROM", self.mail_from),
+                    ("DEMO_INBOXES", self.demo_inboxes),
+                )
+                if not value.strip()
+            ]
+            if missing:
+                raise ValueError(f"MAIL_MODE=smtp also needs {', '.join(missing)}.")
+        return self
+
+    @property
+    def demo_inbox_list(self) -> list[str]:
+        return [a.strip() for a in self.demo_inboxes.split(",") if a.strip()]
 
     @property
     def provider(self) -> str:
