@@ -15,7 +15,16 @@ from pydantic import BaseModel
 from telegram import Update
 
 from app.adapters.inbound.agent import reply
-from app.adapters.inbound.auth import issue_token, operator, token_customer
+from app.adapters.inbound.auth import (
+    account_locked,
+    allow_login,
+    clear_failures,
+    customer_from_login,
+    issue_token,
+    operator,
+    register_failure,
+    token_customer,
+)
 from app.adapters.inbound.conversations import Conversation, conversations
 from app.adapters.inbound.telegram import build_application
 from app.adapters.outbound import llm, postgres, speech
@@ -95,33 +104,45 @@ def demo_ids() -> list[str]:
 
 @app.get("/api/demo-customers")
 async def demo_customers() -> list[dict]:
-    """The customers offered in the UI: only those listed in DEMO_CUSTOMER_IDS."""
+    """Customers listed in DEMO_CUSTOMER_IDS. The chat signs in with email and password instead."""
     ids = demo_ids()
     return await list_customers(ids) if ids else []
 
 
 class TokenRequest(BaseModel):
-    customer_id: str
+    email: str
+    password: str
 
 
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int
+    customer_id: str
 
 
 @app.post("/api/auth/token")
-def demo_token(request: TokenRequest) -> TokenResponse:
-    """Test identity service: starts a session as a demo customer.
+def demo_token(body: TokenRequest, request: Request) -> TokenResponse:
+    """Demo login: one of five emails plus its password, then the same short-lived bearer token.
 
-    Outside `local` it only serves customers listed in DEMO_CUSTOMER_IDS, so a visitor can act as
-    a demo customer and as nobody else. A real deployment swaps this for the bank's identity
-    provider; everything downstream only trusts the token.
+    A wrong email and a wrong password get the same 401. Three wrong passwords lock that account
+    for 15 minutes (423), even with the right password afterwards. Eight attempts per minute per
+    client; the ninth is 429. A real deployment swaps this for the bank's identity provider;
+    everything downstream only trusts the token.
     """
-    if get_settings().app_env != "local" and request.customer_id not in demo_ids():
-        raise HTTPException(403, "This customer cannot start a demo session.")
-    token, expires_in = issue_token(request.customer_id)
-    return TokenResponse(access_token=token, expires_in=expires_in)
+    origin = request.client.host if request.client else "unknown"
+    if not allow_login(origin):
+        raise HTTPException(429, "Demasiados intentos. Espera un minuto.")
+    if account_locked(body.email):
+        raise HTTPException(423, "Cuenta bloqueada. Espera 15 minutos.")
+    customer_id = customer_from_login(body.email, body.password)
+    if customer_id is None:
+        if register_failure(body.email):
+            raise HTTPException(423, "Cuenta bloqueada. Espera 15 minutos.")
+        raise HTTPException(401, "Correo o contraseña incorrectos.")
+    clear_failures(body.email)
+    token, expires_in = issue_token(customer_id)
+    return TokenResponse(access_token=token, expires_in=expires_in, customer_id=customer_id)
 
 
 class SqlRequest(BaseModel):

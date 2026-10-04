@@ -5,7 +5,7 @@ A customer-service assistant for a Latin American bank. You chat with it in **Sp
 ## Open it
 
 - **Local:** `cp .env.example .env && make up`, then open http://localhost:3000 and press **Hablar con Quipu**, or go straight to http://localhost:3000/chat (see the [root README](../../../README.md)).
-- **Customer ID:** the **Cliente** field at the top of the chat. Locally it is prefilled with test customers from the organizer's synthetic dataset. Pick one from the list or type any `CLI-…` ID. Changing it starts a new conversation.
+- **Sign in:** at the top of the chat, one of the five demo emails and its password from the [root README](../../../README.md). That starts the session. **Salir** ends it.
 
 ## What you can ask today
 
