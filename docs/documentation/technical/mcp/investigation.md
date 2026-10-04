@@ -8,7 +8,7 @@ The entry point. Finds the customer's charges that fit what they said (at most 3
 
 | Argument | Values |
 |---|---|
-| `days` | 1 to 90, default 30, counted back from the customer's latest transaction |
+| `days` | 1 to 90, default 30, counted back from the dataset's last day |
 | `merchant` | Case-insensitive substring (`"uber"`) |
 | `min_amount`, `max_amount` | In the charge's own currency |
 

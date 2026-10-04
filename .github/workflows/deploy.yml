@@ -1,7 +1,9 @@
 name: CI and deploy to Cloud Run
 
-# Pull requests: lint + tests. Push to main: lint + tests, then deploy factored-api and factored-web,
-# the same steps as `make deploy-api` / `make deploy-web` (Makefile), but automatic.
+# Pull requests: lint + tests. Push to main: lint + tests, then the eval-gate (Gemini answers the
+# regression questions and the result must clear the floor in evals/text_to_sql/baseline.json),
+# then deploy factored-api and factored-web, the same steps as `make deploy-api` /
+# `make deploy-web` (Makefile), but automatic. A worse agent never reaches either service.
 # Config: repository *variables* (Settings > Secrets and variables > Actions > Variables).
 # GCP access: Workload Identity Federation, no stored key. Setup: docs/documentation/technical/deploy.md
 
@@ -10,6 +12,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      skip_eval_gate:
+        description: "Deploy even if the quality floor fails (emergencies only; the run says so)"
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -42,9 +49,81 @@ jobs:
       # Tests that need the demo Postgres skip themselves when it is not running.
       - run: uv run pytest -q
 
-  deploy-api:
+  # Runs the regression questions through Gemini on Vertex three times, judged together (one run of
+  # the same agent varies by 10 points or more), and compares the result with the floor.
+  # Exit codes of the gate: 0 pass, 1 fail, 2 proves nothing (the provider refused too many calls).
+  # A run that proves nothing is tried once more; if it still proves nothing the deploy stops.
+  # From a branch (Run workflow) only this job runs: it is how to try it without deploying.
+  eval-gate:
     needs: test
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request' && !inputs.skip_eval_gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write # Workload Identity Federation
+    services:
+      db:
+        image: postgres:16-alpine # the same as docker-compose.yml
+        env:
+          POSTGRES_USER: agent
+          POSTGRES_PASSWORD: agent
+          POSTGRES_DB: agent
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agent -d agent"
+          --health-interval 2s --health-timeout 3s --health-retries 20
+    env:
+      LLM_PROVIDER: google_genai
+      GOOGLE_GENAI_USE_VERTEXAI: "true"
+      GOOGLE_CLOUD_PROJECT: ${{ vars.GCP_PROJECT_ID }}
+      GOOGLE_CLOUD_LOCATION: global # fewer 429s than a region; production uses ${{ vars.GCP_REGION }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      # The same two steps as `make demo-data`, against the service container above.
+      - run: uv run python -m data_pipeline.silver --source sample
+      - run: uv run python -m data_pipeline.load
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+      - name: Run the evals and check the floor
+        shell: bash
+        run: |
+          code=0
+          for attempt in 1 2; do
+            uv run python -m evals.text_to_sql.run --repeats 3 --out results/gate.json \
+              || echo "the run ended early (exit $?): the floor decides what that means"
+            code=0
+            uv run python -m evals.text_to_sql.gate results/gate.json | tee gate.txt || code=$?
+            if [ "$code" -ne 2 ]; then break; fi
+            if [ "$attempt" -eq 1 ]; then
+              echo "the run proved nothing: waiting 90 s before the one retry"
+              sleep 90
+            fi
+          done
+          { echo '### Quality floor'; echo '```'; cat gate.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$code"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-report
+          path: results/gate.json
+          if-no-files-found: ignore
+
+  deploy-api:
+    needs: [test, eval-gate]
+    # always(): when the gate is skipped on purpose (skip_eval_gate) this job still has to run.
+    if: >-
+      always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' &&
+      needs.test.result == 'success' &&
+      (needs.eval-gate.result == 'success' ||
+      (needs.eval-gate.result == 'skipped' && inputs.skip_eval_gate))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -57,6 +136,8 @@ jobs:
       SQL_INSTANCE: ${{ vars.CLOUD_SQL_INSTANCE }}
       DEMO_IDS: ${{ vars.DEMO_CUSTOMER_IDS }}
     steps:
+      - if: inputs.skip_eval_gate
+        run: echo "::warning::deploying WITHOUT the quality floor (skip_eval_gate was ticked)"
       - uses: actions/checkout@v4
       - id: tag
         run: echo "value=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
