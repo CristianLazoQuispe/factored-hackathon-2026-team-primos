@@ -101,6 +101,31 @@ uv run python -m evals.text_to_sql.rescore results/run.json
 uv run python -m evals.text_to_sql.gate results/run.json
 ```
 
+## Running the held-out cases
+
+The 13 held-out cases tell how good the agent really is, because nobody tuned anything on them. That
+only holds if nobody looks at what fails, so a held-out run is **blind**:
+
+```bash
+LLM_PROVIDER=google_genai GOOGLE_GENAI_USE_VERTEXAI=true GOOGLE_CLOUD_PROJECT=<project> \
+GOOGLE_CLOUD_LOCATION=global uv run python -m evals.text_to_sql.run --split heldout --repeats 3 \
+--out results/heldout_<label>.json
+```
+
+It prints counters (`[7/39]`) and totals: no case ids, reasons or category breakdown, and `rescore` and
+`gate` hide them too for such a report. The report file keeps every query, for audit: do not open it to
+improve the prompt.
+
+1. Freeze the agent: prompt, catalog and model as they will be delivered.
+2. Run it with 3 repeats (39 calls, a few minutes).
+3. Write the totals in the snapshot below and report them as they are.
+4. A change made after seeing the numbers turns these cases into regression cases: move them there and
+   say so, because the unbiased measure is gone.
+
+Nine of the 13 are answerable, so one case is 11 points: report counts (for example "8 of 9 in each of
+3 repeats"), not just a percentage. Running it twice, before and after a change to the agent, is fine as
+long as only the totals are read and both runs are reported.
+
 ## The quality floor
 
 `evals/text_to_sql/baseline.json` records what was measured and the numbers a run must clear:
@@ -190,6 +215,8 @@ measured with this eval, and not a patch per question.
 - **Small.** 23 answerable cases per run: one case is 4.3 points of accuracy, and the floor allows two.
   A change that moves accuracy by less than about 9 points will not be caught by the gate's single
   repeat. Use 3 repeats to decide.
+- **The held-out set is smaller.** Nine answerable cases: one is 11 points, so report counts and not
+  only percentages.
 - **The first numbers were adjusted after seeing the model.** The first run scored 0.478. Reading the
   failures showed that the comparator rejected extra columns, that several gold queries contradicted the
   catalog, and that the `DEMO-*` customers could not test the purchase rule. They were fixed by
