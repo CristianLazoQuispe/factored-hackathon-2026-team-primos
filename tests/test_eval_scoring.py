@@ -6,7 +6,6 @@ from decimal import Decimal
 import pytest
 
 from evals.text_to_sql.scoring import (
-    MAX_PERMUTED_COLUMNS,
     extract_sql,
     percentile,
     rows_match,
@@ -63,7 +62,6 @@ def test_rows_match_compares_values_not_types_and_not_float_noise():
         ([{"v": 1}], [{"v": 1}, {"v": 1}]),  # an extra row
         ([], [{"v": 1}]),  # nothing back
         ([{"v": None}], [{"v": 0}]),  # NULL is not zero
-        ([{"a": 1, "b": 2}], [{"a": 1}]),  # an extra column
     ],
 )
 def test_rows_that_differ_do_not_match(predicted, gold):
@@ -74,12 +72,40 @@ def test_two_empty_results_match():
     assert rows_match([], [], ordered=False)
 
 
-def test_a_very_wide_result_is_compared_in_the_order_written():
-    width = MAX_PERMUTED_COLUMNS + 1
-    gold = [{f"c{i}": i for i in range(width)}]
-    reversed_columns = [{f"c{i}": i for i in reversed(range(width))}]
-    assert rows_match(gold, gold, ordered=False)
-    assert not rows_match(reversed_columns, gold, ordered=False)
+def test_extra_columns_are_ignored_when_every_asked_for_value_is_there():
+    gold = [{"total": 20719.1}]
+    assert rows_match([{"currency": "MXN", "total": 20719.1}], gold, ordered=False)
+    assert rows_match([{"total": 20719.1, "currency": "MXN", "n": 7}], gold, ordered=False)
+    wide = [{"merchant": "Walmart", "when": "2026-03-23", "amount": 1063.04, "currency": "MXN"}]
+    assert rows_match(wide, [{"amount": 1063.04, "merchant": "Walmart"}], ordered=True)
+
+
+def test_extra_columns_can_be_refused():
+    gold = [{"total": 5.0}]
+    predicted = [{"currency": "MXN", "total": 5.0}]
+    assert rows_match(predicted, gold, ordered=False)
+    assert not rows_match(predicted, gold, ordered=False, extra_columns_ok=False)
+
+
+def test_a_missing_column_or_a_wrong_value_is_still_wrong_with_extra_columns():
+    gold = [{"currency": "MXN", "total": 5.0}]
+    assert not rows_match([{"total": 5.0}], gold, ordered=False)  # the currency was asked for
+    assert not rows_match([{"currency": "MXN", "total": 6.0}], gold, ordered=False)
+    assert not rows_match([{"currency": "MXN", "other": 5.0, "x": 1}], [{"a": 1, "b": 2}], False)
+
+
+def test_extra_columns_do_not_let_values_drift_between_rows():
+    gold = [{"moneda": "MXN", "total": 20719.1}, {"moneda": "USD", "total": 5.0}]
+    mixed_up = [
+        {"total": 5.0, "moneda": "MXN", "extra": 1},
+        {"total": 20719.1, "moneda": "USD", "extra": 2},
+    ]
+    assert not rows_match(mixed_up, gold, ordered=False)
+
+
+def test_a_result_whose_columns_all_look_alike_still_finishes():
+    rows = [{f"c{i}": None for i in range(12)} for _ in range(3)]
+    assert rows_match(rows, [{"a": None, "b": None}] * 3, ordered=False)
 
 
 def test_percentiles():

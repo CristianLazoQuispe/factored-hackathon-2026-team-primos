@@ -4,10 +4,10 @@ import math
 import re
 from datetime import date, datetime
 from decimal import Decimal
-from itertools import permutations
+from itertools import islice, product
 
 CANNOT_ANSWER = "CANNOT_ANSWER"
-MAX_PERMUTED_COLUMNS = 6  # beyond this, columns are compared in the order the model wrote them
+MAX_ALIGNMENTS = 1000  # a result whose columns all look alike cannot make the match explode
 _FENCE = re.compile(r"```[a-zA-Z]*\s*(.*?)```", re.DOTALL)
 _STATEMENT = re.compile(
     r"(?is)^\s*(select|with|insert|update|delete|drop|alter|create|truncate|grant)\b"
@@ -42,42 +42,46 @@ def _key(value) -> tuple:
     return (value is None, str(value))
 
 
-def _column_orders(predicted: list[tuple], gold: list[tuple]) -> list[tuple]:
-    """Ways to arrange the predicted columns to line up with the gold ones: the order the model
-    wrote them first, then any other arrangement where each column holds the same values."""
-    width = len(gold[0])
-    written = tuple(range(width))
-    if width > MAX_PERMUTED_COLUMNS:
-        return [written]
-    gold_columns = [sorted(map(_key, (row[j] for row in gold))) for j in range(width)]
-    predicted_columns = [sorted(map(_key, (row[i] for row in predicted))) for i in range(width)]
-    others = [
-        order
-        for order in permutations(range(width))
-        if order != written
-        and all(predicted_columns[order[j]] == gold_columns[j] for j in range(width))
+def _alignments(predicted: list[tuple], gold: list[tuple]):
+    """Ways to pick, for every gold column, a predicted column holding the same values.
+
+    A model may add columns the question did not ask for (the currency of an amount, the date
+    of a purchase): they are ignored. Which predicted column stands for which gold column is
+    found by their values, so the order the model wrote them in does not matter."""
+    gold_columns = [sorted(map(_key, (row[j] for row in gold))) for j in range(len(gold[0]))]
+    predicted_columns = [
+        sorted(map(_key, (row[i] for row in predicted))) for i in range(len(predicted[0]))
     ]
-    return [written, *others]
+    candidates = [
+        [i for i, column in enumerate(predicted_columns) if column == wanted]
+        for wanted in gold_columns
+    ]
+    for choice in product(*candidates):
+        if len(set(choice)) == len(choice):  # two gold columns cannot share one predicted column
+            yield choice
 
 
-def rows_match(predicted: list[dict], gold: list[dict], ordered: bool) -> bool:
+def rows_match(
+    predicted: list[dict], gold: list[dict], ordered: bool, extra_columns_ok: bool = True
+) -> bool:
     """Execution accuracy: the two queries return the same values, whatever the SQL looks like.
 
-    Column names and column order are ignored (the question does not say how to order them), but
-    each row must keep its values together: swapping two columns is fine, mixing up which value
-    belongs to which row is not. Numbers are compared to 2 decimals. Row order only counts when
-    the gold query has a meaningful ORDER BY."""
+    Column names and order are ignored, and so are extra columns (unless `extra_columns_ok` is
+    False), but every gold column must be there and each row must keep its values together:
+    swapping two columns is fine, mixing up which value belongs to which row is not. Numbers
+    are compared to 2 decimals. Row order only counts when the gold query has a meaningful
+    ORDER BY."""
     a = [tuple(_cell(v) for v in row.values()) for row in predicted]
     b = [tuple(_cell(v) for v in row.values()) for row in gold]
     if len(a) != len(b):
         return False
     if not b:
         return True
-    if len(a[0]) != len(b[0]):
+    if len(a[0]) < len(b[0]) or (len(a[0]) > len(b[0]) and not extra_columns_ok):
         return False
     wanted = b if ordered else sorted(b, key=lambda row: tuple(map(_key, row)))
-    for order in _column_orders(a, b):
-        arranged = [tuple(row[i] for i in order) for row in a]
+    for choice in islice(_alignments(a, b), MAX_ALIGNMENTS):
+        arranged = [tuple(row[i] for i in choice) for row in a]
         if not ordered:
             arranged = sorted(arranged, key=lambda row: tuple(map(_key, row)))
         if arranged == wanted:
