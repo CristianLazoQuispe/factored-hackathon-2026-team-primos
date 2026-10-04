@@ -5,8 +5,10 @@ import { useEffect, useState } from "react";
 
 import { AppHeader } from "@/components/app-header";
 import { CategoryDonut, MonthlyBars } from "@/components/charts";
+import { CustomerField } from "@/components/customer-field";
 import { Logo } from "@/components/logo";
-import { DEMO_CLIENT_ID, formatAmount, getOwnFinances, type OwnFinances } from "@/lib/profile";
+import { LOOKS_LIKE_CUSTOMER_ID, useCustomerSelection, useDebounced } from "@/lib/customer";
+import { formatAmount, getOwnFinances, type OwnFinances } from "@/lib/profile";
 
 import "./screen.css";
 
@@ -20,16 +22,43 @@ const QUESTIONS = [
 ];
 
 export default function FinancePage() {
-  const [data, setData] = useState<OwnFinances | null>(null);
+  const { customerId, demoCustomers, setCustomerId } = useCustomerSelection(); // shared with the chat
+  const typed = customerId.trim();
+  const wanted = useDebounced(typed, 400); // not every prefix of an ID typed by hand
+  const settled = typed === wanted;
+  const valid = LOOKS_LIKE_CUSTOMER_ID.test(wanted);
+  // What came back, and for whom: one customer's figures are never shown under another's ID.
+  const [result, setResult] = useState<{ customer: string; data?: OwnFinances; error?: string } | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const [alertsOn, setAlertsOn] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getOwnFinances(DEMO_CLIENT_ID)
-      .then(setData)
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : "No pudimos cargar tus finanzas."));
-  }, []);
+    if (!valid) return;
+    let live = true;
+    getOwnFinances(wanted)
+      .then((data) => {
+        if (!live) return;
+        setResult({ customer: wanted, data });
+        setDismissed(false);
+        setAlertsOn(false);
+      })
+      .catch((e: unknown) => {
+        if (live) setResult({ customer: wanted, error: e instanceof Error ? e.message : "No pudimos cargar tus finanzas." });
+      });
+    return () => {
+      live = false;
+    };
+  }, [wanted, valid]);
+
+  const current = settled && valid && result?.customer === wanted ? result : null;
+  const data = current?.data ?? null;
+  const error = current?.error ?? null;
+  const status =
+    typed === ""
+      ? "Elige un cliente o escribe su ID."
+      : settled && !valid
+        ? "Ese ID no parece de un cliente: empieza con CLI- o DEMO-."
+        : error ?? (data ? null : "Cargando…");
 
   const alert = data?.alerts[0];
 
@@ -39,12 +68,15 @@ export default function FinancePage() {
       style={{ minHeight: "100vh", display: "flex", flexDirection: "column", fontFamily: "var(--q-font)", color: "var(--q-mist)", background: "var(--q-abyss)" }}
     >
       <AppHeader area="cliente" active="/mis-finanzas">
-        {data && <span className="q-sub">{data.product} · datos sintéticos</span>}
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
+          <CustomerField value={customerId} onChange={setCustomerId} customers={demoCustomers} />
+          {data && <span className="q-sub">{data.product} · datos sintéticos</span>}
+        </div>
       </AppHeader>
 
-      {error && !data && (
+      {status && (
         <main style={{ flex: "1 1 auto", maxWidth: 1120, width: "100%", margin: "0 auto", padding: "28px 24px", boxSizing: "border-box" }}>
-          <p role="alert" style={{ margin: 0, fontSize: 17, color: "var(--q-fog)" }}>{error}</p>
+          <p role={error ? "alert" : "status"} style={{ margin: 0, fontSize: 17, color: "var(--q-fog)" }}>{status}</p>
         </main>
       )}
 

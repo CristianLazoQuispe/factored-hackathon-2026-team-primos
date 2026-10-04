@@ -4,10 +4,12 @@ import { type FormEvent, useCallback, useEffect, useRef, useState } from "react"
 import Markdown from "react-markdown";
 
 import { AppHeader } from "@/components/app-header";
+import { CustomerField } from "@/components/customer-field";
 import { Corona, type CoronaHandle } from "@/components/corona";
 import { AgentIcon, Logo } from "@/components/logo";
 import { revealed, visible } from "@/components/spoken";
 import { type MicrophoneAccess, useRecorder } from "@/components/use-recorder";
+import { useCustomerSelection } from "@/lib/customer";
 import { type Category, formatAmount, getOwnFinances } from "@/lib/profile";
 import type { CoronaMode } from "@/lib/quipu-corona";
 
@@ -39,8 +41,6 @@ type ChatResponse = {
 };
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
-
-type DemoCustomer = { customer_id: string; first_name: string; country: string; segment: string };
 
 type Session = { customer: string; token: string; expiresAt: number };
 
@@ -157,8 +157,7 @@ function SpendingChart({ categories }: { categories: Category[] }) {
 }
 
 export default function Chat() {
-  const [customerId, setCustomerId] = useState("");
-  const [demoCustomers, setDemoCustomers] = useState<DemoCustomer[]>([]);
+  const { customerId, demoCustomers, setCustomerId } = useCustomerSelection(); // shared with Mis finanzas
   const [threadId, setThreadId] = useState(newThread);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
@@ -184,17 +183,6 @@ export default function Chat() {
   useEffect(() => {
     if (messages.length) end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, pending, preparing, transcribing]);
-
-  // The customers offered here are the ones the API lets start a demo session (DEMO_CUSTOMER_IDS).
-  useEffect(() => {
-    fetch(`${API_URL}/api/demo-customers`)
-      .then((response) => (response.ok ? response.json() : []))
-      .then((customers: DemoCustomer[]) => {
-        setDemoCustomers(customers);
-        if (customers.length) setCustomerId(customers[0].customer_id);
-      })
-      .catch(() => setDemoCustomers([]));
-  }, []);
 
   function changeCustomer(value: string) {
     setCustomerId(value);
@@ -458,22 +446,7 @@ export default function Chat() {
     <div className={`s-chat q-st-${mode}`}>
       <AppHeader area="cliente" active="/chat">
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--q-fog)" }}>
-            Cliente
-            <input
-              className="field"
-              value={customerId}
-              onChange={(event) => changeCustomer(event.target.value)}
-              list="demo-customers"
-              placeholder="Tu ID de cliente"
-              style={{ width: 190 }}
-            />
-            <datalist id="demo-customers">
-              {demoCustomers.map((c) => (
-                <option key={c.customer_id} value={c.customer_id} label={`${c.first_name} · ${c.country} · ${c.segment}`} />
-              ))}
-            </datalist>
-          </label>
+          <CustomerField value={customerId} onChange={changeCustomer} customers={demoCustomers} />
           <button
             type="button"
             className="q-btn q-btn-sm q-btn-ghost"

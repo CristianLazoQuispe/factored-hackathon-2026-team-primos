@@ -153,17 +153,24 @@ export async function demoAuth(clientId: string): Promise<Record<string, string>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ customer_id: clientId }),
   });
-  if (!response.ok) throw new FinancesError(response.status, "No pudimos iniciar la sesión de demostración.");
+  if (!response.ok) {
+    const message = response.status === 403 ? NO_SESSION : "No pudimos iniciar la sesión de demostración.";
+    throw new FinancesError(response.status, message);
+  }
   const data: { access_token: string } = await response.json();
   return { Authorization: `Bearer ${data.access_token}` };
 }
 
-// What the API says when it cannot serve the screen, in the customer's words.
-const FINANCES_ERRORS: Record<number, string> = {
-  401: "Tu sesión expiró. Vuelve a entrar.",
-  404: "Todavía no hay movimientos en este periodo.",
-  503: "No pudimos cargar tus finanzas ahora. Inténtalo de nuevo en un momento.",
+const NO_SESSION = "Ese cliente no tiene sesión de demostración.";
+
+// What the API says when it cannot serve the screen, in the customer's words: by its `detail`, which
+// tells apart the two 404s, and otherwise by status.
+const FINANCES_DETAIL: Record<string, string> = {
+  unknown_customer: "No encontramos un cliente con ese ID.",
+  no_spending_in_period: "Todavía no hay movimientos en este periodo.",
+  finances_unavailable: "No pudimos cargar tus finanzas ahora. Inténtalo de nuevo en un momento.",
 };
+const FINANCES_STATUS: Record<number, string> = { 401: "Tu sesión expiró. Vuelve a entrar.", 403: NO_SESSION };
 
 // `GET /api/me/finances`: the customer's own screen, without the `internal` block. Who the customer
 // is comes from the token, never from the URL. Without `auth` it signs in as `clientId` (demo).
@@ -171,7 +178,9 @@ export async function getOwnFinances(clientId: string, auth?: Record<string, str
   const headers = auth ?? (await demoAuth(clientId));
   const response = await fetch(`${API_URL}/api/me/finances`, { headers });
   if (!response.ok) {
-    throw new FinancesError(response.status, FINANCES_ERRORS[response.status] ?? `Error ${response.status}`);
+    const body: { detail?: unknown } = await response.json().catch(() => ({}));
+    const detail = typeof body.detail === "string" ? FINANCES_DETAIL[body.detail] : undefined;
+    throw new FinancesError(response.status, detail ?? FINANCES_STATUS[response.status] ?? `Error ${response.status}`);
   }
   return response.json();
 }
