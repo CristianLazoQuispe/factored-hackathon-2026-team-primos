@@ -122,6 +122,12 @@ def no_wait(monkeypatch):
     monkeypatch.setattr(harness.asyncio, "sleep", instant)
 
 
+@pytest.fixture
+def patient(monkeypatch):
+    """For tests about a failing provider that must not be cut short by the circuit breaker."""
+    monkeypatch.setattr(harness, "MAX_CONSECUTIVE_PROVIDER_ERRORS", 10_000)
+
+
 class SpyLimiter:
     def __init__(self):
         self.waits = 0
@@ -130,7 +136,9 @@ class SpyLimiter:
         self.waits += 1
 
 
-async def test_a_busy_provider_is_retried_counted_and_not_blamed_on_the_sql(demo_data, no_wait):
+async def test_a_busy_provider_is_retried_counted_and_not_blamed_on_the_sql(
+    demo_data, no_wait, patient
+):
     def down(question):
         raise RuntimeError("429 RESOURCE_EXHAUSTED")
 
@@ -154,7 +162,7 @@ async def test_a_failure_that_is_not_a_busy_provider_is_not_retried(demo_data, n
 
 
 async def run_command(monkeypatch, tmp_path, *flags):
-    monkeypatch.setattr(harness, "chat_model", lambda role: Fake(oracle))
+    monkeypatch.setattr(harness, "chat_model", lambda role, **kwargs: Fake(oracle))
     out = tmp_path / "run.json"
     monkeypatch.setattr(sys, "argv", ["run", "--max-rpm", "0", "--out", str(out), *flags])
     await harness.main()
@@ -185,7 +193,9 @@ def test_the_prompt_fingerprint_changes_with_the_prompt(monkeypatch):
     assert harness.prompt_version() != first
 
 
-async def test_a_failed_call_is_reported_with_the_same_fields_as_any_other_attempt(no_wait):
+async def test_a_failed_call_is_reported_with_the_same_fields_as_any_other_attempt(
+    no_wait, patient
+):
     """No database needed: the unanswerable cases have no gold query to run."""
     cases = [case for case in CASES if case.kind == "unanswerable"]
 
@@ -201,3 +211,91 @@ async def test_a_failed_call_is_reported_with_the_same_fields_as_any_other_attem
 
 def test_the_report_says_n_a_when_there_is_nothing_to_measure():
     assert harness.seconds(None) == "n/a" and harness.seconds(1.5) == "1.5s"
+
+
+# ---- progress, partial reports and a provider that does not come back (no database needed) ----
+
+UNANSWERABLE = [case for case in CASES if case.kind == "unanswerable"]
+
+
+async def test_progress_is_reported_after_every_attempt():
+    seen = []
+    await harness.run_eval(
+        Fake(oracle),
+        UNANSWERABLE,
+        repeats=2,
+        on_attempt=lambda a, total: seen.append((len(a), total)),
+    )
+    assert seen == [(n, 2 * len(UNANSWERABLE)) for n in range(1, 2 * len(UNANSWERABLE) + 1)]
+
+
+async def test_a_provider_that_keeps_refusing_stops_the_run_with_what_was_measured(
+    no_wait, monkeypatch
+):
+    monkeypatch.setattr(harness, "MAX_CONSECUTIVE_PROVIDER_ERRORS", 3)
+
+    def down(question):
+        raise RuntimeError("429 RESOURCE_EXHAUSTED")
+
+    with pytest.raises(harness.ProviderUnavailable) as stop:
+        await harness.run_eval(Fake(down), UNANSWERABLE * 5)
+    assert len(stop.value.attempts) == 3 and all(a["provider_error"] for a in stop.value.attempts)
+
+
+async def test_a_short_streak_of_refusals_does_not_stop_the_run(no_wait, monkeypatch):
+    monkeypatch.setattr(harness, "MAX_CONSECUTIVE_PROVIDER_ERRORS", 3)
+    calls = {"n": 0}
+
+    def flaky(question):
+        calls["n"] += 1
+        if calls["n"] in (1, 2, 4, 5):  # two in a row, then a good answer, then two more
+            raise ValueError("invalid model name")
+        return oracle(question)
+
+    attempts = await harness.run_eval(Fake(flaky), UNANSWERABLE)
+    assert len(attempts) == len(UNANSWERABLE)
+    assert sum(1 for a in attempts if a["provider_error"]) == 4
+
+
+async def test_the_command_that_gives_up_leaves_a_readable_partial_report(
+    no_wait, monkeypatch, tmp_path
+):
+    monkeypatch.setattr(harness, "MAX_CONSECUTIVE_PROVIDER_ERRORS", 3)
+
+    def down(question):
+        raise RuntimeError("503 UNAVAILABLE")
+
+    monkeypatch.setattr(harness, "chat_model", lambda role, **kwargs: Fake(down))
+    out = tmp_path / "partial.json"
+    ids = "credit_score,loan_interest,other_bank"  # all regression, none needs the database
+    monkeypatch.setattr(sys, "argv", ["run", "--max-rpm", "0", "--ids", ids, "--out", str(out)])
+    with pytest.raises(SystemExit) as stop:
+        await harness.main()
+    report = json.loads(out.read_text())
+    assert stop.value.code == 2 and report["meta"]["complete"] is False
+    assert len(report["attempts"]) == 3 and report["summary"]["provider_errors"] == 3
+
+
+async def test_a_finished_run_says_it_is_complete(monkeypatch, tmp_path):
+    seen = {}
+
+    def factory(role, **kwargs):
+        seen.update(kwargs)
+        return Fake(oracle)
+
+    monkeypatch.setattr(harness, "chat_model", factory)
+    out = tmp_path / "done.json"
+    monkeypatch.setattr(
+        sys, "argv", ["run", "--max-rpm", "0", "--ids", "credit_score", "--out", str(out)]
+    )
+    await harness.main()
+    assert json.loads(out.read_text())["meta"]["complete"] is True
+    assert seen == {"max_retries": harness.CLIENT_ATTEMPTS}  # the runner is the only retry layer
+    assert not list(tmp_path.glob("*.tmp"))  # no staging file left behind
+
+
+def test_the_progress_line_says_what_happened():
+    ok = {"id": "x", "repeat": 1, "model_seconds": 2.5, "provider_error": None, "correct": True}
+    assert harness.progress_line([ok], 3) == "[1/3] x (repeat 1): ok, 2.5s"
+    assert "wrong" in harness.progress_line([ok | {"correct": False}], 3)
+    assert "provider error" in harness.progress_line([ok | {"provider_error": "429"}], 3)

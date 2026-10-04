@@ -41,7 +41,20 @@ log = logging.getLogger(__name__)
 TRANSIENT = re.compile(r"\b(429|503)\b|RESOURCE_EXHAUSTED|UNAVAILABLE|timed? ?out", re.IGNORECASE)
 MAX_ATTEMPTS = 4  # one try and three retries of a busy provider
 DEFAULT_MAX_RPM = 20
+CLIENT_ATTEMPTS = 1  # the runner is the only retry layer, so every request is counted and paced
+MAX_CONSECUTIVE_PROVIDER_ERRORS = 5  # a provider that refuses this many in a row is not coming back
 JUDGED = ("abstained", "ran", "blocked", "correct", "leak")  # what judge() decides
+
+
+class ProviderUnavailable(RuntimeError):
+    """The provider kept refusing calls. Carries what was measured before it gave up."""
+
+    def __init__(self, attempts: list[dict]):
+        super().__init__(
+            f"the provider refused {MAX_CONSECUTIVE_PROVIDER_ERRORS} calls in a row; "
+            f"{len(attempts)} attempts were made"
+        )
+        self.attempts = attempts
 
 
 def build_prompt() -> str:
@@ -130,8 +143,12 @@ async def gold_rows(db, case: Case) -> dict:
     return rows
 
 
-async def run_eval(model, cases, repeats: int = 1, limiter=None, db=None) -> list[dict]:
+async def run_eval(
+    model, cases, repeats: int = 1, limiter=None, db=None, on_attempt=None
+) -> list[dict]:
+    """`on_attempt(attempts_so_far, total)` runs after every attempt, to report progress."""
     db, prompt, attempts = db or ReadOnlyPostgres(), build_prompt(), []
+    total, failures_in_a_row = repeats * len(cases), 0
     gold = {c.id: await gold_rows(db, c) for c in cases if c.kind == "answerable"}
     for repeat in range(1, repeats + 1):
         for case in cases:
@@ -153,6 +170,11 @@ async def run_eval(model, cases, repeats: int = 1, limiter=None, db=None) -> lis
                 sql = extract_sql(reply)
                 record |= {"sql": sql} | await judge(db, case, sql, gold.get(case.id, {}))
             attempts.append(record)
+            if on_attempt:
+                on_attempt(attempts, total)
+            failures_in_a_row = failures_in_a_row + 1 if provider_error else 0
+            if failures_in_a_row >= MAX_CONSECUTIVE_PROVIDER_ERRORS:
+                raise ProviderUnavailable(attempts)
     return attempts
 
 
@@ -187,6 +209,33 @@ def code_version() -> str:
 def prompt_version() -> str:
     """A short fingerprint of the exact prompt (persona, skill, table catalog) being tested."""
     return hashlib.sha256(build_prompt().encode()).hexdigest()[:12]
+
+
+def write_report(out: Path, meta: dict, attempts: list[dict], complete: bool) -> None:
+    """Rewritten after every attempt, so a run that is cut short still leaves a valid report."""
+    report = {
+        "meta": meta | {"complete": complete},
+        "summary": summarize(attempts),
+        "attempts": attempts,
+    }
+    out.parent.mkdir(parents=True, exist_ok=True)
+    staging = out.with_suffix(out.suffix + ".tmp")
+    staging.write_text(json.dumps(report, indent=2))
+    staging.replace(out)  # atomic: never a half-written file
+
+
+def verdict(attempt: dict) -> str:
+    if attempt["provider_error"]:
+        return "provider error"
+    return "ok" if attempt["correct"] else "wrong"
+
+
+def progress_line(attempts: list[dict], total: int) -> str:
+    last = attempts[-1]
+    return (
+        f"[{len(attempts)}/{total}] {last['id']} (repeat {last['repeat']}): "
+        f"{verdict(last)}, {last['model_seconds']}s"
+    )
 
 
 def seconds(value: float | None) -> str:
@@ -249,14 +298,24 @@ async def main() -> None:
     if args.split != "regression":
         print("Held-out cases are reported once: do not tune a prompt on what they show.")
     print(f"{meta['provider']} / {meta['model']}: {len(cases)} cases x {args.repeats}")
-    attempts = await run_eval(
-        chat_model(args.role), cases, args.repeats, make_limiter(args.max_rpm)
-    )
-    summary = summarize(attempts)
-    show(summary)
     out = Path(args.out or f"results/text_to_sql_{datetime.now():%Y%m%d_%H%M%S}.json")
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps({"meta": meta, "summary": summary, "attempts": attempts}, indent=2))
+
+    def checkpoint(attempts: list[dict], total: int) -> None:
+        print(progress_line(attempts, total), flush=True)
+        write_report(out, meta, attempts, complete=False)
+
+    model = chat_model(args.role, max_retries=CLIENT_ATTEMPTS)
+    try:
+        attempts = await run_eval(
+            model, cases, args.repeats, make_limiter(args.max_rpm), on_attempt=checkpoint
+        )
+    except ProviderUnavailable as stop:
+        show(summarize(stop.attempts))
+        print(f"\nStopped: {stop}. Try again later, or with GOOGLE_CLOUD_LOCATION=global.")
+        print(f"Partial report: {out}")
+        raise SystemExit(2) from stop
+    write_report(out, meta, attempts, complete=True)
+    show(summarize(attempts))
     print(f"\nWritten: {out}")
 
 
