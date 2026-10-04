@@ -12,7 +12,7 @@ import time
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from functools import cache
 from typing import Any, Literal
 
@@ -82,6 +82,24 @@ BILLING = f"""
     ORDER BY b.due_date, p.product_type
 """
 AS_OF = "SELECT max(transaction_date)::date AS as_of FROM core.transactions"
+CARDS = f"""
+    SELECT p.product_id, p.product_type, p.product_number_last4 AS last4, p.currency,
+           p.current_balance AS balance, p.product_status AS bank_status, ca.action AS control
+    FROM core.products p {LATEST_CONTROL}
+    WHERE p.customer_id = %(customer_id)s
+      AND p.product_type IN ('Tarjeta Crédito', 'Tarjeta Débito')
+    ORDER BY p.product_type, p.product_number_last4
+"""
+CHARGES = """
+    SELECT transaction_id, transaction_date, merchant_name AS merchant, amount, currency,
+           transaction_status AS status
+    FROM core.transactions
+    WHERE customer_id = %(customer_id)s AND transaction_type = 'Purchase'
+      AND transaction_date > %(since)s
+      AND (%(merchant)s::text IS NULL OR merchant_name ILIKE '%%' || %(merchant)s || '%%')
+    ORDER BY transaction_date DESC
+    LIMIT %(limit)s
+"""
 
 COLUMNS = (
     "action_id, batch_id, position, customer_id, conversation_id, action, params, view, decision, "
@@ -420,6 +438,34 @@ class PostgresEffects:
             )
             row = await cursor.fetchone()
         return row["status"] if row else None
+
+
+async def fetch_cards(customer_id: str) -> list[dict[str, Any]]:
+    """The customer's cards with the id an action needs, and their status as it is now."""
+    rows = await query(CARDS, {"customer_id": customer_id})
+    return [
+        {
+            "product_id": r["product_id"],
+            "product_type": r["product_type"],
+            "last4": r["last4"],
+            "currency": r["currency"],
+            "balance": r["balance"],
+            "status": CONTROL_STATUS.get(r["control"], r["bank_status"]),
+        }
+        for r in rows
+    ]
+
+
+async def fetch_recent_charges(
+    customer_id: str, merchant: str | None, days: int, limit: int
+) -> list[dict[str, Any]]:
+    """Recent purchases, newest first, counted back from the dataset's last day."""
+    since = await PostgresFacts().as_of() - timedelta(days=days)
+    rows = await query(
+        CHARGES,
+        {"customer_id": customer_id, "since": since, "merchant": merchant or None, "limit": limit},
+    )
+    return [{**r, "transaction_date": r["transaction_date"].isoformat()} for r in rows]
 
 
 async def recent_messages(customer_id: str, limit: int = 20) -> list[dict[str, Any]]:

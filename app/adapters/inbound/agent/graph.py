@@ -12,6 +12,7 @@
 Every LLM call, skill choice and tool call is a LangChain run, so Langfuse traces all of it.
 """
 
+import json
 import logging
 import re
 from typing import Literal
@@ -24,10 +25,11 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, MessagesState, StateGraph
 
 from app.adapters.inbound.agent.mcp_bridge import client_for, load_tools
-from app.adapters.inbound.agent.skills import agent_prompt, catalog, load_skills
+from app.adapters.inbound.agent.skills import agent_prompt, available, catalog, load_skills
 from app.adapters.inbound.agent.tracing import callbacks
 from app.adapters.outbound.llm import chat_model
 from app.adapters.outbound.postgres.accounts import find_customer
+from app.domain.action_text import detect_language
 from app.domain.routing import guess_skill
 
 log = logging.getLogger(__name__)
@@ -49,6 +51,10 @@ UNAVAILABLE = (
     "Estoy teniendo problemas técnicos en este momento. Te paso con una persona de nuestro "
     "equipo. / Estou com problemas técnicos agora. Vou te transferir para uma pessoa da equipe."
 )
+NEEDS_SIGN_IN = (
+    "Para hacer cambios en tu cuenta necesito que entres con tu sesión en la web o en la app. / "
+    "Para fazer alterações na sua conta, entre na sua sessão pelo site ou pelo app."
+)
 HANDOFF = (
     "Te comunico con una persona de nuestro equipo. Ya tiene tu caso, no tendrás que repetir "
     "nada. / Vou te transferir para uma pessoa da nossa equipe; ela já tem o seu caso."
@@ -57,6 +63,9 @@ HANDOFF = (
 
 class State(MessagesState):
     customer_id: str | None
+    signed_in: bool  # the token proved the customer (not an ID typed in the chat)
+    language: str | None
+    actions: dict | None  # what this turn proposed, for the app to show
     route: str
     skill: str | None
     tools_used: list[str]
@@ -81,7 +90,7 @@ def last_customer_text(state: State) -> str:
 
 async def guard(state: State) -> dict:
     text = last_customer_text(state)
-    turn = {"skill": None, "tools_used": [], "case_file": None}
+    turn = {"skill": None, "tools_used": [], "case_file": None, "actions": None}
     if ASKS_FOR_HUMAN.search(text):
         return turn | {"route": "handoff"}
     if state.get("customer_id"):
@@ -93,20 +102,34 @@ async def guard(state: State) -> dict:
     return turn | {"route": "end", "messages": [AIMessage(reply)]}
 
 
+def needs_sign_in() -> dict:
+    return {"route": "end", "messages": [AIMessage(NEEDS_SIGN_IN)]}
+
+
 async def router(state: State) -> dict:
-    system = f"{agent_prompt()}\n\n## Skills\n{catalog()}"
+    signed_in = bool(state.get("signed_in"))
+    usable = available(signed_in)
+    system = f"{agent_prompt()}\n\n## Skills\n{catalog(signed_in)}"
     model = chat_model("fast").bind_tools([use_skill, request_human])
     response = await model.ainvoke([SystemMessage(system), *state["messages"]])
     for call in response.tool_calls:
         if call["name"] == "request_human":
             return {"route": "handoff"}
-        if call["name"] == "use_skill" and call["args"].get("name") in load_skills():
-            return {"route": "skill_agent", "skill": call["args"]["name"]}
+        if call["name"] == "use_skill":
+            name = call["args"].get("name")
+            if name in usable:
+                return {"route": "skill_agent", "skill": name}
+            if (
+                name in load_skills()
+            ):  # one that changes things, for a customer who only typed an ID
+                return needs_sign_in()
     text = response.text.strip()
     skill = guess_skill(last_customer_text(state))
-    if skill in load_skills():  # the model did not route an obvious request: code does
+    if skill in usable:  # the model did not route an obvious request: code does
         log.info("router fallback -> %s (model said %r)", skill, text[:80])
         return {"route": "skill_agent", "skill": skill}
+    if skill in load_skills():
+        return needs_sign_in()
     if response.tool_calls:  # the model asked for something we cannot serve: leave a trace
         log.warning("router ignored tool calls: %s", response.tool_calls)
     if not text or "tool_call" in text:  # a tool call written as text must not reach the customer
@@ -114,10 +137,32 @@ async def router(state: State) -> dict:
     return {"route": "end", "messages": [AIMessage(text)]}
 
 
+def proposed_actions(new_messages: list) -> dict | None:
+    """What `propose_actions` returned this turn (the last call), read back from the tool result."""
+    found = None
+    for message in new_messages:
+        if isinstance(message, ToolMessage) and message.name == "propose_actions":
+            try:
+                data = json.loads(message.text)
+            except ValueError:
+                continue
+            if isinstance(data, dict) and data.get("batch_id"):
+                found = data
+    return found
+
+
 async def skill_agent(state: State, config: RunnableConfig) -> dict:
     skill = load_skills()[state["skill"]]
+    if skill.needs_sign_in and not state.get("signed_in"):
+        return needs_sign_in()  # the router already checked; this is the second lock
+    language = detect_language(last_customer_text(state), state.get("language") or "es")
+    session = {
+        "language": language,
+        "thread_id": config["configurable"]["thread_id"],
+        "signed_in": "1" if state.get("signed_in") else "0",
+    }
     async with client_for(skill.mcp) as client:
-        tools = [*await load_tools(client, state["customer_id"]), request_human]
+        tools = [*await load_tools(client, state["customer_id"], session), request_human]
         agent = create_agent(
             chat_model("fast"),
             tools,
@@ -128,10 +173,12 @@ async def skill_agent(state: State, config: RunnableConfig) -> dict:
         )
     new = result["messages"][len(state["messages"]) :]
     tools_used = [m.name for m in new if isinstance(m, ToolMessage)]
-    if "request_human" in tools_used:
-        return {"route": "handoff", "tools_used": tools_used}
+    actions = proposed_actions(new)
+    update = {"tools_used": tools_used, "language": language, "actions": actions}
+    if "request_human" in tools_used or (actions and actions.get("escalate")):
+        return {"route": "handoff", **update}  # the policy sent part of it to a person
     text = new[-1].text.strip() if new else ""
-    return {"route": "end", "tools_used": tools_used, "messages": [AIMessage(text or NO_ANSWER)]}
+    return {"route": "end", **update, "messages": [AIMessage(text or NO_ANSWER)]}
 
 
 def handoff(state: State) -> dict:
@@ -141,6 +188,12 @@ def handoff(state: State) -> dict:
         "skill": state.get("skill"),
         "tools_used": state.get("tools_used", []),
     }
+    if state.get("actions"):  # what was proposed, and what the policy sent to a person and why
+        case_file["actions"] = [
+            {"action": i["action"], "status": i["status"], "text": i["text"]}
+            for i in state["actions"]["items"]
+        ]
+        case_file["unresolved"] = state["actions"].get("escalate", [])
     return {"route": "end", "case_file": case_file, "messages": [AIMessage(HANDOFF)]}
 
 
@@ -183,7 +236,7 @@ async def reply(
     customer_id: str | None = None,
     image: tuple[str, str] | None = None,
 ) -> dict:
-    turn: dict = {"messages": [customer_message(message, image)]}
+    turn: dict = {"messages": [customer_message(message, image)], "signed_in": bool(customer_id)}
     if customer_id:
         turn["customer_id"] = customer_id
     config: RunnableConfig = {
@@ -202,6 +255,7 @@ async def reply(
             "skill": None,
             "tools_used": [],
             "handoff": case_file,
+            "actions": None,
         }
     return {
         "reply": state["messages"][-1].text,
@@ -209,4 +263,5 @@ async def reply(
         "skill": state.get("skill"),
         "tools_used": state.get("tools_used", []),
         "handoff": state.get("case_file"),
+        "actions": state.get("actions"),
     }
