@@ -4,10 +4,11 @@ The agent used to answer. This is how it **acts** without being trusted to: the 
 *proposes*, code decides, the customer confirms through a channel the model does not control, and
 the result is reported only after the effect has been read back.
 
-> **Status.** The policy, the gateway, the Postgres and mail adapters and their tests are done
-> (`app/domain/actions.py`, `app/application/actions.py`, `app/adapters/outbound/postgres/actions.py`).
-> The agent skill, the HTTP endpoints and the confirmation card in the web come next and are not
-> described as working here. Off by default: `ACTIONS_ENABLED=false`.
+> **Status.** Done and tested: the policy, the gateway, the Postgres and mail adapters, the MCP
+> server and skill that propose, the routes that confirm, and the deploy settings. **Not done yet:
+> the confirmation card and the message tray in the web**, so today a proposal can only be
+> confirmed with the API. Off by default: `ACTIONS_ENABLED=false`, and with it off the agent's
+> prompt, skills and routes are what they were before actions existed.
 
 ## The cycle
 
@@ -108,10 +109,31 @@ deliberate breakages of the policy, the gateway, the mailer and the SQL were eac
 least one test. A test also checks that every reason the policy can give has text in both
 languages.
 
+## Who can ask for an action
+
+Only a customer **the token proved**. A customer who only typed an ID in the chat (the Telegram
+path, for example) is never offered the skill: the router's catalog leaves it out, the router and the
+skill both refuse it in code, and every tool of the MCP server refuses it a third time. A customer
+number alone does not prove identity.
+
+## The routes
+
+| Route | What it does |
+|---|---|
+| `POST /api/actions/{batch}/confirm` | Runs the batch the customer confirmed. Body (all optional): `thread_id` (the chat, so a person who picks it up sees the outcome), `inbox` (a demo inbox the card offered). Asking again returns the same result |
+| `POST /api/actions/{batch}/cancel` | The customer changes their mind |
+| `GET /api/me/outbox` | What the system sent this customer: the simulated phone of the demo |
+
+All three need the token, answer 404 for a batch that is not the token customer's, and answer 404
+`actions_disabled` while actions are off. An outcome that failed verification or needs a person
+turns the chat over to the operator console with the case file: what was proposed, what happened
+and what is unresolved.
+
 ## Not done yet
 
-- The agent skill that proposes (`propose_actions`) and the endpoints `POST /api/actions/{id}/confirm`
-  and `/cancel`, and the card in the web.
+- The confirmation card and the message tray in the web.
+- A stolen card goes through `account_actions` and not straight to a person (the skill proposes the
+  block *and* asks for a person); with actions off the old rule stays.
 - Balances should show a blocked card as blocked: today only the actions' own facts apply the overlay.
 - No scheduler, so reminders are stored as preferences but nothing sends them.
 - Capacity: every statement opens its own connection, which is fine for a demo, not for load.
