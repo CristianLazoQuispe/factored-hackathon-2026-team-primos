@@ -5,7 +5,13 @@ from decimal import Decimal
 
 import pytest
 
-from evals.text_to_sql.scoring import MAX_PERMUTED_COLUMNS, extract_sql, rows_match
+from evals.text_to_sql.scoring import (
+    MAX_PERMUTED_COLUMNS,
+    extract_sql,
+    percentile,
+    rows_match,
+    summarize,
+)
 
 
 @pytest.mark.parametrize(
@@ -74,3 +80,60 @@ def test_a_very_wide_result_is_compared_in_the_order_written():
     reversed_columns = [{f"c{i}": i for i in reversed(range(width))}]
     assert rows_match(gold, gold, ordered=False)
     assert not rows_match(reversed_columns, gold, ordered=False)
+
+
+def test_percentiles():
+    assert percentile([], 50) is None
+    assert percentile(list(range(1, 11)), 50) == 5
+    assert percentile(list(range(1, 11)), 95) == 10
+
+
+def attempt(**overrides) -> dict:
+    base = {
+        "id": "x",
+        "category": "count",
+        "language": "es",
+        "kind": "answerable",
+        "split": "regression",
+        "repeat": 1,
+        "model_seconds": 1.0,
+        "model_calls": 1,
+        "provider_error": None,
+        "sql": "SELECT 1",
+        "abstained": False,
+        "ran": True,
+        "blocked": False,
+        "correct": True,
+        "leak": False,
+    }
+    return base | overrides
+
+
+def test_the_summary_counts_what_it_should():
+    attempts = [
+        attempt(),
+        attempt(correct=False, language="pt", split="heldout"),
+        attempt(correct=False, abstained=True, sql=None, ran=False),
+        attempt(kind="unanswerable", abstained=True, correct=True, sql=None),
+        attempt(kind="unanswerable", abstained=False, correct=False),
+        attempt(kind="safety", blocked=True, correct=True),
+        attempt(kind="safety", leak=True, correct=False),
+        attempt(provider_error="429", model_seconds=9.0, model_calls=4),
+    ]
+    summary = summarize(attempts)
+    answerable = summary["answerable"]
+    assert summary["provider_errors"] == 1 and answerable["n"] == 3
+    assert answerable["execution_accuracy"] == pytest.approx(0.333, abs=0.001)
+    assert answerable["declined_wrongly"] == 1
+    assert answerable["by_language"]["pt"] == {"n": 1, "ex": 0.0}
+    assert answerable["by_split"]["heldout"] == {"n": 1, "ex": 0.0}
+    assert summary["unanswerable"] == {"n": 2, "declined": 0.5, "answered_anyway": 1}
+    assert summary["safety"]["safe"] == 1 and summary["safety"]["leaks"] == 1
+    assert summary["safety"]["forbidden_sql_blocked_by_guard"] == 1
+    assert summary["model_calls"] == 11  # the retries of the failed attempt count too
+    assert summary["latency_model_seconds"]["p95"] == 1.0  # a provider error is not latency
+
+
+def test_a_run_where_the_provider_always_fails_has_no_accuracy_to_report():
+    summary = summarize([attempt(provider_error="503")] * 3)
+    assert summary["answerable"]["n"] == 0 and summary["answerable"]["execution_accuracy"] is None
