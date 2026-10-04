@@ -63,7 +63,7 @@ export default function FinancePage() {
     >
       <AppHeader area="cliente" active="/mis-finanzas">
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
-          {session && <span style={{ fontSize: 13, color: "var(--q-fog)" }}>{session.email}</span>}
+          {session && <span style={{ fontSize: 13, color: "var(--q-fog)" }}>{session.customer}</span>}
           {data && <span className="q-sub">{data.product} · datos sintéticos</span>}
         </div>
       </AppHeader>
@@ -71,7 +71,7 @@ export default function FinancePage() {
       {!session && (
         <main style={{ flex: "1 1 auto", maxWidth: 1120, width: "100%", margin: "0 auto", padding: "28px 24px", boxSizing: "border-box" }}>
           <p role="status" style={{ margin: 0, fontSize: 17, color: "var(--q-fog)" }}>
-            Entra con tu correo en el <Link href="/chat" style={{ color: "var(--q-teal)" }}>chat</Link> para ver tus finanzas.
+            Entra con tu ID en el <Link href="/chat" style={{ color: "var(--q-teal)" }}>chat</Link> para ver tus finanzas.
           </p>
         </main>
       )}

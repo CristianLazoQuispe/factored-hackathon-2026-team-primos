@@ -8,6 +8,7 @@ import { Corona, type CoronaHandle } from "@/components/corona";
 import { AgentIcon, Logo } from "@/components/logo";
 import { revealed, visible } from "@/components/spoken";
 import { type MicrophoneAccess, useRecorder } from "@/components/use-recorder";
+import { useDemoCustomers } from "@/lib/demo-customers";
 import { type Category, formatAmount, getOwnFinances } from "@/lib/profile";
 import { readSession, saveSession, useSession } from "@/lib/session";
 import type { CoronaMode } from "@/lib/quipu-corona";
@@ -49,7 +50,7 @@ type Attachment = { mediaType: string; base64: string; preview: string };
 function loginFailure(status: number): string {
   if (status === 423) return "Cuenta bloqueada. Espera 15 minutos.";
   if (status === 429) return "Demasiados intentos. Espera un minuto.";
-  return "Correo o contraseña incorrectos.";
+  return "ID o contraseña incorrectos.";
 }
 
 const MICROPHONE: Record<MicrophoneAccess, { label: string; color: string }> = {
@@ -167,7 +168,8 @@ function SpendingChart({ categories }: { categories: Category[] }) {
 export default function Chat() {
   const session = useSession(); // shared with Mis finanzas
   const customerId = session?.customer ?? "";
-  const [email, setEmail] = useState("");
+  const [user, setUser] = useState("");
+  const demoCustomers = useDemoCustomers();
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [threadId, setThreadId] = useState(newThread);
@@ -198,7 +200,7 @@ export default function Chat() {
     if (messages.length) end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, pending, preparing, transcribing]);
 
-  // The token was issued for this email and password. Renew it the same way when it is about to expire.
+  // The token was issued for this ID and password. Renew it the same way when it is about to expire.
   const authHeader = useCallback(async (renew: boolean): Promise<Record<string, string>> => {
     const current = readSession();
     if (!current) return {};
@@ -212,7 +214,7 @@ export default function Chat() {
     const response = await fetch(`${API_URL}/api/auth/token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: current.email, password: secret.current }),
+      body: JSON.stringify({ user: current.user, password: secret.current }),
     });
     if (!response.ok) {
       throw new Error(loginFailure(response.status));
@@ -228,7 +230,7 @@ export default function Chat() {
     const response = await fetch(`${API_URL}/api/auth/token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: email.trim(), password }),
+      body: JSON.stringify({ user: user.trim(), password }),
     });
     if (!response.ok) {
       setLoginError(loginFailure(response.status));
@@ -238,7 +240,7 @@ export default function Chat() {
     secret.current = password;
     saveSession({
       customer: data.customer_id,
-      email: email.trim(),
+      user: user.trim(),
       token: data.access_token,
       expiresAt: Date.now() + data.expires_in * 1000,
     });
@@ -402,7 +404,7 @@ export default function Chat() {
   // while it reads.
   async function submit(text: string, heard?: string, image?: Attachment | null) {
     if (!readSession()) {
-      setLoginError("Entra con tu correo y contraseña.");
+      setLoginError("Entra con tu ID y contraseña.");
       return;
     }
     setMessages((prev) => [...prev, { role: "customer", text, image: image?.preview }]);
@@ -410,7 +412,7 @@ export default function Chat() {
     try {
       let response = await post(text, false, image);
       if (response.status === 401 && readSession()) response = await post(text, true, image); // session expired: sign in again once
-      if (response.status === 401) throw new Error("Entra con tu correo y contraseña.");
+      if (response.status === 401) throw new Error("Entra con tu ID y contraseña.");
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data: ChatResponse = await response.json();
       const reply = data.reply;
@@ -522,7 +524,7 @@ export default function Chat() {
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
           {customerId ? (
             <>
-              <span style={{ fontSize: 13, color: "var(--q-fog)" }}>{session?.email}</span>
+              <span style={{ fontSize: 13, color: "var(--q-fog)" }}>{session?.user}</span>
               <button type="button" className="q-btn q-btn-sm q-btn-ghost" onClick={signOut}>
                 Salir
               </button>
@@ -531,15 +533,22 @@ export default function Chat() {
             <form onSubmit={signIn} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
               <input
                 className="field"
-                type="email"
+                type="text"
                 autoComplete="username"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="Correo"
-                aria-label="Correo"
+                list="demo-customers"
+                spellCheck={false}
+                value={user}
+                onChange={(event) => setUser(event.target.value)}
+                placeholder="ID de cliente"
+                aria-label="ID de cliente"
                 required
-                style={{ width: 220 }}
+                style={{ width: 200 }}
               />
+              <datalist id="demo-customers">
+                {demoCustomers.map((c) => (
+                  <option key={c.customer_id} value={c.customer_id} label={`${c.first_name} · ${c.country} · ${c.segment}`} />
+                ))}
+              </datalist>
               <input
                 className="field"
                 type="password"
@@ -547,6 +556,7 @@ export default function Chat() {
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 placeholder="Contraseña"
+                title="En la demostración, la contraseña es el mismo ID"
                 aria-label="Contraseña"
                 required
                 style={{ width: 140 }}
@@ -630,7 +640,7 @@ export default function Chat() {
             }}
           >
             <span style={{ alignSelf: "center", fontFamily: "var(--q-mono)", fontSize: 12, color: "var(--q-muted)" }}>
-              {customerId ? "sesión iniciada · datos sintéticos" : "entra con tu correo para empezar · datos sintéticos"}
+              {customerId ? "sesión iniciada · datos sintéticos" : "entra con tu ID para empezar · datos sintéticos"}
             </span>
 
             {!started && customerId && (
@@ -778,7 +788,7 @@ export default function Chat() {
                 id="q-input"
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
-                placeholder={customerId ? "Pregunta por tu saldo, un cargo o una queja…" : "Entra con tu correo para preguntar"}
+                placeholder={customerId ? "Pregunta por tu saldo, un cargo o una queja…" : "Entra con tu ID para preguntar"}
                 disabled={!customerId}
                 autoComplete="off"
                 style={{ flex: "1 1 auto", minWidth: 0, minHeight: 44, border: "none", background: "transparent", font: "inherit", fontSize: 15, color: "var(--q-mist)", outline: "none" }}
