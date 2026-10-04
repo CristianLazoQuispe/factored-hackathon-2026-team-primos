@@ -36,7 +36,7 @@ No keys needed: it runs on Ollama (`qwen3.5:4b`) and a committed data sample.
 | `/consola/perfil` | A customer's 360 profile | Sample (`web/lib/profile.ts`) |
 | `/consola/gerencia` | Management dashboard | Sample (`web/lib/ops.ts`) |
 
-The sample pages show the idea with fixed figures until the API serves them. In `/chat`, the **Cliente** field lists the customers in `DEMO_CUSTOMER_IDS` (`.env`); choosing one logs you in (the UI asks `POST /api/auth/token` for a short-lived bearer token). The agent handles **balances**, **charges you don't recognize** and **questions about your own data**:
+The sample pages show the idea with fixed figures until the API serves them. In `/chat`, sign in with one of the five demo emails and its password (the UI asks `POST /api/auth/token` and keeps the short-lived bearer token). The agent handles **balances**, **charges you don't recognize** and **questions about your own data**:
 
 | Ask | What happens |
 |---|---|
@@ -51,7 +51,15 @@ The sample pages show the idea with fixed figures until the API serves them. In 
 | Empty Customer ID | The agent asks for it and validates it against the database |
 | Click the **microphone**, speak in Spanish or Portuguese, click again | faster-whisper transcribes it and the agent answers as above. With the **Silencio** button switched to **Voz**, Kokoro also reads the answer aloud |
 
-The API is `POST /api/chat {message, thread_id?}`. Outside `APP_ENV=local` it needs `Authorization: Bearer <token>` (from `POST /api/auth/token`, demo customers only) and the customer is the token's, never the body's. Locally it still accepts `customer_id` in the body, so `curl` works without a token. Swagger: http://localhost:8080/docs.
+The API is `POST /api/chat {message, thread_id?}`. Outside `APP_ENV=local` it needs `Authorization: Bearer <token>`. `POST /api/auth/token` takes `{email, password}` and the password is that same email. The customer is the token's, never the body's. Locally `curl` can still send `customer_id` in the body without a token. Swagger: http://localhost:8080/docs.
+
+| Email (also the password) | Customer |
+|---|---|
+| `demo-mx-duplicate@demo.bank` | Lucía, duplicate Uber charge |
+| `demo-mx-fx@demo.bank` | Mariana, a purchase in dollars |
+| `demo-co-pending@demo.bank` | Andrés, a charge still pending |
+| `demo-br-portuguese@demo.bank` | Ana, the same question in Portuguese |
+| `demo-ar-fraud@demo.bank` | Martina, charges that look like fraud |
 
 ### If something fails
 

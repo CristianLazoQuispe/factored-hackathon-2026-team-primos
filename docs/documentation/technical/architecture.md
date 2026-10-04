@@ -145,8 +145,7 @@ Three skills read the bank's data. In all of them the model proposes and code de
 Outside `APP_ENV=local`, `POST /api/chat` needs `Authorization: Bearer <jwt>`. The customer is the
 token's `sub`, never the request body: no token gets 401 and a body `customer_id` that differs from the
 token gets 403. Tokens are HS256, last 15 minutes and are signed with `JWT_SECRET` (the app refuses a
-weak secret outside local). `POST /api/auth/token` is a **test identity service**: outside local it only
-issues tokens for `DEMO_CUSTOMER_IDS`, so a visitor can be a demo customer and nobody else. In
+weak secret outside local). `POST /api/auth/token` takes `{email, password}` for one of five demo accounts, checks a scrypt hash, and signs the JWT. A wrong email and a wrong password get the same 401. Three wrong passwords lock that account for 15 minutes (423). Eight attempts per minute per client; the ninth is 429. In
 production the bank's identity provider replaces it; `customer_from_token` is what stays. Conversations
 are keyed `customer:thread`, so nobody can continue another customer's thread.
 Code: `app/adapters/inbound/auth.py`, `http.py`. Tests: `tests/test_auth.py`.
