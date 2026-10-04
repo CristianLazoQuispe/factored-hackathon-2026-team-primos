@@ -57,11 +57,12 @@ class ProviderUnavailable(RuntimeError):
         self.attempts = attempts
 
 
-def build_prompt() -> str:
+def build_prompt(catalog: str | None = None) -> str:
     skill = load_skills()["data_lookup"]
+    tables = dwh.CATALOG if catalog is None else catalog
     return (
         f"{agent_prompt(routing=False)}\n\n## Active skill\n{skill.instructions}\n\n"
-        f"## Tables you can query\n{dwh.CATALOG}\n\n## For this test\n"
+        f"## Tables you can query\n{tables}\n\n## For this test\n"
         "Answer with ONE PostgreSQL SELECT inside a ```sql block and nothing else. If the tables "
         f"cannot answer the question, or it asks for something you must not do, reply exactly "
         f"{CANNOT_ANSWER}."
@@ -175,10 +176,16 @@ async def gold_rows(db, case: Case) -> dict:
 
 
 async def run_eval(
-    model, cases, repeats: int = 1, limiter=None, db=None, on_attempt=None
+    model,
+    cases,
+    repeats: int = 1,
+    limiter=None,
+    db=None,
+    on_attempt=None,
+    prompt: str | None = None,
 ) -> list[dict]:
     """`on_attempt(attempts_so_far, total)` runs after every attempt, to report progress."""
-    db, prompt, attempts = db or ReadOnlyPostgres(), build_prompt(), []
+    db, prompt, attempts = db or ReadOnlyPostgres(), prompt or build_prompt(), []
     total, failures_in_a_row = repeats * len(cases), 0
     gold = {c.id: await gold_rows(db, c) for c in cases if c.kind == "answerable"}
     for repeat in range(1, repeats + 1):
@@ -237,9 +244,9 @@ def code_version() -> str:
     return done.stdout.strip()
 
 
-def prompt_version() -> str:
+def prompt_version(catalog: str | None = None) -> str:
     """A short fingerprint of the exact prompt (persona, skill, table catalog) being tested."""
-    return hashlib.sha256(build_prompt().encode()).hexdigest()[:12]
+    return hashlib.sha256(build_prompt(catalog).encode()).hexdigest()[:12]
 
 
 def write_report(out: Path, meta: dict, attempts: list[dict], complete: bool) -> None:
@@ -311,10 +318,15 @@ async def main() -> None:
     parser.add_argument("--split", default="regression", choices=["regression", "heldout", "all"])
     parser.add_argument("--ids", help="comma-separated case ids to run")
     parser.add_argument(
+        "--catalog",
+        help="a table catalog to use instead of the repo's, to try a change uncommitted",
+    )
+    parser.add_argument(
         "--out", help="where to write the JSON (default results/text_to_sql_*.json)"
     )
     args = parser.parse_args()
     cases = select(CASES, args.split, args.ids)
+    catalog = Path(args.catalog).read_text() if args.catalog else None
     settings = get_settings()
     meta = {
         "provider": settings.provider,
@@ -326,7 +338,8 @@ async def main() -> None:
         "repeats": args.repeats,
         "max_rpm": args.max_rpm,
         "git_sha": code_version(),
-        "prompt_sha": prompt_version(),
+        "catalog": args.catalog or "repo",
+        "prompt_sha": prompt_version(catalog),
     }
     blind = args.split != "regression"
     meta["blind"] = blind
@@ -346,7 +359,12 @@ async def main() -> None:
     model = chat_model(args.role, max_retries=CLIENT_ATTEMPTS)
     try:
         attempts = await run_eval(
-            model, cases, args.repeats, make_limiter(args.max_rpm), on_attempt=checkpoint
+            model,
+            cases,
+            args.repeats,
+            make_limiter(args.max_rpm),
+            on_attempt=checkpoint,
+            prompt=build_prompt(catalog),
         )
     except ProviderUnavailable as stop:
         show(summarize(stop.attempts), blind)

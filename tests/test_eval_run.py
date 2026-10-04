@@ -189,7 +189,7 @@ async def test_the_held_out_split_runs_only_the_held_out_cases(demo_data, monkey
 def test_the_prompt_fingerprint_changes_with_the_prompt(monkeypatch):
     first = harness.prompt_version()
     assert first == harness.prompt_version()
-    monkeypatch.setattr(harness, "build_prompt", lambda: "another prompt")
+    monkeypatch.setattr(harness, "build_prompt", lambda catalog=None: "another prompt")
     assert harness.prompt_version() != first
 
 
@@ -463,4 +463,52 @@ async def test_rescoring_a_held_out_report_says_how_many_changed_not_which(demo_
     assert rescore.changes(saved, again, blind=True) == []
     assert all(
         a["id"] in line for a, line in zip(saved[:2], rescore.changes(stale, again), strict=True)
+    )
+
+
+# ---- trying a catalog without committing it ----
+
+
+class Recording(Fake):
+    """A model that remembers the prompt it was given."""
+
+    def __init__(self):
+        super().__init__(lambda question: "CANNOT_ANSWER")
+        self.prompts = []
+
+    async def ainvoke(self, messages):
+        self.prompts.append(messages[0].content)
+        return await super().ainvoke(messages)
+
+
+def test_a_catalog_given_to_the_prompt_replaces_the_repos():
+    prompt = harness.build_prompt("MY OWN CATALOG")
+    assert "MY OWN CATALOG" in prompt and harness.dwh.CATALOG not in prompt
+    assert harness.dwh.CATALOG in harness.build_prompt()
+
+
+def test_the_prompt_fingerprint_follows_the_catalog():
+    assert harness.prompt_version("one") != harness.prompt_version("two")
+    assert harness.prompt_version() == harness.prompt_version(None)
+
+
+async def test_the_command_runs_with_another_catalog_and_says_which(monkeypatch, tmp_path):
+    model = Recording()
+    monkeypatch.setattr(harness, "chat_model", lambda role, **kwargs: model)
+    catalog = tmp_path / "catalog.md"
+    catalog.write_text("A CATALOG TO TRY")
+    out = tmp_path / "run.json"
+    argv = ["run", "--max-rpm", "0", "--ids", "credit_score", "--out", str(out)]
+    monkeypatch.setattr(sys, "argv", [*argv, "--catalog", str(catalog)])
+    await harness.main()
+    report = json.loads(out.read_text())
+    assert "A CATALOG TO TRY" in model.prompts[0]
+    assert report["meta"]["catalog"] == str(catalog)
+    assert report["meta"]["prompt_sha"] == harness.prompt_version("A CATALOG TO TRY")
+    monkeypatch.setattr(sys, "argv", argv)
+    await harness.main()
+    again = json.loads(out.read_text())
+    assert (
+        again["meta"]["catalog"] == "repo"
+        and again["meta"]["prompt_sha"] != report["meta"]["prompt_sha"]
     )
