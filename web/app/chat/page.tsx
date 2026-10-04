@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 
 import { AppHeader } from "@/components/app-header";
@@ -20,6 +20,7 @@ import "./screen.css";
 type Message = {
   role: "customer" | "assistant" | "operator";
   text: string;
+  image?: string; // data URL of a photo the customer attached; it stays on this screen
   skill?: string | null;
   tools?: string[];
   handoff?: boolean;
@@ -39,6 +40,10 @@ type ChatResponse = {
 };
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
+const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const MAX_IMAGE_BYTES = 4_000_000;
+
+type Attachment = { mediaType: string; base64: string; preview: string };
 
 function loginFailure(status: number): string {
   if (status === 423) return "Cuenta bloqueada. Espera 15 minutos.";
@@ -168,6 +173,7 @@ export default function Chat() {
   const [threadId, setThreadId] = useState(newThread);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
+  const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [pending, setPending] = useState(false);
   const [transcribing, setTranscribing] = useState(false); // what was just said is being written down
   const [sound, setSound] = useState(false); // Quipu's voice: off until the customer turns it on
@@ -182,6 +188,7 @@ export default function Chat() {
   const speaking = useRef(0); // counts the replies read aloud, and the times one was stopped
   const session = useRef<Session | null>(null);
   const operatorCursor = useRef(0); // how many messages of this thread were already checked
+  const fileRef = useRef<HTMLInputElement>(null);
   const corona = useRef<CoronaHandle>(null);
   const answered = useRef<ReturnType<typeof setTimeout>>(undefined);
   const end = useRef<HTMLDivElement>(null);
@@ -281,12 +288,16 @@ export default function Chat() {
     };
   }, [started, threadId, authHeader]);
 
-  async function post(text: string, renew: boolean) {
+  async function post(text: string, renew: boolean, image?: Attachment | null) {
     const auth = await authHeader(renew);
     return fetch(`${API_URL}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...auth },
-      body: JSON.stringify({ message: text, thread_id: threadId }),
+      body: JSON.stringify({
+        message: text,
+        thread_id: threadId,
+        ...(image ? { image: image.base64, image_type: image.mediaType } : {}),
+      }),
     });
   }
 
@@ -386,16 +397,16 @@ export default function Chat() {
   // One customer turn, typed or spoken (`heard`: the language Whisper heard it in). With the voice
   // on the reply is also read aloud, without making the customer wait: they can type or talk
   // while it reads.
-  async function submit(text: string, heard?: string) {
+  async function submit(text: string, heard?: string, image?: Attachment | null) {
     if (!session.current) {
       setLoginError("Entra con tu correo y contraseña.");
       return;
     }
-    setMessages((prev) => [...prev, { role: "customer", text }]);
+    setMessages((prev) => [...prev, { role: "customer", text, image: image?.preview }]);
     setPending(true);
     try {
-      let response = await post(text, false);
-      if (response.status === 401 && session.current) response = await post(text, true); // session expired: sign in again once
+      let response = await post(text, false, image);
+      if (response.status === 401 && session.current) response = await post(text, true, image); // session expired: sign in again once
       if (response.status === 401) throw new Error("Entra con tu correo y contraseña.");
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data: ChatResponse = await response.json();
@@ -429,12 +440,34 @@ export default function Chat() {
     void submit(text);
   }
 
+  function onFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!IMAGE_TYPES.includes(file.type) || file.size > MAX_IMAGE_BYTES) {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", text: "La imagen tiene que ser jpeg, png o webp, de hasta 4 MB." },
+      ]);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const preview = String(reader.result);
+      setAttachment({ mediaType: file.type, base64: preview.slice(preview.indexOf(",") + 1), preview });
+    };
+    reader.readAsDataURL(file);
+  }
+
   function send(event: FormEvent) {
     event.preventDefault();
     const text = draft.trim();
     if (!text || pending) return;
+    const image = attachment;
     setDraft("");
-    ask(text);
+    setAttachment(null);
+    hush();
+    void submit(text, undefined, image);
   }
 
   // The mic button: the first click records, the second sends what was said as a normal message.
@@ -610,6 +643,13 @@ export default function Chat() {
                     background: "var(--q-mist)", color: "var(--q-abyss)", fontSize: 15, whiteSpace: "pre-wrap",
                   }}
                 >
+                  {message.image && (
+                    <img
+                      src={message.image}
+                      alt=""
+                      style={{ display: "block", width: "100%", maxWidth: 240, borderRadius: 8, marginBottom: 8 }}
+                    />
+                  )}
                   {message.text}
                 </div>
               ) : (
@@ -693,12 +733,35 @@ export default function Chat() {
           </div>
 
           <form className="composer" onSubmit={send} style={{ padding: "16px 32px 24px", maxWidth: 780, width: "100%", boxSizing: "border-box", margin: "0 auto" }}>
+            {attachment && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                <img src={attachment.preview} alt="" style={{ height: 56, width: 56, objectFit: "cover", borderRadius: 8 }} />
+                <button type="button" className="link" onClick={() => setAttachment(null)}>
+                  Quitar
+                </button>
+              </div>
+            )}
             <div
               style={{
-                display: "flex", alignItems: "center", gap: 8, padding: "6px 6px 6px 18px", borderRadius: 16,
+                display: "flex", alignItems: "center", gap: 8, padding: "6px 6px 6px 8px", borderRadius: 16,
                 background: "rgba(11,42,51,.6)", boxShadow: "inset 0 0 0 1px rgba(230,244,241,.12)",
               }}
             >
+              <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={onFile} />
+              <button
+                type="button"
+                aria-label="Adjuntar imagen"
+                disabled={!customerId || pending}
+                onClick={() => fileRef.current?.click()}
+                style={{
+                  flex: "0 0 auto", width: 44, height: 44, border: "none", borderRadius: 12, cursor: "pointer",
+                  background: "transparent", color: "var(--q-mist)",
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                </svg>
+              </button>
               <label htmlFor="q-input" className="q-sr-only">
                 Escribe tu consulta
               </label>
