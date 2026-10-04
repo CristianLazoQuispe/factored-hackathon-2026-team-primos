@@ -28,7 +28,7 @@ async def search_transactions(
 ) -> list[dict]:
     """Find the authenticated customer's own charges, newest first (at most 20).
 
-    days counts back from the customer's latest transaction. merchant is a case-insensitive
+    days counts back from the dataset's last day. merchant is a case-insensitive
     substring ("uber"). min_amount / max_amount bound the charge amount in its own currency.
     """
     return await warehouse.search(session_customer(ctx), days, merchant, min_amount, max_amount)
@@ -47,7 +47,7 @@ async def investigate_charges(
     each: twin (duplicate) charge, pending or reversed status, foreign purchase. Read-only.
 
     Set merchant whenever the customer names a store or service (merchant="uber"). days counts
-    back from the customer's latest transaction. `findings` lists each verified fact once.
+    back from the dataset's last day. `findings` lists each verified fact once.
     A charge whose check could not run is counted in `not_checked` or listed in its `unavailable`:
     that is unknown, never "no".
     """

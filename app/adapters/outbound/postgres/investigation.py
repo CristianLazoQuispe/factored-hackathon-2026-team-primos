@@ -2,7 +2,7 @@
 
 Every statement filters by `customer_id` inside the query, so a transaction id that belongs to
 someone else returns nothing. The dataset is static (it ends in June 2026), so "the last N days"
-is counted back from the customer's most recent transaction, not from today.
+is counted back from the dataset's last transaction (the same day for everyone), not from today.
 
 Known limits, on purpose:
 - Duplicates need an equal `merchant_name`; a NULL merchant never matches.
@@ -51,9 +51,8 @@ SEARCH = """
     SELECT transaction_id, transaction_date, amount, currency, merchant_name, transaction_status
     FROM core.transactions
     WHERE customer_id = %(customer_id)s
-      AND transaction_date >= (
-            SELECT max(transaction_date) FROM core.transactions WHERE customer_id = %(customer_id)s
-          ) - make_interval(days => %(days)s)
+      AND transaction_date >= (SELECT max(transaction_date) FROM core.transactions)
+          - make_interval(days => %(days)s)
       AND (%(merchant)s::text IS NULL
            OR position(lower(%(merchant)s) IN lower(coalesce(merchant_name, ''))) > 0)
       AND (%(min_amount)s::numeric IS NULL OR amount >= %(min_amount)s)

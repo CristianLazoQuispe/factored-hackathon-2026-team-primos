@@ -10,6 +10,8 @@ Rules:
 - Foreign key to customers: rows whose customer does not exist are dropped and counted.
   Other FKs (agents, branches, products) are only counted: they are known synthetic orphans
   and do not block the agent.
+- History window: transactions and digital events keep the last `HISTORY_DAYS` (365) before the
+  dataset's last transaction. The same load whatever part of the source was downloaded.
 - Country names: the source mixes "Mexico" and "México"; silver normalizes to the customer
   spelling ("México").
 - Category: `transaction_category` is the one taxonomy. Where it is empty it takes the row's
@@ -45,6 +47,10 @@ PRIMARY_KEYS = {
     "daily_exchange_rates": None,  # composite key, deduplicated on all key columns below
 }
 FX_KEY = ("date", "source_currency", "target_currency")
+# The large fact tables keep only the last HISTORY_DAYS before the dataset's last transaction, so
+# what reaches Postgres is set here and not by how much of the source happens to be on disk.
+HISTORY_DAYS = 365
+WINDOWED = {"transactions": "transaction_date", "digital_events": "event_date"}
 CUSTOMER_FK_TABLES = [
     "products",
     "transactions",
@@ -131,6 +137,16 @@ def main() -> None:
         raw_rows = con.execute(f"SELECT count(*) FROM raw_{table}").fetchone()[0]
         rows = con.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
         report[table] = {"input_rows": raw_rows, "dropped_duplicates": raw_rows - rows}
+
+    if "transactions" in tables:
+        start = con.execute(
+            f"SELECT max(transaction_date) - INTERVAL {HISTORY_DAYS} DAY FROM transactions"
+        ).fetchone()[0]
+        report["history_window"] = {"days": HISTORY_DAYS, "start": str(start)}
+        for table, column in WINDOWED.items():
+            if table in tables:
+                old = con.execute(f"DELETE FROM {table} WHERE {column} < '{start}'").fetchone()
+                report[table]["dropped_outside_window"] = old[0]
 
     if "transactions" in tables:
         con.execute(
