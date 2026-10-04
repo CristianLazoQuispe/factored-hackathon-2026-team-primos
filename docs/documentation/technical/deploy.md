@@ -105,7 +105,7 @@ gh variable set DEMO_CUSTOMER_IDS  --repo $R --body "DEMO-MX-DUPLICATE,DEMO-CO-P
 gh variable list --repo $R
 ```
 
-`DEMO_CUSTOMER_IDS` is the list `GET /api/demo-customers` returns. Login is the five demo emails in the root README, not this list.
+`DEMO_CUSTOMER_IDS` is the list `GET /api/demo-customers` returns. Login is the eight demo emails in the root README, not this list.
 
 ## Day to day
 

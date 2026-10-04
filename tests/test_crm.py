@@ -27,7 +27,7 @@ def agent(monkeypatch):
     """Replace the agent: records the turns it gets and hands off when asked for a person."""
     turns = []
 
-    async def fake_reply(message, thread_key, customer_id):
+    async def fake_reply(message, thread_key, customer_id, image=None):
         turns.append(message)
         handoff = {"customer_id": customer_id, "request": message} if "persona" in message else None
         return {

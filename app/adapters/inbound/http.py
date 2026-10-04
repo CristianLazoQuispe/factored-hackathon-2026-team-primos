@@ -2,6 +2,7 @@
 Telegram webhook. The web is a separate service."""
 
 import asyncio
+import base64
 import logging
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -64,10 +65,31 @@ app.add_middleware(
 )
 
 
+IMAGE_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
+MAX_IMAGE_BYTES = 4_000_000  # decoded; a phone photo of a statement fits, a base64 dump does not
+
+
 class ChatRequest(BaseModel):
     message: str
+    image: str | None = None  # base64, no data-url prefix; kept for this turn only
+    image_type: str | None = None  # image/jpeg, image/png or image/webp
     customer_id: str | None = None  # optional: the token decides; only local may use this alone
     thread_id: str | None = None  # one per conversation; a new one is created when missing
+
+
+def attached_image(image: str | None, image_type: str | None) -> tuple[str, str] | None:
+    """The photo on this turn, or None. Both fields together, a known type, and at most 4 MB."""
+    if image is None and image_type is None:
+        return None
+    if not image or image_type not in IMAGE_TYPES:
+        raise HTTPException(400, "La imagen tiene que ser jpeg, png o webp.")
+    try:
+        raw = base64.b64decode(image, validate=True)
+    except ValueError:
+        raise HTTPException(400, "La imagen no se pudo leer.") from None
+    if len(raw) > MAX_IMAGE_BYTES:
+        raise HTTPException(400, "La imagen pasa de 4 MB.")
+    return image, image_type
 
 
 class ChatResponse(BaseModel):
@@ -123,7 +145,7 @@ class TokenResponse(BaseModel):
 
 @app.post("/api/auth/token")
 def demo_token(body: TokenRequest, request: Request) -> TokenResponse:
-    """Demo login: one of five emails plus its password, then the same short-lived bearer token.
+    """Demo login: one of eight emails plus its password, then the same short-lived bearer token.
 
     A wrong email and a wrong password get the same 401. Three wrong passwords lock that account
     for 15 minutes (423), even with the right password afterwards. Eight attempts per minute per
@@ -180,9 +202,11 @@ async def chat(
     request: ChatRequest, token_customer_id: Annotated[str | None, Depends(token_customer)]
 ) -> ChatResponse:
     customer_id = resolve_customer(token_customer_id, request.customer_id)
+    picture = attached_image(request.image, request.image_type)
     thread_id = request.thread_id or uuid4().hex
     key = thread_key(customer_id, thread_id)
     conversation = conversations.setdefault(key, Conversation(key, customer_id))
+    # The photo stays on this turn. The conversation mirror only keeps the text.
     conversation.add("customer", request.message)
     if conversation.status != "bot":  # a person has this chat: the agent stays out of it
         return ChatResponse(
@@ -193,7 +217,7 @@ async def chat(
             tools_used=[],
             handoff=None,
         )
-    result = await reply(request.message, key, customer_id)
+    result = await reply(request.message, key, customer_id, image=picture)
     conversation.customer_id = result["customer_id"]
     conversation.add("assistant", result["reply"])
     if result["handoff"]:

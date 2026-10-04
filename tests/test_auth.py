@@ -1,5 +1,6 @@
 """Bearer-token authentication: the token, the endpoints that use it, and what must be refused."""
 
+import base64
 from datetime import UTC, datetime, timedelta
 
 import jwt
@@ -36,8 +37,8 @@ def seen(monkeypatch):
     """Replace the agent: records what the API passes to it."""
     calls = []
 
-    async def fake_reply(message, thread_key, customer_id):
-        calls.append({"thread": thread_key, "customer": customer_id})
+    async def fake_reply(message, thread_key, customer_id, image=None):
+        calls.append({"thread": thread_key, "customer": customer_id, "image": image})
         return {
             "reply": "ok",
             "customer_id": customer_id,
@@ -230,6 +231,51 @@ def test_locally_chat_still_works_without_a_token_using_the_body(monkeypatch, se
     with TestClient(http.app) as client:
         response = client.post("/api/chat", json={"message": "hola", "customer_id": "DEMO-MX-FX"})
     assert response.status_code == 200 and seen[0]["customer"] == "DEMO-MX-FX"
+
+
+@pytest.mark.parametrize(
+    ("email", "customer"),
+    [
+        ("demo-co-ambiguous@demo.bank", "DEMO-CO-AMBIGUOUS"),
+        ("demo-mx-own-purchase@demo.bank", "DEMO-MX-OWN-PURCHASE"),
+        ("demo-ar-reversed@demo.bank", "DEMO-AR-REVERSED"),
+    ],
+)
+def test_the_other_demo_cases_can_sign_in(cloud, email, customer):
+    with TestClient(http.app) as client:
+        ok = client.post("/api/auth/token", json={"email": email, "password": email})
+    assert ok.status_code == 200 and ok.json()["customer_id"] == customer
+
+
+def test_a_photo_reaches_the_agent(cloud, seen):
+    token, _ = issue_token("CLI-A")
+    png = base64.b64encode(b"\x89PNG\r\n").decode()
+    with TestClient(http.app) as client:
+        ok = client.post(
+            "/api/chat",
+            json={"message": "no reconozco", "image": png, "image_type": "image/png"},
+            headers=bearer(token),
+        )
+    assert ok.status_code == 200 and seen[0]["image"] == (png, "image/png")
+
+
+def test_a_photo_of_the_wrong_type_or_over_4mb_is_refused(cloud, seen):
+    token, _ = issue_token("CLI-A")
+    png = base64.b64encode(b"\x89PNG\r\n").decode()
+    huge = base64.b64encode(b"x" * 4_000_001).decode()
+    with TestClient(http.app) as client:
+        kind = client.post(
+            "/api/chat",
+            json={"message": "no reconozco", "image": png, "image_type": "image/gif"},
+            headers=bearer(token),
+        )
+        size = client.post(
+            "/api/chat",
+            json={"message": "no reconozco", "image": huge, "image_type": "image/png"},
+            headers=bearer(token),
+        )
+    assert kind.status_code == 400 and size.status_code == 400
+    assert seen == []
 
 
 # ---- the web is another origin: its browser must be allowed to send the token ----

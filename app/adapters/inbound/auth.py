@@ -4,7 +4,7 @@ Every protected request carries `Authorization: Bearer <jwt>`. The customer is t
 it never comes from the request body or from the model. Tokens are short-lived (a session that
 expires is one of the failure cases the challenge asks to test).
 
-`POST /api/auth/token` checks one of five demo emails and its password, then signs that JWT.
+`POST /api/auth/token` checks one of eight demo emails and its password, then signs that JWT.
 In production the bank's identity provider replaces the check; `customer_from_token` is what stays.
 """
 
@@ -27,7 +27,7 @@ AUDIENCE = "factored-api"
 bearer = HTTPBearer(auto_error=False, description="Token from POST /api/auth/token")
 
 # Demo login: the password is the email itself. Hashed at import; the check compares digests.
-# Salt is the email. The five addresses are listed in the README. Not a column in the database.
+# Salt is the email. The eight addresses are listed in the README. Not a column in the database.
 _SCRYPT = {"n": 2**14, "r": 8, "p": 1, "dklen": 32}
 _DEMO_CUSTOMERS = {
     "demo-mx-duplicate@demo.bank": "DEMO-MX-DUPLICATE",
@@ -35,6 +35,9 @@ _DEMO_CUSTOMERS = {
     "demo-co-pending@demo.bank": "DEMO-CO-PENDING",
     "demo-br-portuguese@demo.bank": "DEMO-BR-PORTUGUESE",
     "demo-ar-fraud@demo.bank": "DEMO-AR-FRAUD",
+    "demo-co-ambiguous@demo.bank": "DEMO-CO-AMBIGUOUS",
+    "demo-mx-own-purchase@demo.bank": "DEMO-MX-OWN-PURCHASE",
+    "demo-ar-reversed@demo.bank": "DEMO-AR-REVERSED",
 }
 _DUMMY_SALT = b"factored-demo-dummy"
 
@@ -53,7 +56,7 @@ LOGIN_LIMIT = 8  # attempts kept per origin inside the window; the next one is r
 LOGIN_WINDOW_S = 60
 ACCOUNT_FAILURES = 3  # wrong passwords for one email; the third locks that account
 ACCOUNT_LOCK_S = 15 * 60
-# N ≤ a handful of origins × 8 timestamps, and 5 demo emails.
+# N ≤ a handful of origins × 8 timestamps, and 8 demo emails.
 # Origin → times in the last minute. Email → (failures, lock expiry); expiry 0 means not locked.
 _login_attempts: dict[str, list[float]] = {}
 _account_failures: dict[str, tuple[int, float]] = {}
@@ -85,7 +88,7 @@ def account_locked(email: str) -> bool:
 def register_failure(email: str) -> bool:
     """Count a wrong password for a demo account. True when this attempt locks it.
 
-    An email that is not one of the five is ignored, so unknown addresses cannot fill the dict.
+    An email that is not one of the eight is ignored, so unknown addresses cannot fill the dict.
     """
     key = email.strip().lower()
     if key not in _LOGINS:

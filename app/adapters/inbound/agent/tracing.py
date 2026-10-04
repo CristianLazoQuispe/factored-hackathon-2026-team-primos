@@ -36,12 +36,22 @@ def _mask_text(text: str) -> str:
     return LONG_NUMBER.sub(lambda m: "****" + re.sub(r"\D", "", m.group())[-4:], text)
 
 
+def _is_image(value: dict) -> bool:
+    """A chat photo. The pixels can show a card number, and the base64 is large: neither leaves."""
+    if value.get("type") in {"image_url", "image"}:
+        return True
+    url = value.get("url")
+    return isinstance(url, str) and url.startswith("data:image")
+
+
 def _mask_value(value: Any) -> Any:
     if isinstance(value, str):
         return _mask_text(value)
     if isinstance(value, list):
         return [_mask_value(item) for item in value]
     if isinstance(value, dict):
+        if _is_image(value):
+            return "<image>"
         return {
             key: REDACTED if key in PRIVATE_FIELDS and item is not None else _mask_value(item)
             for key, item in value.items()
