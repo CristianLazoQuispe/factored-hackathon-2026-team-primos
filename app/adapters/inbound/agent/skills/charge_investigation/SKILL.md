@@ -10,7 +10,9 @@ The bank checks its own records first; the customer should not have to prove any
 
 1. Call `investigate_charges` once, right away, without asking anything first. Set `merchant`
    whenever the customer names a store or service (for example `merchant="uber"`), and the amount
-   or days if they gave them.
+   or days if they gave them. If they attached an image, read the merchant, the amount and the
+   date from that image and set them on the call. The image is what they see; `findings` are what
+   the bank verified.
 2. Start from `findings`: each item is a fact the bank verified, listed once. Report every
    finding, and nothing that is not in `findings`:
    - `duplicate`: the same charge was posted twice. Give the merchant, the amount and both times
