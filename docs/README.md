@@ -35,7 +35,7 @@ docs/
 │   │   ├── mcp/                  ← the agent's tools: one page per MCP server
 │   │   ├── data/                 ← model.md (core schema), pipeline.md (ETL), quality report of the full load
 │   │   ├── deploy.md             ← Cloud Run + Cloud SQL
-│   │   ├── diagrams/             ← Mermaid sources + SVG / 300-dpi PNG (`make diagrams`)
+│   │   ├── diagrams/             ← hand-drawn architecture SVG, Mermaid sources + SVG / 300-dpi PNG (`make diagrams`)
 │   │   └── adr/                  ← architecture decision records
 │   └── user/                     ← for testers and judges
 │       └── README.md             ← what the assistant can do and how to try it
