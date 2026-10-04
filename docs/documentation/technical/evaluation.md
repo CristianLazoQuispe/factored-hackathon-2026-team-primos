@@ -85,6 +85,7 @@ The account needs `roles/aiplatform.user`. Without the three variables it uses t
 | `--split` | `regression` (default), `heldout` (report once) or `all` |
 | `--ids a,b` | Only these cases |
 | `--max-rpm` | Model calls per minute, default 20: the provider refuses bursts |
+| `--catalog FILE` | Use this table catalog instead of the repo's, to try a change without committing it. The report records which one |
 | `--out` | Where to write the report (default `results/text_to_sql_*.json`, ignored by git) |
 
 It prints a line per attempt, rewrites the report after each one (a run cut short leaves a valid report
@@ -165,7 +166,11 @@ switch.
 ## Changing the agent and proving it did not get worse
 
 1. Run `run --repeats 3` before the change and keep the report.
-2. Make the change (a prompt rule, a catalog line, a model).
+2. Make the change (a prompt rule, a catalog line, a model). A catalog change can be tried without
+   committing it: write it to a file and run with `--catalog`. `python -m evals.text_to_sql.variants`
+   builds the old catalog (the control) and one variant per rule, so a change is tested one rule at a
+   time. Run the control again too, on the same day: the model can behave differently from one day to
+   the next, and the baseline was measured on another one.
 3. Run it again with the same flags, and compare per case, not only the total: the cases that flip
    show what the change did, and a better total can hide a case that got worse.
 
