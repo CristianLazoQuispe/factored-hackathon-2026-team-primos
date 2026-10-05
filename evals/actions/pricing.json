@@ -1,0 +1,7 @@
+{
+  "model": "gemini-2.5-flash",
+  "input_per_million_usd": null,
+  "output_per_million_usd": null,
+  "source": "Fill both prices from the provider's current price list, and the date you read it. Left empty, the report gives tokens and no cost: a price nobody checked would be an invention.",
+  "checked_on": null
+}
