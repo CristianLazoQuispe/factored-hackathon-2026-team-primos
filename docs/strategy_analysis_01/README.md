@@ -20,6 +20,8 @@
 | 09 | [Adversarial direction](09_adversarial_direction.md) | Red-team/evals market; earned-autonomy certificate | Became the proof layer |
 | **10** | **[Proposal](10_proposal.md)** | **RASTRO after the stakeholder, Delivery Lead, and judge debate** | **Current** |
 | 11 | [Data model](11_data_model.md) | Postgres schema, mini-set, demo fixtures, tool → table map | Implemented (`make up`) |
+| 12 | [Full data findings](12_full_data_findings.md) | What the full dataset holds and what is usable | Reference |
+| 13 | [Transactions and campaigns](13_transactions_campaigns_findings.md) | EDA 02 findings, pitch KPIs, slide charts, proposals (khipear, declined payments) | Proposals open |
 
 ## Next step
 
