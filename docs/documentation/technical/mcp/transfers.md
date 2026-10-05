@@ -58,4 +58,15 @@ Body: `{"transfer_id": "<uuid>"}`. The customer is the one the bearer token prov
 
 Both the tools and the routes write to `ops.decision_log` (`propose_transfer` with `needs_confirmation` when it proposes, `confirm_transfer`, `cancel_transfer`).
 
+### The receipt by email
+
+When the button executes a transfer, the customer gets its receipt by email (`app/adapters/inbound/confirmation_mail.py`).
+It is a courtesy after the fact and is **not part of the transfer**:
+
+- It is a background task of the response. The answer to Confirmar is the one it always was, and it does not wait for the mail server.
+- It runs after the transaction has closed, opens none and moves nothing. If it fails (no address on file, the mail server, a bug), the transfer, its audit and its answer are what they were; the failure is a line in the log.
+- It exists only where the actions do (`ACTIONS_ENABLED=true`), because it uses their mail: the outbox, the closed list of demo inboxes and `MAIL_MODE`.
+- It goes **once**. The id of the transfer is the key of the message in `ops.outbox` (`action_id`): pressing Confirmar twice, or two requests at the same moment, send one message (a lock of the database per message makes the second wait and find it accepted). A message that failed is sent again the next time it is asked for.
+- It says what the bank executed and nothing else: the figures of the receipt, the origin and destination as the customer knows them (another customer is a first name and an initial, never a surname), the time in UTC, a reference that is a piece of the id, and the line for someone who does not recognise the operation. It is in the language the customer prefers (`core.customers.preferred_language`).
+
 Tests: `tests/test_transfers.py` (rules, proposal and tools with a fake ledger), `tests/test_khipu_flow.py` (the question and its answer through the graph, the routes) and `tests/test_transfers_sql.py` (the real demo data; customers `DEMO-MX-KHIPU` and `DEMO-MX-RECIBE`).

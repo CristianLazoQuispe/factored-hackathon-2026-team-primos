@@ -22,6 +22,8 @@ from fastapi import (
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import AliasChoices, BaseModel, Field
+from starlette.background import BackgroundTask
+from starlette.responses import JSONResponse
 from telegram import Update
 
 from app.adapters.inbound.agent import reply
@@ -36,6 +38,7 @@ from app.adapters.inbound.auth import (
     register_failure,
     token_customer,
 )
+from app.adapters.inbound.confirmation_mail import email_the_receipt
 from app.adapters.inbound.conversations import Conversation, conversations
 from app.adapters.inbound.finances_schema import OwnFinances
 from app.adapters.inbound.mcp import transfers as khipu
@@ -331,6 +334,11 @@ async def khipu_confirm(
     )
     if result["status"] == "not_found":
         raise HTTPException(404, "unknown_transfer")
+    if executed and result.get("receipt"):
+        # The money has moved and this is the answer. The receipt goes by e-mail afterwards,
+        # in the background: it cannot delay the answer or change it.
+        task = BackgroundTask(email_the_receipt, customer, result["receipt"])
+        return JSONResponse(result, background=task)
     return result
 
 
