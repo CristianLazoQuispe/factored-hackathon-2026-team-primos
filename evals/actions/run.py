@@ -49,7 +49,8 @@ log = logging.getLogger(__name__)
 HERE = Path(__file__).parent
 TRANSIENT = re.compile(r"\b(429|503)\b|RESOURCE_EXHAUSTED|UNAVAILABLE|timed? ?out", re.IGNORECASE)
 MAX_ATTEMPTS = 4  # one try and three retries of a busy provider
-DEFAULT_MAX_RPM = 20
+DEFAULT_MAX_RPM = 12  # Vertex answers 429 well below its nominal limit when the quota is shared
+WAIT_AFTER_REFUSAL_S = 20  # a quota window is a minute long: 2 or 4 seconds would not help
 CLIENT_ATTEMPTS = 1  # this runner is the only retry layer, so every request is counted and paced
 MAX_CONSECUTIVE_PROVIDER_ERRORS = 5
 EXPIRY = timedelta(minutes=11)  # past the 10 minutes a confirmation lasts
@@ -237,7 +238,9 @@ async def run_eval(cases: list[Case], repeats: int = 1, on_attempt=None) -> list
                 record = await attempt(case, repeat)
                 if not record["provider_error"] or tries == MAX_ATTEMPTS:
                     break
-                await asyncio.sleep(2**tries)  # a busy provider: wait, then the same scenario again
+                await asyncio.sleep(
+                    WAIT_AFTER_REFUSAL_S * tries
+                )  # a busy provider: wait, then again
             done.append(record)
             if on_attempt:
                 on_attempt(done, total)
@@ -245,6 +248,13 @@ async def run_eval(cases: list[Case], repeats: int = 1, on_attempt=None) -> list
             if failures_in_a_row >= MAX_CONSECUTIVE_PROVIDER_ERRORS:
                 raise ProviderUnavailable(done)
     return done
+
+
+def verdict_word(record: dict[str, Any]) -> str:
+    """One word for the progress line. A refused call is not a wrong answer."""
+    if record["provider_error"]:
+        return "PROVIDER"
+    return "ok" if record["correct"] else "WRONG"
 
 
 def select(cases: list[Case], split: str, ids: str | None) -> list[Case]:
@@ -325,6 +335,21 @@ def export_gemini_credentials(settings) -> None:
         raise SystemExit("GOOGLE_GENAI_USE_VERTEXAI=true needs GOOGLE_CLOUD_PROJECT in .env.")
 
 
+def route_logs_to_file(path: Path) -> None:
+    """Everything the libraries log (tracebacks of a refused call, schema warnings, tool errors) goes
+    to a file next to the report, and the terminal keeps only the progress. Every logger that already
+    prints on its own (the MCP server does) is sent to the file too."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(path, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    for name in list(logging.root.manager.loggerDict):
+        found = logging.getLogger(name)
+        found.handlers.clear()
+        found.propagate = True
+    logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
+    logging.captureWarnings(True)
+
+
 def configure(actions: bool) -> None:
     """Turn actions on or off for this run, and forget what depended on the setting."""
     import os
@@ -378,6 +403,8 @@ async def main() -> None:
         args.out
         or f"results/actions_{'baseline' if args.baseline else 'actions'}_{datetime.now():%Y%m%d_%H%M%S}.json"
     )
+    route_logs_to_file(out.with_suffix(".log"))
+    print(f"Report: {out}\nLog:    {out.with_suffix('.log')}  (tracebacks and warnings go there)")
     model = llm.chat_model(args.role, max_retries=CLIENT_ATTEMPTS)
     if args.max_rpm > 0 and settings.provider != "ollama":
         try:
@@ -392,7 +419,7 @@ async def main() -> None:
         print(
             f"[{len(done)}/{total}]"
             if meta["blind"]
-            else f"[{len(done)}/{total}] {done[-1]['id']:<12} {'ok' if done[-1]['correct'] else 'WRONG'}",
+            else f"[{len(done)}/{total}] {done[-1]['id']:<12} {verdict_word(done[-1])}",
             flush=True,
         )
         write_report(out, meta, done, complete=False)
@@ -413,7 +440,14 @@ async def main() -> None:
     if args.against:
         before = json.loads(Path(args.against).read_text())["summary"]
         print("\nSame cases, side by side:\n" + "\n".join(report.compare(before, summary)))
-    print(f"\nReport: {out}")
+    errors = summary["provider_errors"]
+    if errors:
+        print(
+            f"\n{errors} scenario(s) could not be measured: the provider kept refusing them (quota). "
+            "They are not counted as wrong. Try GOOGLE_CLOUD_LOCATION=global, a lower --max-rpm, "
+            "or run again later."
+        )
+    print(f"\nReport: {out}\nLog:    {out.with_suffix('.log')}")
 
 
 if __name__ == "__main__":

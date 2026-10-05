@@ -106,7 +106,13 @@ uv run python -m evals.actions.run --split heldout --repeats 3 --against results
 
 - A **blind** run (held-out) prints only totals. The report keeps every reply for audit. Do not open it
   to tune a prompt: those scenarios would stop being held-out.
-- `--ids resolve-01,refuse-04` runs some scenarios. `--max-rpm` paces the model (default 20 a minute).
+- `--ids resolve-01,refuse-04` runs some scenarios. `--max-rpm` paces the model (default 12 a minute: Vertex
+  answers 429 well below its nominal limit when the quota is shared; `GOOGLE_CLOUD_LOCATION=global`
+  helps).
+- **Logs.** Everything the libraries log (the traceback of a refused call, schema warnings, tool errors)
+  goes to a `.log` file next to the report, and the terminal keeps only the progress. A scenario the
+  provider refused shows `PROVIDER`, not `WRONG`, and after a refusal the run waits 20 s, then 40 s,
+  before trying that scenario again.
 - The report is rewritten after every scenario, so a run that stops leaves a valid, marked-incomplete
   file. A provider that refuses five scenarios in a row stops the run.
 - **Cost.** `evals/actions/pricing.json` holds the price per million tokens. It is empty on purpose: fill

@@ -523,3 +523,73 @@ def test_a_local_model_needs_no_credentials(bare_environment):
         Settings(_env_file=None, llm_provider="ollama", google_api_key="ignored")
     )
     assert not any(name in os.environ for name in NAMES)
+
+
+# ---------------------------------------------------------------- the log, and a provider that says no
+
+
+@pytest.fixture
+def untouched_logging():
+    """The run reroutes every logger; put them back so no other test is affected."""
+    import logging
+
+    saved = {
+        n: (lg.handlers[:], lg.propagate)
+        for n, lg in logging.root.manager.loggerDict.items()
+        if isinstance(lg, logging.Logger)
+    }
+    root = (logging.root.handlers[:], logging.root.level)
+    yield
+    for name, (handlers, propagate) in saved.items():
+        lg = logging.getLogger(name)
+        lg.handlers, lg.propagate = handlers, propagate
+    logging.root.handlers, logging.root.level = root
+    logging.captureWarnings(False)
+
+
+def test_what_the_libraries_log_goes_to_a_file_and_not_to_the_terminal(
+    tmp_path, capsys, untouched_logging
+):
+    import logging
+
+    noisy = logging.getLogger("noisy.library")
+    noisy.addHandler(
+        logging.StreamHandler()
+    )  # a logger that prints on its own, as the MCP server does
+    path = tmp_path / "sub" / "run.log"
+    run.route_logs_to_file(path)
+    noisy.warning("schema key not supported")
+    try:
+        raise RuntimeError("429 RESOURCE_EXHAUSTED")
+    except RuntimeError:
+        logging.getLogger("app.agent").exception("agent turn failed")
+    for handler in logging.root.handlers:
+        handler.flush()
+    text = path.read_text()
+    assert (
+        "schema key not supported" in text
+        and "agent turn failed" in text
+        and "429 RESOURCE_EXHAUSTED" in text
+    )
+    assert "Traceback" in text, "the traceback is kept, in the file"
+    seen = capsys.readouterr()
+    assert seen.out == "" and seen.err == "", "the terminal stays quiet"
+
+
+def test_a_refused_call_is_called_provider_and_never_wrong():
+    assert run.verdict_word({"provider_error": True, "correct": False}) == "PROVIDER"
+    assert run.verdict_word({"provider_error": False, "correct": False}) == "WRONG"
+    assert run.verdict_word({"provider_error": False, "correct": True}) == "ok"
+
+
+async def test_after_a_refusal_it_waits_long_enough_for_a_quota_window(monkeypatch, ctx):
+    waits = []
+
+    async def record(seconds):
+        waits.append(seconds)
+
+    monkeypatch.setattr(run.asyncio, "sleep", record)
+    model_says(monkeypatch, go(), block(ctx), AIMessage("Revisa abajo."), fail_first=2)
+    done = await run.run_eval([case("resolve-01")], repeats=1)
+    assert done[0]["correct"] and waits == [run.WAIT_AFTER_REFUSAL_S, run.WAIT_AFTER_REFUSAL_S * 2]
+    assert run.WAIT_AFTER_REFUSAL_S >= 15, "a quota window is a minute: seconds would not help"
