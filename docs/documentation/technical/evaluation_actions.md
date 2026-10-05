@@ -180,12 +180,82 @@ before these changes. **Two scenarios' expectations were changed, after the thir
 | Agent | In 4 of 86 runs the model looked up the cards and wrote "review and confirm below" without proposing; the guard replaced it with "I could not prepare that action", even for "block my card", and also replaced a true "your card is already blocked" | The turn gets one more chance with a note saying what is missing (see [actions.md](actions.md)); if it still does not propose, the guard answers as before |
 | Guard | A reply with a question at the end ("...¿Algo más?") passed the guard even if it claimed to have done something, pointed to a card that was not there, or promised to move money | A claim, a pointer or a promise is not excused by a trailing question (see [actions.md](actions.md)); a true statement or an offer in a question is still shown |
 | Scenarios `policy-03`, `policy-07` | A card the bank had blocked. Over four runs they failed 3 and 2 times, taking turns, depending on whether the model proposed the block (and the policy recorded `already_blocked`) or answered from the card's data ("your card is already blocked"). Both tell the customer the truth and run nothing | The scenario accepts either: the recorded reason, or a reply that says the card is blocked. The other conditions (nothing runs, no hand-over, nothing claimed) are unchanged. `inject-03` and `inject-04` were **not** changed: they fail on purpose, see below |
+| After the held-out run: patterns | "posso transferir você para um **de nossos** agentes" was flagged as a promise to move money | The hand-over pattern accepts "one of our agents". The published held-out numbers were not re-scored; the two flags are explained under Results |
 | Tool | Gemini often sent `params` as text and the first call of a turn failed | See [actions.md](actions.md): the tool reads the text; the run then showed no tool failures |
 
 ## Results
 
-No results yet. This page is completed with the first reports of the held-out run, the baseline and the
-rules-only router, with the files they came from. Nothing above this line is a result.
+The held-out scenarios were run once, blind, on the agent with actions and on the same code with actions
+off: 22 scenarios x 3 repeats = 66 attempts each, `gemini-2.5-flash` on Vertex AI, commit `9968b9e`,
+5 October 2026. The reports are in [evaluation_results/](evaluation_results/). Nothing in the agent, the
+scenarios or the scoring was changed after seeing them.
+
+| Measure (66 attempts each) | Without actions | With actions |
+|---|---|---|
+| Correct end state | 27% (18/66) | **100% (66/66)** |
+| Safe automated resolution | 0% (0/18) | **100% (18/18)** |
+| Escalation: needed a person / handed over correctly | 18 / 8 | 18 / **18** |
+| Escalation: missed / unnecessary | 10 / 12 | **0 / 0** |
+| Containment (no transfer) | 70% (46/66) | 73% (48/66) |
+| Unsafe outcomes, flagged automatically | 2 | 0 |
+| Unsafe outcomes, confirmed after reading them | **0** | **0** |
+| Same verdict on all 3 repeats | 19 of 22 scenarios | 22 of 22 |
+| Latency p50 / p95 | 2.1 s / 6.6 s | 5.8 s / 12.3 s |
+| Model calls per scenario | 1.4 | 2.9 |
+| Tokens per scenario (in / out) | 1,408 / 230 | 5,110 / 418 |
+| Cost per attempt (0.30 / 2.50 USD per million tokens in / out) | 0.0010 USD | 0.0026 USD |
+| Cost per safe resolution | not defined (none) | 0.0095 USD |
+| Provider errors | 0 | 0 |
+
+By language: without actions Spanish 14/45 and Portuguese 4/21; with actions 45/45 and 21/21. By
+segment, with actions: Basic 15/15, Plus 24/24, Premium 9/9, Student 18/18 (without: 2/15, 5/24, 6/9,
+5/18). The router, with actions: the model chose the right skill in 45 of 45 attempts that name one, the
+deterministic rules alone in 33 of 45 (73%). Without actions the router is judged on 3 attempts only,
+because the skill does not exist there, so that row is not comparable.
+
+### What this does and does not say
+
+- **It does not say the agent is perfect.** The held-out set is 22 distinct scenarios, of which 6 expect
+  the system to act alone. The 3 repeats are not independent samples (all 22 behaved the same each time).
+  With 22 of 22 the 95% interval for the true rate is about 85% to 100%; for the 6 that expect automation
+  it is about 61% to 100%. For unsafe outcomes, "none seen" means the true rate could still be around 14%
+  at the scenario level.
+- **The same system scored 91% on the 43 regression scenarios** (last run: 39 of 43, 10 of 11 safe
+  resolutions, 0 unsafe), which were studied while tuning. The four that failed there (`inject-03` and
+  `inject-04`, which a refund word sends whole to a person, and `policy-03` and `policy-07`, a card the
+  bank had blocked) are weak spots the rule that split the sets happened to leave out of the held-out
+  set. So the held-out result shows that these 22 are handled, not that the regression set was
+  unrepresentative. A fair statement is "about nine in ten, with the failures known and safe".
+- **The second chance matters.** In 9 of the 66 attempts with actions the model looked up the cards and
+  then wrote "review and confirm below", or said it could not act, without proposing anything. The turn
+  was told what was missing and proposed on all 9. Without it, those attempts would have ended in "I could
+  not prepare that action", as 4 of 86 regression runs did before it existed. It costs one more model call
+  in those attempts.
+- **Containment is at its ceiling.** 18 of the 66 attempts needed a person, so no system can contain more
+  than 73%; the agent with actions handed over exactly those and no others, and the baseline handed over
+  12 that did not need it and missed 10 that did.
+- **The baseline does not lie.** It never claimed to have done anything. It says it cannot, or it hands
+  over. What it cannot do is resolve: 0 of 18.
+- **Cost and time of acting.** About 3.6 times the input tokens, 2.6 times the cost per attempt and 2.8
+  times the median latency of answering without acting. At the list price that is about a quarter of a
+  cent per conversation.
+
+### The two automatic flags, and a change made after
+
+Both flags are in the baseline (`inject-05` and `declined-02`, in Portuguese): "posso transferir você para
+um de nossos agentes". That offers to hand the customer to a person, not to move money, so they were
+counted as 0 confirmed. The pattern did not recognise "one of our agents". It was widened afterwards
+(`app/domain/claims.py`, with tests for both sides); **the published numbers above are the ones the
+detector gave then, plus this reading**, and were not re-scored.
+
+### How it was run
+
+`--baseline --split heldout --repeats 3` and `--split heldout --repeats 3 --against <that report>`, with
+the model paced at 12 calls a minute. The run with actions saw 20 quota refusals (`RESOURCE_EXHAUSTED`)
+and 11 turns that failed because of them; all were retried and none was lost. The first launch of the run
+with actions was cut after 30 seconds, with one scenario saved, and was discarded; no result from it was
+used. The prices are list prices read on third-party trackers that agree with each other, not on Google's
+own page.
 
 ## Files
 
