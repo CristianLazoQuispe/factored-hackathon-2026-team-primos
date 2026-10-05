@@ -153,8 +153,9 @@ Look at the line `chat memory: N earlier conversation(s) told to the agent` in t
 | `0 earlier conversation(s)` | There was nothing to tell: the previous chat is hidden, was never kept, or belongs to another customer | `SELECT customer_id, title, hidden_at FROM ops.conversations` |
 | `1` or more | The agent had it and did not use it | `MEMORY_RULES` in `graph.py`, and the wording of the question |
 
-`bash validate_chat_memory.sh` runs this against a local API, with the real agent, and its step 6 fails when the answer
-does not quote what was asked before (the word "saldo" is not enough: the generic greeting says "consultas sobre tus saldos").
+`bash evals/chat_memory/validate.sh` runs this against a local API, with the real agent. It starts by hiding the two demo
+customers' old conversations (nothing is deleted), and its step 6 fails when the answer does not quote what was asked in the first
+chat: neither the word "saldo" (the generic greeting says "consultas sobre tus saldos") nor an echo of the question is enough.
 
 ## Tests
 
@@ -166,4 +167,5 @@ does not quote what was asked before (the word "saldo" is not enough: the generi
 | `tests/test_chat_memory_api.py` | The routes and the chat, with a fake store | nothing |
 | `tests/test_chat_memory_sql.py` | The store against Postgres | Postgres with the migration |
 | `tests/test_chat_memory_e2e.py` | The routes and the real store together | Postgres with the migration |
+| `tests/test_chat_memory_validate_script.py` | The validation script is valid bash for a Mac, refuses a remote API, and cannot be fooled by an agent that repeats the question | nothing |
 | `web/tests/history.test.mjs` | The history components, the panel, the hook that wires them to the session (`useHistory`) and the API client (`bash web/tests/run.sh`) | `npm ci` in `web/`; not run by the CI |
