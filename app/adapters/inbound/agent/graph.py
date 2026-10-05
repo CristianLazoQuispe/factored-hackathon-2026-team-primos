@@ -55,6 +55,13 @@ NEEDS_SIGN_IN = (
     "Para hacer cambios en tu cuenta necesito que entres con tu sesión en la web o en la app. / "
     "Para fazer alterações na sua conta, entre na sua sessão pelo site ou pelo app."
 )
+NUDGE = (
+    "System note: you did not call propose_actions, so nothing is proposed and nothing can be "
+    "confirmed. If the customer asked you to do something, call propose_actions now with the card "
+    "or charge you found; the bank's rules decide whether it can be done, and that includes a card "
+    "that is already blocked. If you cannot tell which card or charge they mean, ask ONE short "
+    "question."
+)
 UNPROPOSED = (
     "No pude preparar esa acción. Dime con otras palabras qué necesitas, o te paso con una "
     "persona. / Não consegui preparar essa ação. Diga com outras palavras o que precisa, ou passo "
@@ -199,6 +206,18 @@ async def refuse(state: State, config: RunnableConfig) -> dict:
     }
 
 
+def ended_without_proposal(skill, new: list) -> bool:
+    """A skill that can change things ended its turn with no proposal, no question and no person.
+    What the model wrote then ("review and confirm below", "your card is blocked") is not backed by
+    anything the bank's system did."""
+    if not skill.needs_sign_in or proposed_actions(new):
+        return False
+    if any(isinstance(m, ToolMessage) and m.name == "request_human" for m in new):
+        return False
+    text = new[-1].text if new else ""
+    return "?" not in text and "¿" not in text
+
+
 async def skill_agent(state: State, config: RunnableConfig) -> dict:
     skill = load_skills()[state["skill"]]
     if skill.needs_sign_in and not state.get("signed_in"):
@@ -211,9 +230,18 @@ async def skill_agent(state: State, config: RunnableConfig) -> dict:
             tools,
             system_prompt=f"{agent_prompt(routing=False)}\n\n## Active skill\n{skill.instructions}",
         )
-        result = await agent.ainvoke(
-            {"messages": state["messages"]}, config | {"recursion_limit": MAX_SKILL_STEPS}
-        )
+        limits = config | {"recursion_limit": MAX_SKILL_STEPS}
+        result = await agent.ainvoke({"messages": state["messages"]}, limits)
+        new = result["messages"][len(state["messages"]) :]
+        if ended_without_proposal(skill, new):  # one more chance, told exactly what is missing
+            log.warning(
+                "%s ended without a proposal; asking once more: %r",
+                skill.name,
+                new[-1].text[:120] if new else "",
+            )
+            result = await agent.ainvoke(
+                {"messages": [*result["messages"], HumanMessage(NUDGE)]}, limits
+            )
     new = result["messages"][len(state["messages"]) :]
     tools_used = [m.name for m in new if isinstance(m, ToolMessage)]
     actions = proposed_actions(new)
@@ -221,9 +249,7 @@ async def skill_agent(state: State, config: RunnableConfig) -> dict:
     if "request_human" in tools_used or (actions and actions.get("escalate")):
         return {"route": "handoff", **update}  # the policy sent part of it to a person
     text = new[-1].text.strip() if new else ""
-    if skill.needs_sign_in and not actions and "?" not in text and "¿" not in text:
-        # A skill that can change things ended with no proposal, no question and no person. What
-        # the model said ("review and confirm below") would be about something that does not exist.
+    if ended_without_proposal(skill, new):  # still nothing after the second chance
         log.warning("%s ended without a proposal; not repeating %r", skill.name, text[:120])
         text = UNPROPOSED
     return {"route": "end", **update, "messages": [AIMessage(text or NO_ANSWER)]}

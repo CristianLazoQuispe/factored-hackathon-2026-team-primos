@@ -1,6 +1,7 @@
 """The agent with actions on: a scripted model, the real graph and MCP servers, the faked bank."""
 
 import uuid
+from dataclasses import replace
 
 import pytest
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
@@ -320,14 +321,16 @@ async def test_a_question_about_the_same_things_still_reaches_the_model(w: World
 
 
 async def test_the_model_cannot_promise_a_proposal_that_does_not_exist(w: World, monkeypatch):
-    say(
+    model = say(
         AIMessage("", tool_calls=[call("use_skill", name="account_actions")]),
         AIMessage("Puedes revisar y confirmar la acción abajo."),  # it called nothing
+        AIMessage("Revisa la propuesta de abajo."),  # asked once more, it still called nothing
         monkeypatch=monkeypatch,
     )
     result = await talk("necesito mi tarjeta bloqueada ya")
     assert result["reply"] == graph.UNPROPOSED and result["actions"] is None
     assert w.store.rows == {}
+    assert len(model.seen) == 3, "the router, the skill, and exactly one more chance"
 
 
 async def test_a_question_is_not_a_promise(w: World, monkeypatch):
@@ -345,6 +348,7 @@ async def test_a_proposal_that_failed_is_not_reported_as_made(w: World, monkeypa
         AIMessage("", tool_calls=[call("use_skill", name="account_actions")]),
         AIMessage("", tool_calls=[broken]),
         AIMessage("Para bloquear tu tarjeta, revisa la propuesta y confirma abajo."),
+        AIMessage("Ya está lista la propuesta, confírmala abajo."),  # the second chance, no better
         monkeypatch=monkeypatch,
     )
     result = await talk("necesito mi tarjeta bloqueada ya")
@@ -392,3 +396,74 @@ def test_the_prompts_send_a_request_that_also_mentions_a_charge_to_the_skill_tha
     assert (
         "Do not say what you cannot do" in skills.load_skills()["charge_investigation"].instructions
     )
+
+
+# ------------------------------------------------ a second chance when the proposal is skipped
+
+ROUTE = AIMessage("", tool_calls=[call("use_skill", name="account_actions")])
+SKIPPED = AIMessage("Puedes revisar y confirmar la acción de bloquear tu tarjeta.")  # no proposal
+
+
+async def test_a_skipped_proposal_gets_one_more_chance(w: World, monkeypatch):
+    model = say(
+        ROUTE,
+        SKIPPED,
+        AIMessage("", tool_calls=[PROPOSE_BLOCK]),  # told what was missing, it proposes
+        AIMessage("Revisa abajo."),
+        monkeypatch=monkeypatch,
+    )
+    result = await talk("necesito mi tarjeta bloqueada ya")
+    assert result["actions"]["items"][0]["status"] == "awaiting_confirmation"
+    assert result["reply"] == "Revisa abajo." and result["handoff"] is None
+    told = any(graph.NUDGE in str(m.content) for m in model.seen[-1])
+    assert told, "the model was told what was missing"
+    assert len(w.store.rows) == 1
+
+
+async def test_the_note_is_not_kept_in_the_conversation(w: World, monkeypatch):
+    propose = AIMessage("", tool_calls=[PROPOSE_BLOCK])
+    say(ROUTE, SKIPPED, propose, AIMessage("Revisa abajo."), monkeypatch=monkeypatch)
+    thread = uuid.uuid4().hex
+    await talk("bloquea mi tarjeta", thread=thread)
+    model = say(ROUTE, monkeypatch=monkeypatch)
+    await talk("gracias", thread=thread)
+    seen = [str(m.content) for m in model.seen[0]]
+    assert all(graph.NUDGE not in text for text in seen), "the next turn never sees the note"
+
+
+async def test_a_question_needs_no_second_chance(w: World, monkeypatch):
+    ask = AIMessage("¿Cuál de tus dos tarjetas quieres bloquear?")
+    model = say(ROUTE, ask, monkeypatch=monkeypatch)
+    result = await talk("necesito mi tarjeta bloqueada ya")
+    assert result["reply"].startswith("¿Cuál") and len(model.seen) == 2
+
+
+async def test_a_person_taking_over_needs_no_second_chance(w: World, monkeypatch):
+    only_a_person = AIMessage("", tool_calls=[call("request_human", reason="asked for a person")])
+    model = say(
+        ROUTE, only_a_person, AIMessage("Te paso con una persona."), monkeypatch=monkeypatch
+    )
+    result = await talk("necesito ayuda con mi tarjeta")
+    assert result["handoff"] is not None and result["actions"] is None
+    assert len(model.seen) == 3, "no one more chance: a person already has it"
+
+
+async def test_a_skill_that_changes_nothing_is_never_pushed_to_propose(w: World, monkeypatch):
+    balance = AIMessage("", tool_calls=[call("use_skill", name="balance_inquiry")])
+    model = say(balance, AIMessage("Tu saldo es de 100 pesos."), monkeypatch=monkeypatch)
+    result = await talk("¿cuál es mi saldo?")
+    assert result["reply"] == "Tu saldo es de 100 pesos." and len(model.seen) == 2
+
+
+async def test_a_true_statement_without_a_proposal_becomes_the_banks_refusal(w: World, monkeypatch):
+    """The model says the card is already blocked, which is true, but writes it itself. Asked once
+    more it proposes, the policy refuses with its reason, and the customer reads the code's own
+    sentence."""
+    blocked = replace(w.facts.cards[("C1", "CARD-1")], status="Blocked")
+    w.facts.cards[("C1", "CARD-1")] = blocked
+    said = AIMessage("Seu cartão com final 2951 já está bloqueado.")
+    propose = AIMessage("", tool_calls=[PROPOSE_BLOCK])
+    say(ROUTE, said, propose, AIMessage("Seu cartão já está bloqueado."), monkeypatch=monkeypatch)
+    result = await talk("Quero bloquear meu cartão")
+    assert result["actions"]["items"][0]["status"] == "refused"
+    assert [r.reason for r in w.store.rows.values()] == ["already_blocked"]

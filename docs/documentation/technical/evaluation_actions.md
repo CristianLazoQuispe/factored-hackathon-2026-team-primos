@@ -176,6 +176,7 @@ changed.** Held-out scenarios were not run before these changes.
 | Latency | The run spaces its calls (12 a minute) and the wait was counted inside the scenario | The wait is measured by the pacer, taken off the seconds and reported apart |
 | Router, baseline | Without actions the skill does not exist, so the router could not choose it and scored 9% | The router is judged only on skills the system has; with none, it is "not defined" |
 | Agent | "Avísame si..." was sent to `charge_investigation`, so no alert was ever proposed | The prompt says a request to be warned later is an alert, even if it mentions a charge or a payment |
+| Agent | In 4 of 86 runs the model looked up the cards and wrote "review and confirm below" without proposing; the guard replaced it with "I could not prepare that action", even for "block my card", and also replaced a true "your card is already blocked" | The turn gets one more chance with a note saying what is missing (see [actions.md](actions.md)); if it still does not propose, the guard answers as before |
 | Tool | Gemini often sent `params` as text and the first call of a turn failed | See [actions.md](actions.md): the tool reads the text; the run then showed no tool failures |
 
 ## Results
