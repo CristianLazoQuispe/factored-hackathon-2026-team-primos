@@ -109,7 +109,7 @@ gh variable set DEMO_CUSTOMER_IDS  --repo $R --body "DEMO-MX-DUPLICATE,DEMO-CO-P
 gh variable list --repo $R
 ```
 
-`DEMO_CUSTOMER_IDS` is the list `GET /api/demo-customers` returns and the IDs that can sign in (the password is the same ID); the eight demo emails in the root README sign in too. `DEMO-MX-KHIPU` is the customer with accounts for khipear, and it only signs in by ID.
+`DEMO_CUSTOMER_IDS` is the list `GET /api/demo-customers` returns and the IDs that can sign in (the password is the same ID); the eight demo emails in the root README sign in too. `DEMO-MX-KHIPU` is the customer with two accounts, a card and a loan for khipear, and it only signs in by ID. Add `*` to the list and the ID of any customer in the database signs in too; `GET /api/demo-customers` still returns only the IDs written in it.
 
 ## Day to day
 

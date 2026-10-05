@@ -165,7 +165,8 @@ transfer API instead.
   message and nothing is proposed. With the voice on, the web shows the same card; a spoken "sí"
   never confirms.
 - **Demo data:** two team fixtures, `DEMO-MX-KHIPU` (two accounts, a credit card and a loan) and
-  `DEMO-MX-RECIBE` (who receives), because the eight dispute scenarios have no accounts.
+  `DEMO-MX-RECIBE` (who receives), because the eight dispute scenarios had no accounts. (Changed
+  later: each of them has one savings account, enough to pay its card.)
 
 - **Next to the action gateway:** the actions of `account_actions` (block a card, open an inquiry;
   see [actions.md](../actions.md)) have their own policy, card and routes, and that policy refuses

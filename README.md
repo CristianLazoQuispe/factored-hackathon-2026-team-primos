@@ -52,7 +52,7 @@ No keys needed: it runs on Ollama (`qwen3.5:4b`) and a committed data sample.
 | `/consola/perfil` | A customer's 360 profile | Sample (`web/lib/profile.ts`) |
 | `/consola/gerencia` | Management dashboard | Sample (`web/lib/ops.ts`) |
 
-The pages marked Sample show the idea with fixed figures until the API serves them. In `/chat`, sign in with a customer ID from `DEMO_CUSTOMER_IDS` (the password is the same ID) or one of the eight demo emails below (the UI asks `POST /api/auth/token` and keeps the short-lived bearer token). The agent handles **balances**, **charges you don't recognize** and **questions about your own data**, and prepares **transfers and payments** (khipear; try it as `DEMO-MX-KHIPU`, who has two accounts, a card and a loan, with `DEMO-MX-RECIBE` to receive):
+The pages marked Sample show the idea with fixed figures until the API serves them. In `/chat`, sign in with a customer ID from `DEMO_CUSTOMER_IDS` (the password is the same ID) or one of the eight demo emails below; with `*` in that list, the ID of any customer in the database signs in too (the UI asks `POST /api/auth/token` and keeps the short-lived bearer token). The agent handles **balances**, **charges you don't recognize** and **questions about your own data**, and prepares **transfers and payments** (khipear; try it as `DEMO-MX-KHIPU`, who has two accounts, a card and a loan, with `DEMO-MX-RECIBE` to receive):
 
 | Ask | What happens |
 |---|---|
@@ -69,7 +69,7 @@ The pages marked Sample show the idea with fixed figures until the API serves th
 | No customer ID (Telegram, or `curl` locally without a token) | The agent asks for it and validates it against the database |
 | Click the **microphone**, speak in Spanish or Portuguese, click again | faster-whisper transcribes it and the agent answers as above. With the **Silencio** button switched to **Voz**, Kokoro also reads the answer aloud |
 
-The API is `POST /api/chat {message, thread_id?, image?, image_type?}`. Outside `APP_ENV=local` it needs `Authorization: Bearer <token>`. `POST /api/auth/token` takes `{user, password}`: `user` is an ID in `DEMO_CUSTOMER_IDS` or a demo email, and the password is that same text (`email` is still accepted as the field name). The customer is the token's, never the body's. Locally `curl` can still send `customer_id` in the body without a token. Swagger: http://localhost:8080/docs.
+The API is `POST /api/chat {message, thread_id?, image?, image_type?}`. Outside `APP_ENV=local` it needs `Authorization: Bearer <token>`. `POST /api/auth/token` takes `{user, password}`: `user` is an ID in `DEMO_CUSTOMER_IDS` (any customer's ID when the list has `*`) or a demo email, and the password is that same text (`email` is still accepted as the field name). The customer is the token's, never the body's. Locally `curl` can still send `customer_id` in the body without a token. Swagger: http://localhost:8080/docs.
 
 The password of each account is the email itself. The statement images are in `web/public/casos/`. In `/chat`, sign in, attach that customer's image with the clip, and write the question. The text is required: the photo alone is not sent.
 
