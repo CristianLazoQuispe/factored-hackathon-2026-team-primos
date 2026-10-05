@@ -8,7 +8,7 @@ What the agent can look up, and what it can prepare for the customer to confirm 
 | `data_lookup`: movements, spending, complaints, exchange rate | `dwh` | `get_movements`, `get_spending_summary`, `get_complaints`, `get_exchange_rate`, `describe_schema`, `run_sql` | [dwh.md](dwh.md) |
 | `charge_investigation`: a charge the customer does not recognize | `investigation` | `investigate_charges`, `investigate_charge`, `search_transactions` | [investigation.md](investigation.md) |
 | `account_actions`: the customer asks the bank to do something. Only with `ACTIONS_ENABLED`, only for a signed-in customer | `actions` | `my_cards`, `recent_charges`, `propose_actions` | [actions.md](actions.md) |
-| `money_movement`: khipear, moving the customer's money | `transfers` | `propose_transfer`, `list_transfer_options` | [transfers.md](transfers.md) |
+| `money_movement`: khipear, moving the customer's money | `transfers` | `propose_transfer`, `list_transfer_options`, `propose_service_payment`, `list_service_bills` | [transfers.md](transfers.md) |
 
 ## Which tool answers which question
 

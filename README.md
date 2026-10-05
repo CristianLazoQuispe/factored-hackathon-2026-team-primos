@@ -52,7 +52,7 @@ No keys needed: it runs on Ollama (`qwen3.5:4b`) and a committed data sample.
 | `/consola/perfil` | A customer's 360 profile | Sample (`web/lib/profile.ts`) |
 | `/consola/gerencia` | Management dashboard | Sample (`web/lib/ops.ts`) |
 
-The pages marked Sample show the idea with fixed figures until the API serves them. In `/chat`, sign in with a customer ID from `DEMO_CUSTOMER_IDS` (the password is the same ID) or one of the eight demo emails below; with `*` in that list, the ID of any customer in the database signs in too (the UI asks `POST /api/auth/token` and keeps the short-lived bearer token). The agent handles **balances**, **charges you don't recognize** and **questions about your own data**, and prepares **transfers and payments** (khipear; try it as `DEMO-MX-KHIPU`, who has two accounts, a card and a loan, with `DEMO-MX-RECIBE` to receive):
+The pages marked Sample show the idea with fixed figures until the API serves them. In `/chat`, sign in with a customer ID from `DEMO_CUSTOMER_IDS` (the password is the same ID) or one of the eight demo emails below; with `*` in that list, the ID of any customer in the database signs in too (the UI asks `POST /api/auth/token` and keeps the short-lived bearer token). The agent handles **balances**, **charges you don't recognize** and **questions about your own data**, and prepares **transfers, payments and service bills** (khipear; try it as `DEMO-MX-KHIPU`, who has two accounts, a card and a loan, with `DEMO-MX-RECIBE` to receive):
 
 | Ask | What happens |
 |---|---|

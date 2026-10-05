@@ -72,7 +72,7 @@ The options come from the tool, never from the model's memory of the conversatio
 | Domain | `app/domain/transfers.py` | Pure rules: which products can send, receive or be paid, how one is chosen, limits, the reason and response code of a block |
 | Application | `app/application/transfers.py` | `propose`, `execute`, `cancel`, `transfer_options` over a `Ledger` port |
 | Postgres | `app/adapters/outbound/postgres/transfers.py` | Reviewed SQL; `execute` is one transaction with row locks |
-| MCP | `app/adapters/inbound/mcp/transfers.py` | Tools `list_transfer_options` and `propose_transfer`; no execute tool |
+| MCP | `app/adapters/inbound/mcp/transfers.py` | Tools `list_transfer_options` and `propose_transfer`; no execute tool. (Added later: `list_service_bills` and `propose_service_payment`, which pay a bill of `core.service_bills` whole through the same card and button; see [transfers.md](../mcp/transfers.md)) |
 | Agent | `skills/money_movement/SKILL.md`, `graph.py` | The skill; `awaiting_skill` and `confirmation` in the graph state |
 | HTTP | `POST /api/khipu/confirm`, `POST /api/khipu/cancel`, `confirmation` in `ChatResponse` | The only way to execute |
 | Web | `web/components/khipu-card.tsx` | The card and its buttons |
