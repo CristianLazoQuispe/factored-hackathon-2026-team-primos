@@ -21,11 +21,17 @@ A customer-service assistant for a Latin American bank. You chat with it in **Sp
 | *¿A cuánto está el dólar?* | Gives the bank's reference exchange rate |
 | *No reconozco un cargo de Uber* | Finds the charge and checks the bank's records: charged twice, still pending, already reversed, or bought abroad |
 | Attach a photo of the charge and write *No reconozco estas transacciones* | Reads the merchant, amount and date from the photo and checks that charge. Sample photos for each demo customer are in `web/public/casos/` |
+| *Bloquea mi tarjeta* / *Preciso bloquear meu cartão* (when the deployment has actions on) | Proposes it and **waits**. A card shows exactly what will be done, with **Confirmar** and **Cancelar**. Only after you confirm does it act, and it reads the result back before saying it is done |
+| *No reconozco un cargo de Uber, abre una consulta y mándame el comprobante* | Proposes an inquiry about the charge (with its priority and the hours a person has to answer) and the receipt by email. You confirm both at once |
+| *Me robaron la tarjeta* | Proposes blocking it right away and also asks for a person |
+| *Quiero transferir 500 pesos* / *Quiero un reembolso* / *Cambia mi teléfono* | Says it does not do that on its own: it never moves money, and a refund or a change of contact data goes to a person with your case |
 | *¿Desde cuándo soy cliente?* | Shows your own data on record |
 | *Quiero hablar con una persona* | Transfers you to a human agent at once, with your case summarized |
 | Anything else (advice, other topics) | Answers briefly, says what it can help with, and offers a person |
 
 You can also **talk to it**: click the large microphone under Quipu's avatar, say your question in Spanish or Portuguese, and click again to send it. What you said appears as your message. The two buttons at the top show what is allowed on this page: **Permitir micrófono** asks the browser for the microphone before your first message, and the **Silencio** / **Voz** button makes the assistant read its answers aloud, in your language. The avatar shows what the assistant is doing: it stretches out while idle, bends while it listens and closes into a crown while it looks things up and answers. With the voice on, an answer is written on screen as it is read; **Mostrar todo** under it shows the whole text at once while the voice goes on. The voice is off every time the page loads; pressing the button again, the microphone or sending another message stops the reading and shows the rest of the text.
+
+When actions are on, **Mensajes** at the top of the chat shows what the system sent you. In the demo nothing goes to a real address: a message either stays in that tray (it says *simulado · no se envió*) or goes to a demo inbox of the team (it says *aceptado por el servidor*, never "delivered", because that cannot be checked).
 
 Under each answer, small labels show what the assistant used (for example `balance_inquiry` and `get_balances`) or that you were transferred to a person. **Mis finanzas**, next to the chat, shows a summary of your spending; for now it is a sample with fixed figures, and so is the chart that answers *¿En qué gasto más?*.
 
@@ -37,7 +43,7 @@ Under each answer, small labels show what the assistant used (for example `balan
 
 ## Current limits
 
-- **Read-only.** The assistant looks things up; it cannot pay, transfer, block a card or open a dispute. Those requests get a short answer and the offer of a person.
+- **It never moves money.** It cannot pay, transfer or refund. With actions off (the default) it is read-only: it looks things up and offers a person. With actions on it can, after you confirm, block or cancel a card, open an inquiry, ask for a call, set an alert and email you a summary; a card whose balance is owed, or that the bank itself blocked, is never cancelled by it and goes to a person.
 - **A snapshot, not live data.** The data ends on 18 June 2026, so "this month" means the last month in the data.
 - **Response time:** a few seconds with the local model (Ollama), faster with Gemini.
 - **Portuguese:** understood and answered, but the underlying dataset is Spanish-only (Mexico, Colombia, Argentina).

@@ -5,16 +5,20 @@ becomes a StructuredTool, so LangChain callbacks (Langfuse) trace every call.
 """
 
 import json
+import logging
 
 from fastmcp import Client, FastMCP
 from langchain_core.tools import StructuredTool
 
 from app.adapters.inbound.mcp.accounts import mcp as accounts
+from app.adapters.inbound.mcp.actions import mcp as actions
 from app.adapters.inbound.mcp.dwh import mcp as dwh
 from app.adapters.inbound.mcp.investigation import mcp as investigation
 
+log = logging.getLogger(__name__)
 SERVERS: dict[str, FastMCP] = {
     "accounts": accounts,
+    "actions": actions,
     "investigation": investigation,
     "dwh": dwh,
 }
@@ -24,13 +28,22 @@ def client_for(server: str) -> Client:
     return Client(SERVERS[server])
 
 
-async def load_tools(client: Client, customer_id: str) -> list[StructuredTool]:
+async def load_tools(
+    client: Client, customer_id: str, session: dict[str, str] | None = None
+) -> list[StructuredTool]:
+    """`session` is more of what the code knows about this conversation (see `session_meta`)."""
+
     def make(name: str):
         async def call(**arguments) -> str:
             result = await client.call_tool(
-                name, arguments, meta={"customer_id": customer_id}, raise_on_error=False
+                name,
+                arguments,
+                meta={**(session or {}), "customer_id": customer_id},
+                raise_on_error=False,
             )
             if result.is_error:
+                # The model sees the error and may fix its call; this keeps it for whoever debugs.
+                log.warning("tool %s failed: %s", name, result.content[0].text[:300])
                 return f"Tool error: {result.content[0].text}"
             return json.dumps(result.structured_content or result.data, ensure_ascii=False)
 
