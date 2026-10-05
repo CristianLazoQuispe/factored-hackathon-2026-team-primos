@@ -8,10 +8,14 @@
   when the customer asks for a person. Mandatory escalations live here.
 - router: sees only the skill catalog; off-scope questions get a short answer in one LLM call.
 - skill_agent: loads SKILL.md, lists the skill's MCP tools and loops (LangChain create_agent).
+  When a tool answers "needs_clarification" the skill asks the customer, and their next message
+  comes back to the same skill (`awaiting_skill`). A `confirmation` in a tool result leaves the
+  turn as data for the customer's screen: the model never confirms anything.
 - handoff: deterministic case file for a human; the agent can request it, never skip it.
 Every LLM call, skill choice and tool call is a LangChain run, so Langfuse traces all of it.
 """
 
+import json
 import logging
 import re
 from typing import Literal
@@ -55,12 +59,22 @@ HANDOFF = (
 )
 
 
+NOTHING_PREPARED = (
+    "Todavía no hay ningún movimiento preparado, así que no hay nada que confirmar. Dime cuánto "
+    "quieres mover, desde qué cuenta y a dónde. / Ainda não há nenhuma movimentação preparada. "
+    "Diga quanto quer mover, de qual conta e para onde."
+)
+SPEAKS_OF_CONFIRMING = re.compile(r"confirm", re.IGNORECASE)
+
+
 class State(MessagesState):
     customer_id: str | None
     route: str
     skill: str | None
     tools_used: list[str]
     case_file: dict | None
+    awaiting_skill: str | None  # the skill that asked the customer something last turn
+    confirmation: dict | None  # an action waiting for the customer's button, this turn only
 
 
 @tool
@@ -81,7 +95,7 @@ def last_customer_text(state: State) -> str:
 
 async def guard(state: State) -> dict:
     text = last_customer_text(state)
-    turn = {"skill": None, "tools_used": [], "case_file": None}
+    turn = {"skill": None, "tools_used": [], "case_file": None, "confirmation": None}
     if ASKS_FOR_HUMAN.search(text):
         return turn | {"route": "handoff"}
     if state.get("customer_id"):
@@ -94,6 +108,15 @@ async def guard(state: State) -> dict:
 
 
 async def router(state: State) -> dict:
+    awaiting = state.get("awaiting_skill")
+    if awaiting in load_skills() and guess_skill(last_customer_text(state)) in (None, awaiting):
+        # The answer to a question a skill asked ("la que termina en 5474") names no intent of
+        # its own: it goes back to that skill, unless the customer clearly moved on.
+        return {"route": "skill_agent", "skill": awaiting}
+    return await route(state) | {"awaiting_skill": None}
+
+
+async def route(state: State) -> dict:
     system = f"{agent_prompt()}\n\n## Skills\n{catalog()}"
     model = chat_model("fast").bind_tools([use_skill, request_human])
     response = await model.ainvoke([SystemMessage(system), *state["messages"]])
@@ -116,8 +139,12 @@ async def router(state: State) -> dict:
 
 async def skill_agent(state: State, config: RunnableConfig) -> dict:
     skill = load_skills()[state["skill"]]
+    # After a question the answer may be "la primera": only then is the model trusted to map it.
+    said = None
+    if not state.get("awaiting_skill"):
+        said = " ".join(m.text for m in state["messages"] if isinstance(m, HumanMessage))
     async with client_for(skill.mcp) as client:
-        tools = [*await load_tools(client, state["customer_id"]), request_human]
+        tools = [*await load_tools(client, state["customer_id"], said), request_human]
         agent = create_agent(
             chat_model("fast"),
             tools,
@@ -128,10 +155,34 @@ async def skill_agent(state: State, config: RunnableConfig) -> dict:
         )
     new = result["messages"][len(state["messages"]) :]
     tools_used = [m.name for m in new if isinstance(m, ToolMessage)]
+    outcome = last_outcome(new)
+    turn = {
+        "tools_used": tools_used,
+        "awaiting_skill": skill.name if outcome.get("status") == "needs_clarification" else None,
+        "confirmation": outcome.get("confirmation"),
+    }
     if "request_human" in tools_used:
-        return {"route": "handoff", "tools_used": tools_used}
+        return turn | {"route": "handoff"}
     text = new[-1].text.strip() if new else ""
-    return {"route": "end", "tools_used": tools_used, "messages": [AIMessage(text or NO_ANSWER)]}
+    if skill.mcp == "transfers" and not outcome and SPEAKS_OF_CONFIRMING.search(text):
+        # The model talks about confirming but never proposed anything: there is no card on the
+        # customer's screen, so its words would send them looking for a button that is not there.
+        text = NOTHING_PREPARED
+    return turn | {"route": "end", "messages": [AIMessage(text or NO_ANSWER)]}
+
+
+def last_outcome(messages: list) -> dict:
+    """The result of the last tool call that said where the request stands (`status`). It is read
+    from the tool's own result, never from what the model wrote."""
+    for message in reversed(messages):
+        if isinstance(message, ToolMessage):
+            try:
+                result = json.loads(message.text)
+            except ValueError:  # "Tool error: ..." or a plain string
+                continue
+            if isinstance(result, dict) and "status" in result:
+                return result
+    return {}
 
 
 def handoff(state: State) -> dict:
@@ -202,6 +253,7 @@ async def reply(
             "skill": None,
             "tools_used": [],
             "handoff": case_file,
+            "confirmation": None,
         }
     return {
         "reply": state["messages"][-1].text,
@@ -209,4 +261,5 @@ async def reply(
         "skill": state.get("skill"),
         "tools_used": state.get("tools_used", []),
         "handoff": state.get("case_file"),
+        "confirmation": state.get("confirmation"),
     }

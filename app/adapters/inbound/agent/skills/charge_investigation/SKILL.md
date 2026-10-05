@@ -17,7 +17,7 @@ The bank checks its own records first; the customer should not have to prove any
    finding, and nothing that is not in `findings`:
    - `duplicate`: the same charge was posted twice. Give the merchant, the amount and both times
      (`at`), and `seconds_apart` exactly as given (seconds, never minutes). It is one finding for
-     the pair: do not count it twice. Do not promise a refund: you cannot move money.
+     the pair: do not count it twice. Do not promise a refund: you cannot return money.
    - `pending`: the charge is not final yet and may still disappear.
    - `reversed`: it was already reversed.
    - `foreign_purchase`: it was bought abroad; give the reference rate only if it is present.

@@ -10,6 +10,19 @@ import re
 
 _RULES = (
     (
+        "money_movement",
+        re.compile(
+            r"\bkhip[eé]\w*|\bquip[eé]a\w*|\btransf(i[eé]r|erir|ira)\w*"
+            r"|transfer[eê]ncia (de|para)"
+            r"|\b(env[ií]a(r|le|me)?|manda(r|le)?) .{0,20}"
+            r"\b(pesos|d[oó]lares|reais|mxn|cop|ars|usd|\d)"
+            r"|(?<!que )\b(pagar?|paga|pague|abonar?|abona) .{0,25}(tarjeta|cart[aã]o|pr[eé]stamo"
+            r"|empr[eé]stimo|cr[eé]dito|deuda|d[ií]vida)"
+            r"|p[aá]sa(r|me)? .{0,25}\b(a|para) (mi|minha|meu) (cuenta|conta|ahorro|corriente)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
         "charge_investigation",
         re.compile(
             r"no reconozco|n[aã]o reconhe[cç]o"
@@ -34,7 +47,8 @@ _RULES = (
         re.compile(
             r"cu[aá]nto (he |ha )?(gast|pagu|compr)"
             r"|cu[aá]nt[oa]s? (quejas|reclamos|compras|transacciones|movimientos|veces)"
-            r"|(mis|meus|minhas) (quejas|reclamos|compras|gastos|movimientos|reclama[cç][oõ]es)"
+            r"|(mis|meus|minhas) (quejas|reclamos|compras|gastos|movimientos|transferencias"
+            r"|reclama[cç][oõ]es)"
             r"|[uú]ltim[oa]s (movimientos|compras|transacciones|transa[cç][oõ]es)"
             r"|en qu[eé] gasto|tipo de cambio|taxa de c[aâ]mbio|a cu[aá]nto est[aá] el d[oó]lar"
             r"|quanto (eu )?gastei|quantas? (reclama|compras|transa)",
