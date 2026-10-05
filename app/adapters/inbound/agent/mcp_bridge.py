@@ -14,6 +14,7 @@ from app.adapters.inbound.mcp.accounts import mcp as accounts
 from app.adapters.inbound.mcp.actions import mcp as actions
 from app.adapters.inbound.mcp.dwh import mcp as dwh
 from app.adapters.inbound.mcp.investigation import mcp as investigation
+from app.adapters.inbound.mcp.transfers import mcp as transfers
 
 log = logging.getLogger(__name__)
 SERVERS: dict[str, FastMCP] = {
@@ -21,6 +22,7 @@ SERVERS: dict[str, FastMCP] = {
     "actions": actions,
     "investigation": investigation,
     "dwh": dwh,
+    "transfers": transfers,
 }
 
 

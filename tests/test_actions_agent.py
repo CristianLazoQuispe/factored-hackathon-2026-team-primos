@@ -273,27 +273,19 @@ async def test_what_one_turn_proposed_does_not_follow_the_next_turn(w: World, mo
 # -------------------------------------------- what a model turn cannot be trusted with
 
 
-async def test_a_transfer_is_answered_by_the_policy_without_asking_the_model(w: World, monkeypatch):
-    model = say(monkeypatch=monkeypatch)  # nothing scripted: any model turn would fail
-    result = await talk("quiero transferir 500 pesos")
-    assert model.seen == [], "the model was never asked"
-    assert result["skill"] == "account_actions" and result["tools_used"] == ["propose_actions"]
-    assert result["actions"]["items"][0]["status"] == "refused"
-    assert "No puedo mover dinero" in result["reply"] and "confirm" not in result["reply"].lower()
-    assert not result["actions"]["needs_confirmation"] and result["handoff"] is None
-    assert w.effects.calls == []
-    (stored,) = w.store.rows.values()
-    assert (stored.action, stored.reason, stored.conversation_id) == (
-        "transfer_money",
-        "money_movement_not_authorized",
-        stored.conversation_id,
-    ) and stored.conversation_id
-
-
-async def test_a_transfer_asked_in_portuguese_is_answered_in_portuguese(w: World, monkeypatch):
-    say(monkeypatch=monkeypatch)
-    result = await talk("Olá, quero transferir dinheiro para minha mãe, você pode me ajudar?")
-    assert "Não posso movimentar dinheiro" in result["reply"]
+async def test_a_transfer_goes_to_khipear_and_the_policy_refuses_nothing(w: World, monkeypatch):
+    """Moving money is khipear's (tests/test_khipu_flow.py): code sends it there before the model
+    routes, and the action policy, which would refuse it, is never asked."""
+    for request in (
+        "quiero transferir 500 pesos",
+        "Olá, quero transferir dinheiro para minha mãe, você pode me ajudar?",
+    ):
+        model = say(AIMessage("¿Desde qué cuenta y a quién?"), monkeypatch=monkeypatch)
+        result = await talk(request)
+        assert len(model.seen) == 1, "only the skill's own turn: the router model was not asked"
+        assert result["skill"] == "money_movement" and result["actions"] is None
+        assert result["confirmation"] is None and result["handoff"] is None
+    assert w.store.rows == {} and w.effects.calls == []
 
 
 async def test_a_refund_goes_to_a_person_with_the_case_and_without_the_model(w: World, monkeypatch):

@@ -14,6 +14,10 @@ Scenarios (one demo customer each, with a dense 90-day history so localization i
     DEMO-AR-REVERSED      charge already reversed -> explain, nothing to dispute
     DEMO-BR-PORTUGUESE    Portuguese-speaking customer with a duplicate charge -> PT flow
 
+Khipear (money movement) needs customers with accounts, which the scenarios above do not have:
+    DEMO-MX-KHIPU         two accounts, a credit card and a loan -> "from which account?"
+    DEMO-MX-RECIBE        the customer who receives: one account in MXN, one in USD
+
     python -m data_pipeline.fixtures
 """
 
@@ -108,6 +112,18 @@ PROFILES = [  # id, first, last, city, country, accent, language, currency
 ]
 TYPICAL_AMOUNT = {"MXN": 450, "COP": 95_000, "ARS": 28_000, "USD": 35}
 OPENED = date(2021, 3, 15)  # every demo customer registered and opened the card that day
+KHIPU = [  # id, first, last, city; both in México
+    ("DEMO-MX-KHIPU", "Valeria", "Torres Mena", "Puebla"),
+    ("DEMO-MX-RECIBE", "Renata", "Vega Luna", "Mérida"),
+]
+KHIPU_PRODUCTS = [  # customer, suffix, type, number, currency, balance, limit, rate
+    ("DEMO-MX-KHIPU", "AHORRO", "Cuenta Ahorro", "4000000011", "MXN", 25_000.0, None, 4.0),
+    ("DEMO-MX-KHIPU", "CORRIENTE", "Cuenta Corriente", "4000000022", "MXN", 8_000.0, None, None),
+    ("DEMO-MX-KHIPU", "CARD", "Tarjeta Crédito", "5100000000005454", "MXN", 4_300.0, 30_000, 36.0),
+    ("DEMO-MX-KHIPU", "LOAN", "Préstamo Personal", "8800006767", "MXN", 42_000.0, 60_000, 24.0),
+    ("DEMO-MX-RECIBE", "AHORRO", "Cuenta Ahorro", "4000000033", "MXN", 1_000.0, None, 4.0),
+    ("DEMO-MX-RECIBE", "USD", "Cuenta Ahorro", "4000000044", "USD", 150.0, None, 1.0),
+]
 
 
 def tx(
@@ -177,6 +193,7 @@ def build() -> dict[str, list[dict]]:
                 "customer_id": cid,
                 "product_type": "Tarjeta Crédito",
                 "product_number_last4": f"{rng.randint(1000, 9999)}",
+                "account_number": None,
                 "currency": ccy,
                 "current_balance": TYPICAL_AMOUNT[ccy] * 18.0,
                 "credit_limit": TYPICAL_AMOUNT[ccy] * 60,
@@ -218,6 +235,38 @@ def build() -> dict[str, list[dict]]:
                 "ip_city": city,
                 "had_login": True,
                 "events": 12,
+            }
+        )
+
+    for cid, first, last, city in KHIPU:
+        customers.append(
+            customers[0]
+            | {
+                "customer_id": cid,
+                "document_number": f"DOC-{cid}",
+                "first_name": first,
+                "last_name": last,
+                "email": f"{cid.lower()}@demo.bank",
+                "city": city,
+            }
+        )
+    for cid, suffix, product_type, number, ccy, balance, limit, rate in KHIPU_PRODUCTS:
+        is_account = product_type.startswith("Cuenta")
+        products.append(
+            {
+                "product_id": f"{cid}-{suffix}",
+                "customer_id": cid,
+                "product_type": product_type,
+                "product_number_last4": number[-4:],
+                "account_number": number if is_account else None,  # as load.py: never a card's
+                "currency": ccy,
+                "current_balance": balance,
+                "credit_limit": limit,
+                "product_status": "Active",
+                "interest_rate": rate,
+                "opening_date": OPENED,
+                "expiration_date": None if is_account else date(2029, 3, 31),
+                "days_past_due": None if is_account else 0,
             }
         )
 

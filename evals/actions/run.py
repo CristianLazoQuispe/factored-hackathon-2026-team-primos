@@ -383,6 +383,9 @@ def configure(actions: bool) -> None:
 
     os.environ["ACTIONS_ENABLED"] = "true" if actions else "false"
     os.environ["MAIL_MODE"] = "simulated"
+    # This eval measures the action policy on its own, where a transfer is refused. With khipear
+    # on, a transfer goes to the money_movement skill and never reaches the policy.
+    os.environ["KHIPU_ENABLED"] = "false"
     get_settings.cache_clear()
     skills.load_skills.cache_clear()
     skills.agent_prompt.cache_clear()

@@ -24,7 +24,8 @@ A customer-service assistant for a Latin American bank. You chat with it in **Sp
 | *Bloquea mi tarjeta* / *Preciso bloquear meu cartão* (when the deployment has actions on) | Proposes it and **waits**. A card shows exactly what will be done, with **Confirmar** and **Cancelar**. Only after you confirm does it act, and it reads the result back before saying it is done |
 | *No reconozco un cargo de Uber, abre una consulta y mándame el comprobante* | Proposes an inquiry about the charge (with its priority and the hours a person has to answer) and the receipt by email. You confirm both at once |
 | *Me robaron la tarjeta* | Proposes blocking it right away and also asks for a person |
-| *Quiero transferir 500 pesos* / *Quiero un reembolso* / *Cambia mi teléfono* | Says it does not do that on its own: it never moves money, and a refund or a change of contact data goes to a person with your case |
+| *Quiero un reembolso* / *Cambia mi teléfono* | Says it does not do that on its own: a refund or a change of contact data goes to a person with your case |
+| *Khipea 300 a mi tarjeta* / *Transfiere 500 a mi otra cuenta* / *Khipéale 200 a CLI-...* | Prepares the payment or transfer and shows a card with **Confirmar** and **Cancelar**. If you have several accounts it asks which one. Nothing moves until you press Confirmar |
 | *¿Desde cuándo soy cliente?* | Shows your own data on record |
 | *Quiero hablar con una persona* | Transfers you to a human agent at once, with your case summarized |
 | Anything else (advice, other topics) | Answers briefly, says what it can help with, and offers a person |
@@ -43,7 +44,8 @@ Under each answer, small labels show what the assistant used (for example `balan
 
 ## Current limits
 
-- **It never moves money.** It cannot pay, transfer or refund. With actions off (the default) it is read-only: it looks things up and offers a person. With actions on it can, after you confirm, block or cancel a card, open an inquiry, ask for a call, set an alert and email you a summary; a card whose balance is owed, or that the bank itself blocked, is never cancelled by it and goes to a person.
+- **It never moves money on its own, and never refunds.** A transfer or payment is only prepared (khipear, below) and runs when you press Confirmar. With actions off (the default) it is read-only: it looks things up and offers a person. With actions on it can, after you confirm, block or cancel a card, open an inquiry, ask for a call, set an alert and email you a summary; a card whose balance is owed, or that the bank itself blocked, is never cancelled by it and goes to a person.
+- **Moving money (khipear)** works in the web chat only, between accounts in the same currency, and always needs your click on Confirmar within 5 minutes. To another customer you give their account number or customer ID; there is a limit of USD 1,000 per operation and USD 3,000 per day (values chosen by the team). Writing or saying "sí" confirms nothing.
 - **A snapshot, not live data.** The data ends on 18 June 2026, so "this month" means the last month in the data.
 - **Response time:** a few seconds with the local model (Ollama), faster with Gemini.
 - **Portuguese:** understood and answered, but the underlying dataset is Spanish-only (Mexico, Colombia, Argentina).

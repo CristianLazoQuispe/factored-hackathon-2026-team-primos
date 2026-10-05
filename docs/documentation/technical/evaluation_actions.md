@@ -9,6 +9,11 @@ done, was it right, did anyone have to step in, and did anything unsafe happen.
 with actions. [What it does not measure](#what-it-does-not-measure) and [Limits](#limits) say how far
 to trust the numbers.
 
+The eval runs with khipear off (`KHIPU_ENABLED=false`): it measures the action policy on its own,
+where a transfer or a payment is refused. With khipear on, those requests go to the
+`money_movement` skill ([ADR 0004](adr/0004-khipear-money-movement.md)), which this eval does not
+cover.
+
 ## What it measures
 
 One **scenario** is a conversation with the real agent graph, real tools, the real database and a real

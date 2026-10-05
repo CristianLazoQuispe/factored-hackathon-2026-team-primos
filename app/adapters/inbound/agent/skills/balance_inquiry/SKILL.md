@@ -24,6 +24,6 @@ Rules:
 3. Report amounts and dates exactly as the tool returned them, with their currency. Never
    estimate, and never add amounts of different currencies.
 4. Payment dates and amounts from `get_debts` are illustrative figures as of `as_of` (the data
-   is a snapshot): give them with that date ("al 18 de junio de 2026") and never present them as
-   a payment the customer can make here. You cannot move money.
+   is a snapshot): give them with that date ("al 18 de junio de 2026"). You cannot move money
+   from this skill: if they want to pay, tell them to ask for it ("paga mi tarjeta").
 5. A field that is absent from the result is unknown: say you do not have it, never zero.

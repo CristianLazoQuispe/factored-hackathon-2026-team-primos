@@ -8,6 +8,9 @@
   when the customer asks for a person. Mandatory escalations live here.
 - router: sees only the skill catalog; off-scope questions get a short answer in one LLM call.
 - skill_agent: loads SKILL.md, lists the skill's MCP tools and loops (LangChain create_agent).
+  When a tool answers "needs_clarification" the skill asks the customer, and their next message
+  comes back to the same skill (`awaiting_skill`). A `confirmation` in a tool result leaves the
+  turn as data for the customer's screen: the model never confirms anything.
 - handoff: deterministic case file for a human; the agent can request it, never skip it.
 Every LLM call, skill choice and tool call is a LangChain run, so Langfuse traces all of it.
 """
@@ -74,6 +77,17 @@ HANDOFF = (
 )
 
 
+NOTHING_PREPARED = (
+    "Todavía no hay ningún movimiento preparado, así que no hay nada que confirmar. Dime cuánto "
+    "quieres mover, desde qué cuenta y a dónde. / Ainda não há nenhuma movimentação preparada. "
+    "Diga quanto quer mover, de qual conta e para onde."
+)
+SPEAKS_OF_CONFIRMING = re.compile(r"confirm", re.IGNORECASE)
+KHIPEAR = "money_movement"
+# Requests the action policy refuses that khipear handles instead (see app/domain/routing.py).
+MOVES_MONEY = frozenset({"transfer_money", "make_payment"})
+
+
 class State(MessagesState):
     customer_id: str | None
     signed_in: bool  # the token proved the customer (not an ID typed in the chat)
@@ -84,6 +98,8 @@ class State(MessagesState):
     skill: str | None
     tools_used: list[str]
     case_file: dict | None
+    awaiting_skill: str | None  # the skill that asked the customer something last turn
+    confirmation: dict | None  # an action waiting for the customer's button, this turn only
 
 
 @tool
@@ -104,7 +120,13 @@ def last_customer_text(state: State) -> str:
 
 async def guard(state: State) -> dict:
     text = last_customer_text(state)
-    turn = {"skill": None, "tools_used": [], "case_file": None, "actions": None}
+    turn = {
+        "skill": None,
+        "tools_used": [],
+        "case_file": None,
+        "actions": None,
+        "confirmation": None,
+    }
     if ASKS_FOR_HUMAN.search(text):
         return turn | {"route": "handoff"}
     if state.get("customer_id"):
@@ -121,9 +143,22 @@ def needs_sign_in() -> dict:
 
 
 async def router(state: State) -> dict:
+    awaiting = state.get("awaiting_skill")
+    usable = available(bool(state.get("signed_in")))
+    if awaiting in usable and guess_skill(last_customer_text(state)) in (None, awaiting):
+        # The answer to a question a skill asked ("la que termina en 5474") names no intent of
+        # its own: it goes back to that skill, unless the customer clearly moved on.
+        return {"route": "skill_agent", "skill": awaiting}
+    return await route(state) | {"awaiting_skill": None}
+
+
+async def route(state: State) -> dict:
     signed_in = bool(state.get("signed_in"))
     usable = available(signed_in)
     refused = guess_refused_action(last_customer_text(state))
+    if refused in MOVES_MONEY and KHIPEAR in load_skills():
+        # A transfer or a payment is not refused: khipear prepares it and the customer confirms.
+        return {"route": "skill_agent", "skill": KHIPEAR} if signed_in else needs_sign_in()
     if refused and "account_actions" in usable:  # obvious: no model turn can lose or invent it
         return {"route": "refuse", "refused": refused}
     if refused and "account_actions" in load_skills():  # asked, but only typed an ID
@@ -211,7 +246,7 @@ def ended_without_proposal(skill, new: list) -> bool:
     """A skill that can change things ended its turn with no proposal, no question and no person.
     What the model wrote then ("review and confirm below", "your card is blocked") is not backed by
     anything the bank's system did."""
-    if not skill.needs_sign_in or proposed_actions(new):
+    if skill.mcp != "actions" or proposed_actions(new):
         return False
     if any(isinstance(m, ToolMessage) and m.name == "request_human" for m in new):
         return False
@@ -226,6 +261,10 @@ async def skill_agent(state: State, config: RunnableConfig) -> dict:
     if skill.needs_sign_in and not state.get("signed_in"):
         return needs_sign_in()  # the router already checked; this is the second lock
     language, session = action_session(state, config)
+    if not state.get("awaiting_skill"):
+        # What the customer wrote, for tools that check the model's arguments against it. After
+        # a question the answer may be "la primera": only then is the model trusted to map it.
+        session["said"] = " ".join(m.text for m in state["messages"] if isinstance(m, HumanMessage))
     async with client_for(skill.mcp) as client:
         tools = [*await load_tools(client, state["customer_id"], session), request_human]
         agent = create_agent(
@@ -248,14 +287,39 @@ async def skill_agent(state: State, config: RunnableConfig) -> dict:
     new = result["messages"][len(state["messages"]) :]
     tools_used = [m.name for m in new if isinstance(m, ToolMessage)]
     actions = proposed_actions(new)
-    update = {"tools_used": tools_used, "language": language, "actions": actions}
+    outcome = last_outcome(new)
+    update = {
+        "tools_used": tools_used,
+        "language": language,
+        "actions": actions,
+        "awaiting_skill": skill.name if outcome.get("status") == "needs_clarification" else None,
+        "confirmation": outcome.get("confirmation"),
+    }
     if "request_human" in tools_used or (actions and actions.get("escalate")):
         return {"route": "handoff", **update}  # the policy sent part of it to a person
     text = new[-1].text.strip() if new else ""
     if ended_without_proposal(skill, new):  # still nothing after the second chance
         log.warning("%s ended without a proposal; not repeating %r", skill.name, text[:120])
         text = UNPROPOSED
+    if skill.mcp == "transfers" and not outcome and SPEAKS_OF_CONFIRMING.search(text):
+        # The model talks about confirming but never proposed anything: there is no card on the
+        # customer's screen, so its words would send them looking for a button that is not there.
+        text = NOTHING_PREPARED
     return {"route": "end", **update, "messages": [AIMessage(text or NO_ANSWER)]}
+
+
+def last_outcome(messages: list) -> dict:
+    """The result of the last tool call that said where the request stands (`status`). It is read
+    from the tool's own result, never from what the model wrote."""
+    for message in reversed(messages):
+        if isinstance(message, ToolMessage):
+            try:
+                result = json.loads(message.text)
+            except ValueError:  # "Tool error: ..." or a plain string
+                continue
+            if isinstance(result, dict) and "status" in result:
+                return result
+    return {}
 
 
 def handoff(state: State) -> dict:
@@ -334,6 +398,7 @@ async def reply(
             "tools_used": [],
             "handoff": case_file,
             "actions": None,
+            "confirmation": None,
         }
     return {
         "reply": state["messages"][-1].text,
@@ -342,4 +407,5 @@ async def reply(
         "tools_used": state.get("tools_used", []),
         "handoff": state.get("case_file"),
         "actions": state.get("actions"),
+        "confirmation": state.get("confirmation"),
     }

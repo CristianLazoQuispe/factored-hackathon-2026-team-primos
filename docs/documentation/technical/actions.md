@@ -46,7 +46,7 @@ card or an outgoing message.**
 | Open a payment inquiry about a charge | confirm | refused if the charge was **reversed** or **declined**, or is **still pending** (under 3 days) |
 | Block a card | confirm | refused if it is not a card, already blocked or closed; **escalated** if the bank suspended it |
 | Cancel a card | confirm, **spelling out that it cannot be undone** | **escalated** if there is a balance owed or a payment is past due, or if the *bank* (not the customer) blocked it |
-| Transfer, pay, schedule a payment | refused | moving money is not authorized in the challenge |
+| Transfer, pay, schedule a payment | refused by this policy | moving money is not one of these actions. A transfer or a payment goes to khipear (`money_movement`, [ADR 0004](adr/0004-khipear-money-movement.md)), which the router picks before this policy is asked; scheduling is not offered |
 | Refund, reverse a charge, compensate, provisional credit | goes to a person | |
 | Change phone, email or address | goes to a person | account-takeover risk |
 | Raise a limit, credit eligibility | goes to a person | credit policy is not the model's |
