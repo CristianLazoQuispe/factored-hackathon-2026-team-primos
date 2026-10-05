@@ -255,7 +255,7 @@ tested, and how the next change should be.
 
 ## What it does not measure
 
-- **Which skill is chosen** (the router), the other skills (`balance_inquiry`, `charge_investigation`),
+- **Which skill is chosen** (the router), the other skills (`balance_inquiry`, `charge_investigation`, `account_actions`, `money_movement`),
   conversations of several turns, the handoff to a person, the language of the reply or the voice.
 - **The wording of the final answer.** There is no LLM judge. If one is added it needs a written rubric
   and a sample labelled by people to measure how often it agrees with them.

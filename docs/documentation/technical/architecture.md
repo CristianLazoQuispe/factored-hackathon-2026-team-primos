@@ -26,14 +26,26 @@ flowchart LR
     R -- "off-scope / open question" --> E
     R -- "use_skill(name)" --> K["skill_agent (LLM)<br/>SKILL.md + the skill's MCP tools,<br/>tool loop (create_agent)"]
     R -- "request_human" --> H
-    K -- "request_human" --> H["handoff (code)<br/>case file for a human"] --> E
+    R -- "answer to a skill's question<br/>(awaiting_skill, no LLM call)" --> K
+    R -- "skill needs sign-in,<br/>ID only typed" --> E
+    R -- "a request the bank never does<br/>(refund, change of phone...)" --> RF["refuse (code)<br/>the action policy answers"]
+    RF --> E
+    RF -- "goes to a person" --> H
+    K -- "request_human, or the policy escalates" --> H["handoff (code)<br/>case file for a human"] --> E
     K --> E
 ```
+
+`refuse` exists only with `ACTIONS_ENABLED`. A transfer or a payment is not refused when khipear is
+on: code sends it to `money_movement` before the model routes. The reply carries, as data and never
+as model text, what the turn proposed: `actions` (account actions) or `confirmation` (khipear).
 
 - **Skills** are folders `agent/skills/<name>/SKILL.md` with frontmatter `name`, `description`
   and `mcp` (the MCP server that holds the skill's tools), plus instructions. The router sees
   only name and description; the body loads when the skill is used. Adding a skill means adding
-  a folder and an MCP server; the graph does not change.
+  a folder and an MCP server; the graph does not change for a skill that only reads. Optional
+  frontmatter: `sign_in: true` or `requires: actions` hide the skill from a customer who only typed
+  an ID (and `requires: actions` needs `ACTIONS_ENABLED`); `setting: <flag>` leaves the skill out
+  when that setting is false (`money_movement` uses `khipu_enabled`).
 - **Persona and scope** live in `agent/AGENT.md`.
 - **MCP tools** (FastMCP, `app/adapters/inbound/mcp/`) run in-process through `fastmcp.Client`.
   `agent/mcp_bridge.py` turns them into LangChain tools, so every call is traced.
@@ -41,7 +53,8 @@ flowchart LR
   in the MCP request `_meta`, and tools read it with `session_customer(ctx)`. The LLM cannot see
   or change it. If the tools are ever served over HTTP, this becomes a bearer token read with `get_access_token()`, which is
   the MCP standard. At the HTTP edge the customer is the `sub` of a short-lived bearer JWT (see API authentication below); the UI gets that token from a **test identity service**, for synthetic data;
-  step-up authentication is required before any money-moving skill.
+  a skill that changes something (`account_actions`, `money_movement`) needs a session the token
+  proved, not a typed ID. Step-up authentication before moving money is deferred (ADR 0004).
 - **Tracing:** Langfuse `CallbackHandler`, enabled when `LANGFUSE_*` keys are set (Cloud Run reads
   them from Secret Manager and sends to Langfuse Cloud). The session is `thread_id` and the user is
   `customer_id`, so Langfuse groups a customer's whole conversation. Traces are masked inside the
@@ -52,7 +65,8 @@ flowchart LR
 - **Memory:** a LangGraph checkpointer keyed by `thread_id`. It is in-memory for now; the next
   step is a Postgres checkpointer.
 - **API:** `POST /api/chat {message, thread_id?, image?, image_type?}` (bearer token required outside local) →
-  `{reply, thread_id, customer_id, skill, tools_used, handoff}`. `image` is the base64 of one jpeg, png
+  `{reply, thread_id, customer_id, skill, tools_used, handoff, actions, confirmation}` (`actions`:
+  what `account_actions` proposed; `confirmation`: a khipear movement waiting for Confirmar). `image` is the base64 of one jpeg, png
   or webp, at most 4 MB, and `image_type` is its media type. The model sees it on that turn with the
   text. It is not stored.
 - **Voice (web chat):** two open-source models on the API's CPU, loaded from `models/` on first use
@@ -62,8 +76,8 @@ flowchart LR
   Spanish, `pf_dora` in Brazilian Portuguese). Both need the same bearer token as the chat. The
   agent is not involved: the web sends the transcript through `POST /api/chat` like a typed
   message, so identity, handoff and tracing are the same for both. The voice is off on every page
-  load until the customer presses **Activar voz del agente**; then replies to spoken messages are
-  read aloud, in the language Whisper heard. That click is also what lets the page make sound:
+  load until the customer switches **Silencio** to **Voz**; then every reply is read aloud, in the
+  language Whisper heard or, for a typed message, guessed from ã, õ and ç. That click is also what lets the page make sound:
   Safari refuses audio that does not start from a click, so the click opens a Web Audio context
   and every line plays through it. The web asks for the audio one line at a time, the next line
   while the current one plays, and writes the reply on screen at the pace of the voice: nothing is
@@ -122,18 +136,19 @@ flowchart LR
 
 ## The data warehouse lookups (implemented)
 
-Three skills read the bank's data and a fourth, `money_movement`, prepares a transfer or payment that only the customer's button executes ([ADR 0004](adr/0004-khipear-money-movement.md)). In all of them the model proposes and code decides. Every tool, with its arguments and what it returns, is in [mcp/](mcp/README.md); the tables they read are in [data/model.md](data/model.md).
+Three skills read the bank's data, `account_actions` proposes actions the customer confirms ([actions.md](actions.md)), and `money_movement` prepares a transfer or payment that only the customer's button executes ([ADR 0004](adr/0004-khipear-money-movement.md)). In all of them the model proposes and code decides. Every tool, with its arguments and what it returns, is in [mcp/](mcp/README.md); the tables they read are in [data/model.md](data/model.md).
 
 | Skill | What the model does | What code guarantees |
 |---|---|---|
 | `balance_inquiry` | Calls `get_balances`, `get_debts` or `get_profile` | Reviewed SQL. Totals are per currency; payment dates come labeled as team-generated |
 | `charge_investigation` | Calls `investigate_charges` once: code finds the matching charges and investigates each | Reviewed SQL (duplicate, pending/reversed, FX). A failed lookup is `unavailable`, never "no" |
 | `data_lookup` | Calls the tool that fits (`get_movements`, `get_spending_summary`, `get_complaints`, `get_exchange_rate`). Only when none fits, writes one `SELECT` and calls `run_sql` | Reviewed SQL for the tools. For `run_sql`: `app/domain/sql_scope.py` parses it, refuses anything but a read-only SELECT over the allowlisted `core` tables, and rewrites every customer table into a subquery filtered to the session customer. The database is a second wall: role `dwh_reader` (SELECT on `core` only), read-only transaction, 3 s timeout, 100 rows |
+| `account_actions` | Calls `my_cards` or `recent_charges`, then `propose_actions` | The gateway checks facts and policy; nothing runs until `POST /api/actions/{batch}/confirm`. Sign-in is checked by the router, the skill and every tool |
 | `money_movement` | Calls `propose_transfer` with what the customer said, and asks which account when the tool says several fit | Accounts, limits and amounts are resolved in code. The tool only stores a proposal; `POST /api/khipu/confirm` rechecks every rule with the rows locked and executes once |
 
 - The customer comes from the session (`session_customer(ctx)`), never from a tool argument, and
-  never from the model. Tool calls are written to `ops.decision_log` (all but `search_transactions`
-  and `describe_schema`).
+  never from the model. Tool calls are written to `ops.decision_log` (all but `search_transactions`,
+  `describe_schema`, `my_cards` and `recent_charges`).
 - Unknown functions are refused by default: that is what stops `query_to_xml('select ...')`,
   which would run SQL from a string and skip the scoping.
 - The scoping lives in the domain on purpose: it does not depend on Postgres features, so it
@@ -148,10 +163,10 @@ Three skills read the bank's data and a fourth, `money_movement`, prepares a tra
 Outside `APP_ENV=local`, `POST /api/chat` needs `Authorization: Bearer <jwt>`. The customer is the
 token's `sub`, never the request body: no token gets 401 and a body `customer_id` that differs from the
 token gets 403. Tokens are HS256, last 15 minutes and are signed with `JWT_SECRET` (the app refuses a
-weak secret outside local). `POST /api/auth/token` takes `{email, password}` for one of eight demo accounts, checks a scrypt hash, and signs the JWT. A wrong email and a wrong password get the same 401. Three wrong passwords lock that account for 15 minutes (423). Eight attempts per minute per client; the ninth is 429. In
+weak secret outside local). `POST /api/auth/token` takes `{user, password}` for an ID in `DEMO_CUSTOMER_IDS` (the password is the same ID) or one of eight demo emails, checks a scrypt hash, and signs the JWT. A wrong login and a wrong password get the same 401. Three wrong passwords lock that account for 15 minutes (423). Eight attempts per minute per client; the ninth is 429. In
 production the bank's identity provider replaces it; `customer_from_token` is what stays. Conversations
 are keyed `customer:thread`, so nobody can continue another customer's thread.
-Code: `app/adapters/inbound/auth.py`, `http.py`. Tests: `tests/test_auth.py`.
+Code: `app/adapters/inbound/auth.py`, `http.py`. Tests: `tests/test_auth.py`, `tests/test_auth_by_id.py`.
 
 ## The customer's own finances (implemented)
 
@@ -171,8 +186,9 @@ The web keeps one session for the customer app (`web/lib/session.ts`): the chat 
 - **Duplicate charges** follow the agent's own rule (`investigate_charge`): the same merchant,
   amount and currency within 10 minutes, Approved or Pending purchases, each pair once.
 - **No comparison without history.** `totals.prevChangePct` is `null` when there was no spending in
-  the period before, and the screen then leaves the comparison out. All eight demo customers are in
-  that case: the demo data is shorter than two windows of 90 days.
+  the period before, and the screen then leaves the comparison out. The eight dispute demo customers are in
+  that case: the demo data is shorter than two windows of 90 days. The two khipear customers have no
+  purchases and get `404 no_spending_in_period`.
 - **All or nothing.** If any lookup fails the answer is `503 finances_unavailable`: a missing
   duplicate check would read as "no duplicate charges". A customer with no purchases in the period
   gets `404 no_spending_in_period`, and one who is not in the warehouse `404 unknown_customer`.
@@ -181,8 +197,8 @@ The web keeps one session for the customer app (`web/lib/session.ts`): the chat 
 - **Nothing internal.** The staff console's `internal` block (segments, satisfaction, next action,
   history) is not part of this endpoint, and a test checks that it never appears. The operator's
   profile screen still shows sample figures until it has its own endpoint.
-- **Not done.** The switch for duplicate-charge alerts keeps its state in the page. Saving it needs
-  a table in `schema.sql`, and the deploy does not apply schema changes (see [deploy.md](deploy.md)).
+- **Not done.** The switch for duplicate-charge alerts keeps its state in the page. It could
+  be saved in `ops.preferences`, where the `set_alert` action already writes the same alert.
 
 ## Operator console (implemented)
 

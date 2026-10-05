@@ -120,8 +120,8 @@ uv run python -m evals.actions.run --split heldout --repeats 3 --against results
   before trying that scenario again.
 - The report is rewritten after every scenario, so a run that stops leaves a valid, marked-incomplete
   file. A provider that refuses five scenarios in a row stops the run.
-- **Cost.** `evals/actions/pricing.json` holds the price per million tokens. It is empty on purpose: fill
-  it from the provider's price list and write the date. Empty, the report gives tokens and says the cost
+- **Cost.** `evals/actions/pricing.json` holds the price per million tokens, with its source and the
+  date it was checked. Empty, the report gives tokens and says the cost
   is "not defined" rather than inventing one.
 - About eleven scenarios (`refuse-*`, one of `unauth-*`, `human-05`) are answered by code before any
   model and use no model calls.
@@ -271,5 +271,5 @@ own page.
 | `evals/actions/scoring.py` | The verdict on a scenario and every number in the report |
 | `evals/actions/run.py` | The runner: conversation, the customer's decision, failures put in the way, report |
 | `evals/actions/report.py` | The text of a run, and two runs side by side |
-| `evals/actions/pricing.json` | Prices per million tokens (empty until filled in) |
+| `evals/actions/pricing.json` | Prices per million tokens, with source and date |
 | `tests/test_actions_eval_*.py` | Tests of the scenarios, the scoring and the runner (scripted model, real database) |

@@ -14,7 +14,8 @@ Scenarios (one demo customer each, with a dense 90-day history so localization i
     DEMO-AR-REVERSED      charge already reversed -> explain, nothing to dispute
     DEMO-BR-PORTUGUESE    Portuguese-speaking customer with a duplicate charge -> PT flow
 
-Khipear (money movement) needs customers with accounts, which the scenarios above do not have:
+Khipear (money movement) needs customers with accounts. Each scenario customer above has one
+savings account next to the card, enough to pay it; these two exist for the other cases:
     DEMO-MX-KHIPU         two accounts, a credit card and a loan -> "from which account?"
     DEMO-MX-RECIBE        the customer who receives: one account in MXN, one in USD
 
@@ -112,6 +113,7 @@ PROFILES = [  # id, first, last, city, country, accent, language, currency
 ]
 TYPICAL_AMOUNT = {"MXN": 450, "COP": 95_000, "ARS": 28_000, "USD": 35}
 OPENED = date(2021, 3, 15)  # every demo customer registered and opened the card that day
+SAVINGS_FACTOR = 40  # a scenario customer's savings balance, in typical purchases of their currency
 KHIPU = [  # id, first, last, city; both in México
     ("DEMO-MX-KHIPU", "Valeria", "Torres Mena", "Puebla"),
     ("DEMO-MX-RECIBE", "Renata", "Vega Luna", "Mérida"),
@@ -202,6 +204,22 @@ def build() -> dict[str, list[dict]]:
                 "opening_date": OPENED,
                 "expiration_date": date(2029, 3, 31),
                 "days_past_due": 0,
+            }
+        )
+        # Fixed number and balance, no draw from `rng`: the purchases below stay as they were.
+        number = f"41000000{len(customers):02d}"
+        products.append(
+            products[-1]
+            | {
+                "product_id": f"{cid}-AHORRO",
+                "product_type": "Cuenta Ahorro",
+                "product_number_last4": number[-4:],
+                "account_number": number,
+                "current_balance": TYPICAL_AMOUNT[ccy] * float(SAVINGS_FACTOR),
+                "credit_limit": None,
+                "interest_rate": 4.0,
+                "expiration_date": None,
+                "days_past_due": None,
             }
         )
         # Dense background history: ~30 approved purchases over the last 90 days.

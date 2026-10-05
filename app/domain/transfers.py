@@ -12,11 +12,18 @@ from typing import Any, Literal
 from app.domain.accounts import DEBT_TYPES
 
 Kind = Literal["own_accounts", "pay_debt", "third_party"]
+PAY_SERVICE = "pay_service"  # a fourth kind, with its own proposal: the destination is a bill
+Service = Literal["luz", "agua", "teléfono", "internet", "cable"]  # core.service_billers.category
 ACCOUNT_TYPES = ("Cuenta Ahorro", "Cuenta Corriente")
 
 
-# How a customer names each product type, in Spanish and Portuguese.
+# How a customer names each product type and each service, in Spanish and Portuguese.
 _SAID_AS = {
+    "luz": r"\bluz\b|electricidad|eletricidade|energ[ií]a",
+    "agua": r"\b[aá]gua\b",
+    "teléfono": r"tel[eé]fono|telefone|celular|m[oó]vil",
+    "internet": r"internet|wi-?fi",
+    "cable": r"\bcable\b|\btv\b|televisi[oó]n|televis[aã]o",
     "Cuenta Ahorro": r"ahorro|poupan",
     "Cuenta Corriente": r"corriente|corrente",
     "Tarjeta Crédito": r"tarjeta|cart[aã]o|cr[eé]dito",
@@ -26,8 +33,9 @@ _SAID_AS = {
 
 
 def said(text: str, last4: str | None = None, product_type: str | None = None) -> bool:
-    """True when the customer's own words name that product: its last 4 digits, or its type.
-    The model must pass only what the customer said; a value it made up fails this."""
+    """True when the customer's own words name that product: its last 4 digits, or its type (a
+    service counts as a type). The model must pass only what the customer said; a value it made
+    up fails this."""
     if last4:
         return last4 in re.findall(r"\d+", text)
     return bool(re.search(_SAID_AS.get(product_type, r"(?!)"), text, re.IGNORECASE))
@@ -78,6 +86,18 @@ def option(product: dict[str, Any]) -> dict[str, Any]:
         "last4": product["product_number_last4"],
         "currency": product["currency"],
         amount: product["current_balance"],
+    }
+
+
+def bill_option(bill: dict[str, Any]) -> dict[str, Any]:
+    """What the customer is shown of one of their pending service bills."""
+    return {
+        "service": bill["category"],
+        "biller": bill["name"],
+        "reference": bill["reference"],
+        "amount": bill["amount"],
+        "currency": bill["currency"],
+        "due_date": bill["due_date"],
     }
 
 
@@ -161,4 +181,26 @@ def check(
                 "61",
                 f"The daily limit is USD {limits.per_day_usd:.2f} or its equivalent.",
             )
+    return None
+
+
+def check_service(origin: dict[str, Any], bill: dict[str, Any]) -> Block | None:
+    """None when the account may pay that service bill, always for the bill's whole amount."""
+    if not can_send(origin) or origin.get("customer_status", "Active") != "Active":
+        return Block("origin_unavailable", "57", "That account cannot send money right now.")
+    if bill["status"] != "pending":
+        return Block("already_paid", "94", "That bill is already paid.")
+    if bill["currency"] != origin["currency"]:
+        return Block(
+            "currency_mismatch",
+            "57",
+            f"The bill is in {bill['currency']} and the account in {origin['currency']}: "
+            "both must be in the same currency.",
+        )
+    if bill["amount"] > origin["current_balance"]:
+        return Block(
+            "insufficient_funds",
+            "51",
+            f"The account has {origin['current_balance']:.2f} {origin['currency']}.",
+        )
     return None
