@@ -46,10 +46,26 @@ log = logging.getLogger(__name__)
 earlier_conversations: ContextVar[str] = ContextVar("earlier_conversations", default="")
 
 
+# Said to the agent in front of the history. The scope at the top of the prompt says it can
+# only help with what its skills cover, and a model that reads only that answers "I have no
+# memory" when asked what the customer said before. So the history comes with its permission,
+# and with what to say when what they ask about is not in it.
+MEMORY_RULES = (
+    "You do remember this customer: below are your earlier conversations with them (at most the "
+    "last eight). Answering what they ask about those, such as what they asked, did or were told "
+    "before, is part of your job whatever the scope above says: answer from this list, briefly and "
+    "in their language, without calling a skill. If what they ask about is not in the list, say "
+    "that you do not see it in their earlier conversations. Never say that you have no memory of "
+    "them."
+)
+
+
 def with_memory(prompt: str) -> str:
     """The prompt, and after it what the customer said in earlier conversations, as history."""
     memory = earlier_conversations.get()
-    return f"{prompt}\n\n## Earlier conversations\n{memory}" if memory else prompt
+    if not memory:
+        return prompt
+    return f"{prompt}\n\n## Earlier conversations\n{MEMORY_RULES}\n\n{memory}"
 
 
 MAX_SKILL_STEPS = 12  # LangGraph steps inside the skill loop (~6 tool calls)

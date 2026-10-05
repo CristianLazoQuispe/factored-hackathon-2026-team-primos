@@ -60,6 +60,7 @@ from app.domain.finances import NoSpending, UnknownCustomer
 # Our own loggers at LOG_LEVEL; libraries stay at the default (warnings and errors).
 logging.basicConfig(format="%(levelname)s:     %(name)s: %(message)s")
 logging.getLogger("app").setLevel(get_settings().log_level)
+log = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -272,6 +273,8 @@ async def chat(
         past = await memory_store.past_for_agent(customer_id, thread_id)
         if summary := memory_rules.summary_for_agent(past):
             extra["memory"] = summary
+        # How many, never what: the log shows whether the history reached the agent.
+        log.info("chat memory: %d earlier conversation(s) told to the agent", len(past))
     result = await reply(request.message, key, customer_id, image=picture, **extra)
     conversation.customer_id = result["customer_id"]
     conversation.add("assistant", result["reply"])

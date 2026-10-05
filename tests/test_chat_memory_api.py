@@ -480,3 +480,29 @@ def test_an_operator_answer_in_a_chat_without_a_customer_is_not_kept(client, on,
         "/api/crm/reply", json={"thread_key": "anon-thread", "text": "Hola"}, headers=OPERATOR
     )
     assert response.status_code == 200 and store.added == []
+
+
+# ------------------------------------------------------------------ it shows in the log whether the history reached the agent
+
+
+def test_the_log_says_how_many_earlier_conversations_the_agent_was_told_and_never_what_they_said(
+    client, on, store, agent, caplog
+):
+    store.past["C1"] = [a_past("mi dato privado de cuenta"), a_past("otra cosa privada")]
+    with caplog.at_level("INFO", logger="app"):
+        say(client, "hola", thread="nuevo")
+    lines = [r.getMessage() for r in caplog.records if "chat memory" in r.getMessage()]
+    assert lines == ["chat memory: 2 earlier conversation(s) told to the agent"]
+    assert "privado" not in caplog.text and "privada" not in caplog.text
+
+
+def test_the_log_also_says_when_there_was_nothing_to_tell(client, on, store, agent, caplog):
+    with caplog.at_level("INFO", logger="app"):
+        say(client, "hola")
+    assert "chat memory: 0 earlier conversation(s) told to the agent" in caplog.text
+
+
+def test_with_the_memory_off_the_log_says_nothing_of_it(client, store, agent, caplog):
+    with caplog.at_level("INFO", logger="app"):
+        say(client, "hola")
+    assert "chat memory" not in caplog.text

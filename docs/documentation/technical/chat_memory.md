@@ -30,7 +30,9 @@ POST /api/chat ──► past conversations of this customer (not this thread) �
   the messages or the call's configuration: LangGraph keeps both with the thread, and the summary must
   neither be saved nor reach the next turn. The router and the skill that answers add it after their
   own prompt, under "Earlier conversations".
+* The history comes with its permission. The prompt of the agent says it can only help with what its skills cover, and a model that reads only that answers "I have no memory" when asked what the customer said before. So the section the router and the skill add (`## Earlier conversations`) begins with a rule (`MEMORY_RULES`): the agent does remember this customer, answering from the list is part of its job whatever the scope says, it says it does not see something when it is not in the list, and it never says it has no memory.
 * The turn is kept after the response (a background task), so keeping it never makes the customer wait.
+* The log says whether the history reached the agent: `chat memory: N earlier conversation(s) told to the agent` on every turn of a customer, with the count and never the text.
 * The chat open on the screen is never hidden by the button: the web names it (`thread_id`).
 * What came of a card the customer pressed (`/api/actions/.../confirm` and `/cancel`) and what a person of
   the team answers from the console (`/api/crm/reply`) are added to the same conversation, and the
@@ -140,6 +142,19 @@ In this order, so the API never reads columns that are not there:
 2. To remove the code, `git revert` the merge of the pull request. The added columns can stay: nothing
    reads them.
 3. To erase what was stored, for everybody: `DELETE FROM ops.messages WHERE conversation_id IN (SELECT conversation_id FROM ops.conversations WHERE customer_id IS NOT NULL); DELETE FROM ops.conversations WHERE customer_id IS NOT NULL;`
+
+## If the agent says it does not remember
+
+Look at the line `chat memory: N earlier conversation(s) told to the agent` in the log of the API, on the turn where it said so:
+
+| The log says | It means | Look at |
+|---|---|---|
+| No such line | The memory is off for that API (`CHAT_MEMORY_ENABLED`), or the customer is anonymous | The `.env` and the restart of the API |
+| `0 earlier conversation(s)` | There was nothing to tell: the previous chat is hidden, was never kept, or belongs to another customer | `SELECT customer_id, title, hidden_at FROM ops.conversations` |
+| `1` or more | The agent had it and did not use it | `MEMORY_RULES` in `graph.py`, and the wording of the question |
+
+`bash validate_chat_memory.sh` runs this against a local API, with the real agent, and its step 6 fails when the answer
+does not quote what was asked before (the word "saldo" is not enough: the generic greeting says "consultas sobre tus saldos").
 
 ## Tests
 

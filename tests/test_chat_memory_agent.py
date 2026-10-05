@@ -138,7 +138,53 @@ def test_the_prompt_helper_adds_a_section_only_when_there_is_something_to_add():
     assert graph.with_memory("P") == "P"
     token = graph.earlier_conversations.set("lo de antes")
     try:
-        assert graph.with_memory("P") == "P\n\n## Earlier conversations\nlo de antes"
+        expected = f"P\n\n## Earlier conversations\n{graph.MEMORY_RULES}\n\nlo de antes"
+        assert graph.with_memory("P") == expected
     finally:
         graph.earlier_conversations.reset(token)
     assert graph.with_memory("P") == "P"
+
+
+# ---------------------------------------------- the agent is told it may use what it remembers
+
+
+async def test_the_history_comes_with_permission_to_use_it_and_what_to_say_when_it_is_not_there(
+    actions_on, w, monkeypatch
+):
+    """A model that reads 'you can only help with your skills' answers 'I have no memory'. It must be told."""
+    model = say(AIMessage("Preguntaste por tu saldo."), monkeypatch=monkeypatch)
+    await graph.reply("¿qué te pregunté antes?", uuid.uuid4().hex, "C1", memory=SUMMARY)
+    prompt = system_of(model.seen[0])
+    section = prompt[prompt.index("## Earlier conversations") :]
+    for must_say in (
+        "You do remember this customer",
+        "whatever the scope above says",
+        "do not see it in their earlier conversations",
+        "Never say that you have no memory",
+    ):
+        assert must_say in section, must_say
+    assert section.index("You do remember") < section.index(SUMMARY), (
+        "the permission comes before the history"
+    )
+    assert prompt.index("Scope") < prompt.index("## Earlier conversations"), (
+        "and after the scope it overrides"
+    )
+
+
+async def test_the_permission_is_there_for_the_skill_too_and_never_without_a_history(
+    actions_on, w, monkeypatch
+):
+    model = say(
+        ROUTE,
+        AIMessage("", tool_calls=[call("my_cards")]),
+        AIMessage("", tool_calls=[PROPOSE_BLOCK]),
+        AIMessage("Revisa lo que propongo y confírmalo abajo."),
+        AIMessage("hola"),
+        monkeypatch=monkeypatch,
+    )
+    await graph.reply("bloquea mi tarjeta", uuid.uuid4().hex, "C1", memory=SUMMARY)
+    assert all("Never say that you have no memory" in system_of(seen) for seen in model.seen[1:4])
+    await graph.reply("hola", uuid.uuid4().hex, "C1")
+    assert "You do remember" not in system_of(model.seen[-1]), (
+        "a customer with no history is not told they have one"
+    )
