@@ -164,6 +164,11 @@ off the API answers 404 and the button does not appear.
 
 ## Not done yet, and things to know
 
+- The SQL tests build customers of their own in `core` (`TEST-ACT-<8 hex>` and `TEST-OTH-<8 hex>`)
+  and remove them. If a run is stopped (Ctrl+C) before that, they are removed when the next
+  session starts and when it ends, by a pattern that cannot match a real customer, in one
+  transaction. Their data also respects the billing rule other tests check over the whole table, so
+  leftovers are harmless even before they are removed.
 - The web has no test runner in the repository. The behaviour of the card and the tray (37 checks
   with jsdom, among them the earlier sign-in and finance screens) was run outside it; the types,
   the linter and the static build do run in the project.
