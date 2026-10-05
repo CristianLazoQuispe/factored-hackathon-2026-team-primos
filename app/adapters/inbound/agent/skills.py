@@ -55,12 +55,14 @@ def load_skills() -> dict[str, Skill]:
         meta = yaml.safe_load(frontmatter)
         if meta.get("requires") == "actions" and not get_settings().actions_enabled:
             continue
+        if not getattr(get_settings(), meta.get("setting", ""), True):  # switched off by its flag
+            continue
         skills[meta["name"]] = Skill(
             meta["name"],
             meta["description"],
             meta["mcp"],
             with_actions(body).strip(),
-            needs_sign_in=meta.get("requires") == "actions",
+            needs_sign_in=meta.get("requires") == "actions" or bool(meta.get("sign_in")),
         )
     return skills
 

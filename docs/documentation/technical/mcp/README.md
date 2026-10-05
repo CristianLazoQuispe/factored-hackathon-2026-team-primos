@@ -1,6 +1,6 @@
 # MCP Tools
 
-What the agent can look up, tool by tool. Each skill of the agent has one MCP server (FastMCP, in `app/adapters/inbound/mcp/`); the server's tools run reviewed SQL over the `core` schema ([data model](../data/model.md)). Only one tool, `run_sql`, runs SQL written by the model, and it is the fallback.
+What the agent can look up, and the one thing it can prepare (a money movement), tool by tool. Each skill of the agent has one MCP server (FastMCP, in `app/adapters/inbound/mcp/`); the server's tools run reviewed SQL over the `core` schema ([data model](../data/model.md)). Only one tool, `run_sql`, runs SQL written by the model, and it is the fallback.
 
 | Skill (what the router picks) | Server | Tools | Page |
 |---|---|---|---|
@@ -8,6 +8,7 @@ What the agent can look up, tool by tool. Each skill of the agent has one MCP se
 | `data_lookup`: movements, spending, complaints, exchange rate | `dwh` | `get_movements`, `get_spending_summary`, `get_complaints`, `get_exchange_rate`, `describe_schema`, `run_sql` | [dwh.md](dwh.md) |
 | `charge_investigation`: a charge the customer does not recognize | `investigation` | `investigate_charges`, `investigate_charge`, `search_transactions` | [investigation.md](investigation.md) |
 | `account_actions`: the customer asks the bank to do something. Only with `ACTIONS_ENABLED`, only for a signed-in customer | `actions` | `my_cards`, `recent_charges`, `propose_actions` | [actions.md](actions.md) |
+| `money_movement`: khipear, moving the customer's money | `transfers` | `propose_transfer`, `list_transfer_options` | [transfers.md](transfers.md) |
 
 ## Which tool answers which question
 
@@ -21,12 +22,14 @@ What the agent can look up, tool by tool. Each skill of the agent has one MCP se
 | ¿Cuántas quejas tengo y en qué estado están? | `get_complaints` | `complaints` |
 | ¿A cuánto está el dólar? | `get_exchange_rate` | `fx_rates` |
 | No reconozco un cargo. Me cobraron dos veces | `investigate_charges` | `transactions`, `customers`, `fx_rates` |
+| Khipea 300 a mi tarjeta. Transfiere 500 a mi otra cuenta. Khipéale 200 a CLI-... | `propose_transfer` | `products`, `customers`, `fx_rates`; writes `ops.transfers` |
 | Anything else about their own data | `describe_schema` + `run_sql` | any allowlisted `core` table |
 
 ## Rules every tool follows
 
 - **No tool takes `customer_id`.** The agent passes the authenticated customer in the MCP request `meta` and the tool reads it with `session_customer(ctx)`. The model can neither see nor change whose data is read, and a call without a session customer is an error. Every query filters by that customer inside the SQL.
 - **Read-only.** No tool moves money or changes a record. The one exception in kind is `propose_actions`, which only *stores a proposal* in `ops.actions`: it runs when the customer confirms it in the app, never by the model ([actions](../actions.md)).
+- **`propose_transfer` is the other exception:** it stores a proposal in `ops.transfers` and changes no balance. Money moves only when the customer presses Confirmar on their screen ([transfers.md](transfers.md)).
 - **An unknown is never a zero.** A value the database did not return is left out of the result. A lookup that failed is listed under `unavailable` (or counted in `not_checked`). `found: false` and an empty list mean the lookup ran and found nothing.
 - **Currencies are never added together.** Totals come per currency.
 - **"The last N days" counts back from the dataset's last day,** the same day for every customer, not from today: the dataset is a snapshot that ends on 2026-06-18.
@@ -39,8 +42,8 @@ What the agent can look up, tool by tool. Each skill of the agent has one MCP se
 | Piece | Path |
 |---|---|
 | Tools (signatures, docstrings the model reads) | `app/adapters/inbound/mcp/<server>.py` |
-| Reviewed SQL | `app/adapters/outbound/postgres/{accounts,spending,investigation}.py` |
-| Use cases that combine several lookups | `app/application/{spending,investigate,run_sql}.py` |
+| Reviewed SQL | `app/adapters/outbound/postgres/{accounts,spending,investigation,transfers}.py` |
+| Use cases that combine several lookups | `app/application/{spending,investigate,run_sql,transfers}.py` |
 | Pure rules (totals, change vs. the period before, evidence facts, SQL scoping) | `app/domain/` |
 | When to use each tool, in the model's words | `app/adapters/inbound/agent/skills/<skill>/SKILL.md` |
 | Registration of the servers | `SERVERS` in `app/adapters/inbound/agent/mcp_bridge.py` |

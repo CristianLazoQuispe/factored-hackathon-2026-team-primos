@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     google_cloud_project: str = ""
     google_cloud_location: str = "us-central1"
 
+    # Khipear (money movement). The limits are a team assumption: the data has none.
+    khipu_enabled: bool = True  # off: no money_movement skill, a transfer is refused as before
+    khipu_limit_per_operation_usd: float = 1000.0  # to another customer, per operation
+    khipu_limit_per_day_usd: float = 3000.0  # to other customers, per day
+    khipu_confirmation_minutes: int = 5  # how long the customer has to press Confirmar
+
     telegram_bot_token: str = ""
     telegram_webhook_secret: str = ""
 

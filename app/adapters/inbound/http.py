@@ -7,7 +7,7 @@ import logging
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import Annotated
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
@@ -28,16 +28,20 @@ from app.adapters.inbound.auth import (
 )
 from app.adapters.inbound.conversations import Conversation, conversations
 from app.adapters.inbound.finances_schema import OwnFinances
+from app.adapters.inbound.mcp import transfers as khipu
 from app.adapters.inbound.telegram import build_application
 from app.adapters.outbound import llm, postgres, speech
 from app.adapters.outbound.postgres.accounts import list_customers
 from app.adapters.outbound.postgres.actions import build_gateway, recent_messages
+from app.adapters.outbound.postgres.audit import record_decision
 from app.adapters.outbound.postgres.finances import PostgresFinances
 from app.adapters.outbound.postgres.readonly import ReadOnlyPostgres
 from app.adapters.outbound.postgres.spending import PostgresSpending
 from app.application.actions import ActionGateway, NotFound
 from app.application.finances import FinancesUnavailable, own_finances
 from app.application.run_sql import run_scoped_sql
+from app.application.transfers import cancel as cancel_transfer
+from app.application.transfers import execute as execute_transfer
 from app.config import get_settings
 from app.domain.finances import NoSpending, UnknownCustomer
 
@@ -107,6 +111,7 @@ class ChatResponse(BaseModel):
     tools_used: list[str]
     handoff: dict | None
     actions: dict | None = None  # what the agent proposes; nothing runs until the customer confirms
+    confirmation: dict | None = None  # a money movement waiting for the Confirmar button
 
 
 @app.get("/health")
@@ -234,6 +239,61 @@ async def chat(
     if result["handoff"]:
         conversation.status, conversation.case_file = "waiting", result["handoff"]
     return ChatResponse(thread_id=thread_id, **result)
+
+
+class KhipuRequest(BaseModel):
+    transfer_id: UUID  # `confirmation.transfer_id` of a chat reply
+    customer_id: str | None = None  # local only, like the chat's: the token decides
+
+
+def khipu_customer(proven: str | None, claimed: str | None) -> str:
+    customer = resolve_customer(proven, claimed)
+    if customer is None:
+        raise HTTPException(400, "customer_id is required without a token (local only).")
+    return customer
+
+
+@app.post("/api/khipu/confirm")
+async def khipu_confirm(
+    request: KhipuRequest, token_customer_id: Annotated[str | None, Depends(token_customer)]
+) -> dict:
+    """The Confirmar button: the only way a proposed money movement is executed. No model runs
+    here. Every rule is checked again with both accounts locked; pressing twice executes once and
+    answers with the same receipt. `status` is executed, blocked, expired or cancelled."""
+    customer = khipu_customer(token_customer_id, request.customer_id)
+    transfer_id = str(request.transfer_id)
+    result = await execute_transfer(khipu.ledger, khipu.limits(), customer, transfer_id)
+    executed = result["status"] == "executed"
+    await record_decision(
+        "confirm_transfer",
+        {"customer_id": customer, "transfer_id": transfer_id},
+        "allowed" if executed else "blocked",
+        result.get("reason") or result["status"],
+        executed=executed,
+    )
+    if result["status"] == "not_found":
+        raise HTTPException(404, "unknown_transfer")
+    return result
+
+
+@app.post("/api/khipu/cancel")
+async def khipu_cancel(
+    request: KhipuRequest, token_customer_id: Annotated[str | None, Depends(token_customer)]
+) -> dict:
+    """The Cancelar button: the proposal can no longer be confirmed."""
+    customer = khipu_customer(token_customer_id, request.customer_id)
+    transfer_id = str(request.transfer_id)
+    result = await cancel_transfer(khipu.ledger, customer, transfer_id)
+    await record_decision(
+        "cancel_transfer",
+        {"customer_id": customer, "transfer_id": transfer_id},
+        "allowed",
+        result["status"],
+        executed=result["status"] == "cancelled",
+    )
+    if result["status"] == "not_found":
+        raise HTTPException(404, "unknown_transfer")
+    return result
 
 
 @app.get("/api/me/finances")

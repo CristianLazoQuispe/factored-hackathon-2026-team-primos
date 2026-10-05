@@ -6,6 +6,7 @@ import Markdown from "react-markdown";
 import { ActionCard } from "@/components/action-card";
 import { AppHeader } from "@/components/app-header";
 import { Corona, type CoronaHandle } from "@/components/corona";
+import { type Confirmation, KhipuCard } from "@/components/khipu-card";
 import { AgentIcon, Logo } from "@/components/logo";
 import { OutboxPanel } from "@/components/outbox-panel";
 import { revealed, visible } from "@/components/spoken";
@@ -29,6 +30,7 @@ type Message = {
   skill?: string | null;
   tools?: string[];
   handoff?: boolean;
+  confirmation?: Confirmation | null; // a money movement Quipu prepared: the card has the button
   chart?: Category[];
   actions?: ActionBatch; // what the agent proposes: the card the customer confirms
   reading?: number;
@@ -44,6 +46,7 @@ type ChatResponse = {
   tools_used: string[];
   handoff: object | null;
   actions?: ActionBatch | null; // proposed by the agent; nothing runs until the customer confirms
+  confirmation: Confirmation | null;
 };
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -136,6 +139,7 @@ function trace(response: ChatResponse) {
     tools: response.tools_used,
     handoff: response.handoff !== null,
     actions: response.actions ?? undefined,
+    confirmation: response.confirmation,
   };
 }
 
@@ -747,6 +751,7 @@ export default function Chat() {
                     <div className="reply">
                       <Markdown>{message.shown === undefined ? message.text : visible(message.text, message.shown)}</Markdown>
                     </div>
+                    {message.confirmation && <KhipuCard confirmation={message.confirmation} authHeader={authHeader} />}
                     {message.chart && <SpendingChart categories={message.chart} />}
                     {message.actions && (
                       <ActionCard
