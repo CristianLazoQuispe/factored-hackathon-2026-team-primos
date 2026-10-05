@@ -36,12 +36,12 @@ def need_database():
         with connect() as conn:
             ready = conn.execute(
                 "SELECT 1 FROM information_schema.columns WHERE table_schema = 'ops' "
-                "AND table_name = 'conversations' AND column_name = 'last_message_at'"
+                "AND table_name = 'conversations' AND column_name = 'hidden_at'"
             ).fetchone()
     except Exception:
         pytest.skip("Postgres with the demo data is not running")
     if ready is None:
-        pytest.skip("apply app/adapters/outbound/postgres/migrations/003_chat_memory.sql first")
+        pytest.skip("apply migrations/003_chat_memory.sql and 004_chat_memory_hidden.sql first")
 
 
 @pytest.fixture
@@ -183,12 +183,21 @@ async def test_a_conversation_nobody_has_spoken_in_is_not_listed(customers):
     assert await mem.list_conversations(ana) == []
 
 
-async def test_the_list_is_never_longer_than_the_page_the_customer_sees(customers):
+async def test_the_customer_sees_all_their_conversations_not_only_the_first_thirty(customers):
     ana, _ = customers
-    for number in range(rules.MAX_LISTED + 3):
+    for number in range(35):
         await mem.record_turn(ana, f"t{number}", f"pregunta {number}", "respuesta")
-    assert len(await mem.list_conversations(ana, limit=10_000)) == rules.MAX_LISTED
-    assert len(await mem.list_conversations(ana)) == rules.MAX_LISTED
+    listed = await mem.list_conversations(ana)
+    assert len(listed) == 35 and rules.MAX_LISTED >= 500, "there used to be a limit of 30"
+
+
+async def test_there_is_a_ceiling_for_safety_and_it_is_honoured(customers, monkeypatch):
+    ana, _ = customers
+    monkeypatch.setattr(rules, "MAX_LISTED", 5)
+    for number in range(8):
+        await mem.record_turn(ana, f"t{number}", f"pregunta {number}", "respuesta")
+    assert len(await mem.list_conversations(ana, limit=10_000)) == 5
+    assert len(await mem.list_conversations(ana)) == 5
 
 
 # ------------------------------------------------------------------ one customer never touches another's
@@ -306,7 +315,7 @@ async def test_even_if_two_customers_were_given_the_same_conversation_id_neither
         )
     ] == ["de Ana", "respuesta de Ana"]
     assert await mem.read_conversation(luis, str(taken)) is None
-    assert await mem.delete_history(luis) == 0
+    assert await mem.hide_history(luis) == 0
     assert len(rows("SELECT 1 FROM ops.conversations WHERE conversation_id = %s", taken)) == 1
 
 
@@ -362,28 +371,84 @@ async def test_a_new_customer_has_nothing_to_remember(customers):
     assert rules.summary_for_agent(await mem.past_for_agent(ana, "t1")) == ""
 
 
-# ------------------------------------------------------------------ forgetting
+# ------------------------------------------------------------------ hiding (the bank keeps the record)
 
 
-async def test_deleting_the_history_removes_it_all_and_only_that_customers(customers):
+def stored(customer: str) -> tuple[int, int, int]:
+    """(conversations, hidden ones, messages) in the database for this customer, whoever can see them."""
+    with connect() as conn:
+        c = conn.execute(
+            "SELECT count(*), count(hidden_at) FROM ops.conversations WHERE customer_id = %s",
+            (customer,),
+        ).fetchone()
+        m = conn.execute(
+            "SELECT count(*) FROM ops.messages WHERE conversation_id IN (SELECT conversation_id FROM ops.conversations WHERE customer_id = %s)",
+            (customer,),
+        ).fetchone()
+    return c[0], c[1], m[0]
+
+
+async def test_hiding_the_history_takes_it_out_of_sight_but_every_row_stays_in_the_database(
+    customers,
+):
     ana, luis = customers
     for thread in ("a", "b", "c"):
         await mem.record_turn(ana, thread, "hola " + thread, "respuesta")
     await mem.record_turn(luis, "a", "hola Luis", "respuesta")
-    assert await mem.delete_history(ana) == 3
+    assert stored(ana) == (3, 0, 6)
+    assert await mem.hide_history(ana) == 3
+    assert stored(ana) == (3, 3, 6), (
+        "nothing was deleted: the same conversations, the same messages, now marked"
+    )
     assert await mem.list_conversations(ana) == []
-    assert (
-        rows(
-            "SELECT count(*) FROM ops.messages WHERE conversation_id = ANY(%s)",
-            [mem.conversation_id(ana, t) for t in "abc"],
-        )[0][0]
-        == 0
-    )
+    assert await mem.read_conversation(ana, str(mem.conversation_id(ana, "a"))) is None
+    assert await mem.past_for_agent(ana, "otra") == [], "and the agent is not told of them"
     luis_now = await mem.list_conversations(luis)
-    assert [c["title"] for c in luis_now] == ["hola Luis"] and luis_now[0]["messages"] == 2, (
-        "his messages stay too"
-    )
-    assert await mem.delete_history(ana) == 0, "nothing left to forget is not an error"
+    assert [c["title"] for c in luis_now] == ["hola Luis"] and luis_now[0]["messages"] == 2
+    assert stored(luis) == (1, 0, 2)
+    assert await mem.hide_history(ana) == 0, "nothing left to hide is not an error"
+
+
+async def test_the_chat_that_is_open_is_not_hidden(customers):
+    ana, _ = customers
+    for thread in ("vieja1", "vieja2", "abierta"):
+        await mem.record_turn(ana, thread, "hola " + thread, "respuesta")
+    assert await mem.hide_history(ana, keep_thread_id="abierta") == 2
+    assert [c["title"] for c in await mem.list_conversations(ana)] == ["hola abierta"]
+    assert stored(ana) == (3, 2, 6)
+
+
+async def test_a_conversation_that_was_hidden_keeps_being_recorded_and_stays_hidden(customers):
+    ana, _ = customers
+    await mem.record_turn(ana, "t1", "antes de ocultar", "respuesta")
+    await mem.hide_history(ana)
+    await mem.record_turn(ana, "t1", "después de ocultar", "respuesta")
+    await mem.append_message(ana, "t1", "operator", "una persona contestó")
+    assert await mem.list_conversations(ana) == []
+    assert stored(ana) == (1, 1, 5), "the record is complete, even for what came after"
+
+
+async def test_the_bank_can_bring_a_hidden_conversation_back_because_it_was_never_deleted(
+    customers,
+):
+    ana, _ = customers
+    await mem.record_turn(ana, "t1", "algo importante", "respuesta")
+    await mem.hide_history(ana)
+    with connect() as conn:
+        conn.execute("UPDATE ops.conversations SET hidden_at = NULL WHERE customer_id = %s", (ana,))
+    assert [c["title"] for c in await mem.list_conversations(ana)] == ["algo importante"]
+
+
+async def test_hiding_never_touches_a_conversation_of_somebody_else_even_with_the_same_id(
+    customers, monkeypatch
+):
+    ana, luis = customers
+    await mem.record_turn(ana, "t1", "de Ana", "respuesta")
+    taken = mem.conversation_id(ana, "t1")
+    monkeypatch.setattr(mem, "conversation_id", lambda customer, thread: taken)  # forced
+    assert await mem.hide_history(luis) == 0
+    monkeypatch.undo()
+    assert [c["title"] for c in await mem.list_conversations(ana)] == ["de Ana"]
 
 
 # ------------------------------------------------------------------ the chat never breaks because of it
@@ -415,30 +480,33 @@ async def test_if_the_earlier_conversations_cannot_be_read_the_agent_is_told_not
 # ------------------------------------------------------------------ the schema
 
 
-def test_the_migration_is_exactly_the_block_in_schema_sql():
+MIGRATIONS = [
+    ("003_chat_memory.sql", "chat memory migration"),
+    ("004_chat_memory_hidden.sql", "chat memory hidden migration"),
+]
+
+
+@pytest.mark.parametrize("filename, marker", MIGRATIONS)
+def test_each_migration_is_exactly_its_block_in_schema_sql(filename, marker):
     schema = (ROOT / "schema.sql").read_text()
-    block = (
-        schema.split("-- BEGIN chat memory migration\n", 1)[1]
-        .split("-- END chat memory migration", 1)[0]
-        .rstrip("\n")
-    )
-    assert (ROOT / "migrations/003_chat_memory.sql").read_text().endswith(block + "\n"), (
-        "003_chat_memory.sql drifted from schema.sql"
+    block = schema.split(f"-- BEGIN {marker}\n", 1)[1].split(f"-- END {marker}", 1)[0].rstrip("\n")
+    assert (ROOT / "migrations" / filename).read_text().endswith(block + "\n"), (
+        f"{filename} drifted from schema.sql"
     )
 
 
-def test_the_migration_can_be_applied_twice_and_changes_nothing_the_second_time():
-    sql = (ROOT / "migrations/003_chat_memory.sql").read_text()
+def test_the_migrations_can_be_applied_twice_and_change_nothing_the_second_time():
     with connect() as conn:
         for _ in range(2):
-            conn.execute(sql)
+            for filename, _marker in MIGRATIONS:
+                conn.execute((ROOT / "migrations" / filename).read_text())
         columns = {
             r[0]
             for r in conn.execute(
                 "SELECT column_name FROM information_schema.columns WHERE table_schema = 'ops' AND table_name = 'conversations'"
             ).fetchall()
         }
-    assert {"customer_id", "title", "skill", "outcome", "last_message_at"} <= columns
+    assert {"customer_id", "title", "skill", "outcome", "last_message_at", "hidden_at"} <= columns
     assert {"conversation_id", "session_id", "channel", "language", "started_at"} <= columns, (
         "what was there stays"
     )

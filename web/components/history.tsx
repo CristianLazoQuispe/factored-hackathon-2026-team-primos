@@ -7,7 +7,8 @@ import type { OpenedConversation, Outcome, PastConversation } from "@/lib/memory
 
 // What Quipu remembers of this customer, as the customer sees it: their earlier conversations, and
 // one of them opened. It only says what the API stored. Nothing here is sent to the agent: the
-// agent is told a short summary by the server, never the messages.
+// agent is told a short summary by the server, never the messages. Hiding them does not delete them:
+// the bank keeps the record, and says so.
 
 const OUTCOME: Record<Outcome, { label: string; color: string }> = {
   answered: { label: "respondida", color: "var(--q-fog)" },
@@ -35,18 +36,18 @@ function Result({ outcome }: { outcome: Outcome | null }) {
 type ListProps = {
   items: PastConversation[];
   onOpen: (id: string) => void;
-  onForget: () => void;
-  busy: boolean; // the history is being deleted
+  onHide: () => void;
+  busy: boolean; // the history is being hidden
 };
 
 // The list shown when the customer comes in, beside the suggestions.
-export function PastConversations({ items, onOpen, onForget, busy }: ListProps) {
-  const [asking, setAsking] = useState(false); // "are you sure?" before deleting
+export function PastConversations({ items, onOpen, onHide, busy }: ListProps) {
+  const [asking, setAsking] = useState(false); // "are you sure?" before hiding
   if (items.length === 0) return null;
   return (
     <section aria-label="Conversaciones anteriores" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <span style={{ fontFamily: "var(--q-mono)", fontSize: 12, color: "var(--q-muted)" }}>tus conversaciones anteriores</span>
-      <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+      <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 8, maxHeight: 340, overflowY: "auto" }}>
         {items.map((item) => (
           <li key={item.conversation_id}>
             <button
@@ -69,17 +70,17 @@ export function PastConversations({ items, onOpen, onForget, busy }: ListProps) 
 
       {asking ? (
         <div role="alert" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, fontSize: 13, color: "var(--q-fog)" }}>
-          <span>Se borrará todo tu historial de conversaciones. No se puede deshacer.</span>
+          <span>Dejarás de ver tus conversaciones anteriores aquí. El banco conserva el registro.</span>
           <button
             type="button"
             className="q-btn q-btn-sm q-btn-ghost"
             disabled={busy}
             onClick={() => {
               setAsking(false);
-              onForget();
+              onHide();
             }}
           >
-            Sí, borrar
+            Sí, ocultar
           </button>
           <button type="button" className="q-btn q-btn-sm q-btn-ghost" onClick={() => setAsking(false)}>
             No
@@ -87,7 +88,7 @@ export function PastConversations({ items, onOpen, onForget, busy }: ListProps) 
         </div>
       ) : (
         <button type="button" className="link" style={{ alignSelf: "flex-start" }} onClick={() => setAsking(true)} disabled={busy}>
-          Borrar mi historial
+          Ocultar mi historial
         </button>
       )}
     </section>

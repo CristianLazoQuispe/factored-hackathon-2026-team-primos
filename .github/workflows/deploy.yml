@@ -141,7 +141,7 @@ jobs:
       # a core loaded with account numbers and ops.transfers (make etl-cloud).
       KHIPU_ENABLED: ${{ vars.KHIPU_ENABLED }}
       # The chat remembers each customer's earlier conversations. Off unless the variable says true;
-      # it needs migrations/003_chat_memory.sql applied to Cloud SQL first.
+      # it needs migrations/003_chat_memory.sql and 004_chat_memory_hidden.sql applied to Cloud SQL first.
       CHAT_MEMORY_ENABLED: ${{ vars.CHAT_MEMORY_ENABLED }}
       MAIL_MODE: ${{ vars.MAIL_MODE }}
       MAIL_FROM: ${{ vars.MAIL_FROM }}

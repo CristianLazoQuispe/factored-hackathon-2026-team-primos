@@ -182,8 +182,8 @@ It needs the demo database, the actions migration and a model (Gemini with `LLM_
 ## Chat memory
 
 Off by default (`CHAT_MEMORY_ENABLED=false`). With it on, the chat keeps what each customer said and was
-answered, per customer: when they come back they see their earlier conversations (and can open or delete
-them), and the agent is told, in a few lines the code writes, what the last eight were about. The agent is
+answered, per customer: when they come back they see all their earlier conversations (they can open them,
+and hide them: nothing is deleted, the bank keeps the record), and the agent is told, in a few lines the code writes, what the last eight were about. The agent is
 never given the old messages, only that summary, with what the customer typed quoted as data and not as
 instructions; a card number typed in the chat is kept by its last four digits. How it works, the safety
 rules, how to turn it on in Cloud SQL and how to go back: [chat_memory.md](docs/documentation/technical/chat_memory.md).

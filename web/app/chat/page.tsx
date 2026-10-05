@@ -7,6 +7,7 @@ import { ActionCard } from "@/components/action-card";
 import { AppHeader } from "@/components/app-header";
 import { Corona, type CoronaHandle } from "@/components/corona";
 import { PastConversations, PastTranscript } from "@/components/history";
+import { HistoryPanel } from "@/components/history-panel";
 import { type Confirmation, KhipuCard } from "@/components/khipu-card";
 import { AgentIcon, Logo } from "@/components/logo";
 import { OutboxPanel } from "@/components/outbox-panel";
@@ -14,7 +15,7 @@ import { revealed, visible } from "@/components/spoken";
 import { type MicrophoneAccess, useRecorder } from "@/components/use-recorder";
 import { type ActionBatch, type OutboxMessage, cancelActions, confirmActions, getOutbox } from "@/lib/actions";
 import { useDemoCustomers } from "@/lib/demo-customers";
-import { type OpenedConversation, type PastConversation, forgetConversations, getConversation, getConversations } from "@/lib/memory";
+import { useHistory } from "@/lib/use-history";
 import { type Category, formatAmount, getOwnFinances } from "@/lib/profile";
 import { readSession, saveSession, useSession } from "@/lib/session";
 import type { CoronaMode } from "@/lib/quipu-corona";
@@ -273,33 +274,10 @@ export default function Chat() {
     };
   }, [customerId]);
 
-  // What Quipu remembers of this customer. `null`: this deployment keeps no history, so none is shown.
-  const [history, setHistory] = useState<PastConversation[] | null>(null);
-  const [opened, setOpened] = useState<OpenedConversation | null>(null); // an earlier conversation, being read
-  const [forgetting, setForgetting] = useState(false);
-  const [historyNote, setHistoryNote] = useState("");
-  const refreshHistory = useCallback(async () => {
-    const auth = currentAuth();
-    if (!auth) return;
-    try {
-      setHistory(await getConversations(auth));
-    } catch {
-      // the history is a convenience: if it cannot be read it stays as it was
-    }
-  }, []);
-  useEffect(() => {
-    const auth = customerId ? currentAuth() : null;
-    if (!auth) return;
-    let live = true;
-    getConversations(auth)
-      .then((found) => {
-        if (live) setHistory(found);
-      })
-      .catch(() => undefined); // see `refreshHistory`
-    return () => {
-      live = false;
-    };
-  }, [customerId]);
+  // What Quipu remembers of this customer. `history` is `null` when this deployment keeps no history:
+  // then there is no button and no list, and the screen is what it always was.
+  const memory = useHistory(customerId, threadId);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   // The customer's answer to a card. The API runs the batch once however often this is called and
   // answers with the card as it stands: done and verified, refused, or waiting for a person.
@@ -350,48 +328,17 @@ export default function Chat() {
     setMessages([]);
     setOutbox(null);
     setTray(false);
-    setHistory(null);
-    setOpened(null);
-    setHistoryNote("");
+    setHistoryOpen(false);
     operatorCursor.current = 0;
-  }
-
-  async function openPast(id: string) {
-    const auth = currentAuth();
-    if (!auth) return;
-    setHistoryNote("");
-    try {
-      const found = await getConversation(auth, id);
-      if (found) setOpened(found);
-      else setHistoryNote("Esa conversación ya no está disponible.");
-    } catch (error) {
-      setHistoryNote((error as Error).message);
-    }
-  }
-
-  async function forgetHistory() {
-    const auth = currentAuth();
-    if (!auth) return;
-    setForgetting(true);
-    setHistoryNote("");
-    try {
-      await forgetConversations(auth);
-      setHistory([]);
-      setOpened(null);
-    } catch (error) {
-      setHistoryNote((error as Error).message);
-    } finally {
-      setForgetting(false);
-    }
   }
 
   // A fresh chat. The one that was open becomes an earlier conversation in the list.
   function newConversation() {
     setThreadId(newThread());
     setMessages([]);
-    setOpened(null);
+    memory.back();
     operatorCursor.current = 0;
-    void refreshHistory();
+    void memory.refresh();
   }
 
   // Once the chat has started, ask every few seconds for what a person of the team wrote in it
@@ -664,7 +611,12 @@ export default function Chat() {
                   Mensajes{outbox.length ? ` (${outbox.length})` : ""}
                 </button>
               )}
-              {history !== null && started && (
+              {memory.history !== null && (
+                <button type="button" className="q-btn q-btn-sm q-btn-ghost" onClick={() => setHistoryOpen((open) => !open)} aria-expanded={historyOpen}>
+                  Historial{memory.history.length ? ` (${memory.history.length})` : ""}
+                </button>
+              )}
+              {memory.history !== null && started && (
                 <button type="button" className="q-btn q-btn-sm q-btn-ghost" onClick={newConversation}>
                   Nueva conversación
                 </button>
@@ -736,6 +688,18 @@ export default function Chat() {
       </AppHeader>
 
       {tray && outbox && <OutboxPanel messages={outbox} onClose={() => setTray(false)} />}
+      {historyOpen && memory.history && (
+        <HistoryPanel
+          items={memory.history}
+          opened={memory.opened}
+          note={memory.note}
+          busy={memory.hiding}
+          onOpen={(id) => void memory.open(id)}
+          onBack={memory.back}
+          onHide={() => void memory.hide()}
+          onClose={() => setHistoryOpen(false)}
+        />
+      )}
 
       <div className="cols">
         <aside
@@ -799,14 +763,14 @@ export default function Chat() {
               </div>
             )}
 
-            {!started && customerId && history && history.length > 0 && (
+            {!started && customerId && !historyOpen && memory.history && memory.history.length > 0 && (
               <>
-                {opened ? (
-                  <PastTranscript conversation={opened} onBack={() => setOpened(null)} />
+                {memory.opened ? (
+                  <PastTranscript conversation={memory.opened} onBack={memory.back} />
                 ) : (
-                  <PastConversations items={history} onOpen={(id) => void openPast(id)} onForget={() => void forgetHistory()} busy={forgetting} />
+                  <PastConversations items={memory.history} onOpen={(id) => void memory.open(id)} onHide={() => void memory.hide()} busy={memory.hiding} />
                 )}
-                {historyNote && <span style={{ fontSize: 13, color: "var(--q-amber-soft)" }}>{historyNote}</span>}
+                {memory.note && <span style={{ fontSize: 13, color: "var(--q-amber-soft)" }}>{memory.note}</span>}
               </>
             )}
 

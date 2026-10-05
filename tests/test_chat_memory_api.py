@@ -28,7 +28,7 @@ class FakeStore:
     def __init__(self):
         self.turns: list[dict] = []
         self.added: list[dict] = []
-        self.deleted: list[str] = []
+        self.hidden: list[tuple[str, str | None]] = []
         self.asked_for_past: list[tuple[str, str]] = []
         self.past: dict[str, list[rules.Past]] = {}
         self.listed: dict[str, list[dict]] = {}
@@ -58,8 +58,8 @@ class FakeStore:
             None,
         )
 
-    async def delete_history(self, customer_id):
-        self.deleted.append(customer_id)
+    async def hide_history(self, customer_id, keep_thread_id=None):
+        self.hidden.append((customer_id, keep_thread_id))
         return len(self.listed.pop(customer_id, []))
 
     async def append_message(self, customer_id, thread_id, role, text, *, outcome=None):
@@ -76,7 +76,7 @@ class FakeStore:
 
     @property
     def untouched(self) -> bool:
-        return not (self.turns or self.added or self.deleted or self.asked_for_past)
+        return not (self.turns or self.added or self.hidden or self.asked_for_past)
 
 
 @pytest.fixture(autouse=True)
@@ -315,13 +315,25 @@ def test_the_customer_lists_and_opens_only_their_own_conversations(client, on, s
     assert (other.status_code, other.json()["detail"]) == (404, "unknown_conversation")
 
 
-def test_the_customer_forgets_their_history_and_only_theirs(client, on, store):
+def test_the_customer_hides_their_history_and_only_theirs(client, on, store):
     store.listed = {"C1": [entry("a", "x"), entry("c", "y")], "C2": [entry("b", "z")]}
     done = client.delete("/api/me/conversations", headers=bearer("C1"))
-    assert done.json() == {"deleted": 2} and store.deleted == ["C1"]
+    assert done.json() == {"hidden": 2} and store.hidden == [("C1", None)]
     assert [
         c["title"] for c in client.get("/api/me/conversations", headers=bearer("C2")).json()
     ] == ["z"]
+
+
+def test_the_chat_that_is_open_is_not_hidden(client, on, store):
+    store.listed = {"C1": [entry("a", "x")]}
+    client.delete("/api/me/conversations?thread_id=t-abierto", headers=bearer("C1"))
+    assert store.hidden == [("C1", "t-abierto")]
+
+
+def test_nothing_is_called_delete_in_what_the_customer_is_told(client, on, store):
+    store.listed = {"C1": [entry("a", "x")]}
+    text = client.delete("/api/me/conversations", headers=bearer("C1")).text
+    assert "deleted" not in text and "hidden" in text
 
 
 @pytest.mark.parametrize(
@@ -344,7 +356,7 @@ def test_a_customer_id_in_the_request_cannot_open_somebody_elses(client, on, sto
     store.listed = {"C2": [entry("b", "de Luis")]}
     response = getattr(client, method)(path + "?customer_id=C2", headers=bearer("C1"))
     assert response.status_code == 403
-    assert store.deleted == [] and "de Luis" not in response.text
+    assert store.hidden == [] and "de Luis" not in response.text
 
 
 def test_a_forged_token_opens_nothing(client, on, store):

@@ -60,10 +60,12 @@ export async function getConversation(auth: Record<string, string>, id: string):
   return response.status === 404 ? null : response.json();
 }
 
-// Forgets everything kept of this customer's conversations. Returns how many went.
-export async function forgetConversations(auth: Record<string, string>): Promise<number> {
-  const response = await call("/api/me/conversations", auth, "DELETE");
+// Takes the customer's earlier conversations out of their sight. Nothing is deleted: the bank keeps
+// the record, and nobody else sees it. The chat that is open (`keepThread`) stays. Returns how many.
+export async function hideConversations(auth: Record<string, string>, keepThread?: string): Promise<number> {
+  const query = keepThread ? `?thread_id=${encodeURIComponent(keepThread)}` : "";
+  const response = await call(`/api/me/conversations${query}`, auth, "DELETE");
   if (response.status === 404) return 0;
-  const done: { deleted: number } = await response.json();
-  return done.deleted;
+  const done: { hidden: number } = await response.json();
+  return done.hidden;
 }

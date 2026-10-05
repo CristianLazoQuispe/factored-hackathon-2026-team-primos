@@ -11,10 +11,10 @@ they were before. Nothing is read or written.
 | Question | Decision |
 |---|---|
 | What is a conversation | A thread: the `thread_id` the web creates when the chat opens |
-| What the customer sees on entering | A new chat, with the list of their earlier conversations; each can be opened and read |
+| What the customer sees on entering | A new chat, with the list of **all** their earlier conversations (up to a ceiling of 500, for safety); each can be opened and read. A `Historial` button shows the same list at any moment, also in the middle of a chat, and is there even when the list is empty |
 | What the agent gets | A summary the code writes, not the old messages. At most the last **8** other conversations |
 | Whose history | Each customer's own. Another customer, even with the same thread id, shares nothing |
-| Forgetting | The customer can delete all their history with one button, after being asked |
+| Hiding | The customer can hide their earlier conversations with one button, after being asked. **Nothing is deleted**: the rows stay in the database, because the bank keeps the record. Hidden conversations are not shown to the customer and the agent is not told of them |
 
 ## How it works
 
@@ -31,6 +31,7 @@ POST /api/chat ──► past conversations of this customer (not this thread) �
   neither be saved nor reach the next turn. The router and the skill that answers add it after their
   own prompt, under "Earlier conversations".
 * The turn is kept after the response (a background task), so keeping it never makes the customer wait.
+* The chat open on the screen is never hidden by the button: the web names it (`thread_id`).
 * What came of a card the customer pressed (`/api/actions/.../confirm` and `/cancel`) and what a person of
   the team answers from the console (`/api/crm/reply`) are added to the same conversation, and the
   conversation's result is updated: `done`, `cancelled`, `refused` or `handed_off`.
@@ -44,18 +45,19 @@ The customer is the one the token proves, never one the request names.
 |---|---|
 | `GET /api/me/conversations` | The customer's earlier conversations, the most recent first (at most 30) |
 | `GET /api/me/conversations/{id}` | One of them with its messages. 404 `unknown_conversation` if it is not theirs |
-| `DELETE /api/me/conversations` | Forgets all of them. Answers `{"deleted": n}` |
+| `DELETE /api/me/conversations` | Hides them (it is `DELETE` for the customer, who stops seeing them; the database keeps every row). `?thread_id=` names the chat that is open, which is left alone. Answers `{"hidden": n}` |
 
 ## Tables
 
 It reuses `ops.conversations` and `ops.messages`, which the schema already had and nothing used, and only
 **adds** columns ([003_chat_memory.sql](../../../app/adapters/outbound/postgres/migrations/003_chat_memory.sql);
-`schema.sql` holds the same statements and a test keeps them equal).
+`schema.sql` holds the same statements and a test keeps them equal; the same for 004).
 
 | Table | Added | Why |
 |---|---|---|
 | `ops.conversations` | `customer_id`, `title`, `skill`, `outcome`, `last_message_at` | The old table linked a conversation to a session, and the token login never writes sessions, so it had no customer |
 | `ops.messages` | `skill` | Which skill answered each message |
+| `ops.conversations` | `hidden_at` ([004](../../../app/adapters/outbound/postgres/migrations/004_chat_memory_hidden.sql)) | When the customer hid it. Empty: visible. The row and its messages stay |
 
 `conversation_id` is a UUID made from the customer **and** the thread (`uuid5`), so a thread id that someone
 else knows opens nothing of the customer's. Only text is kept: no photo and no audio (a photo without words
@@ -77,6 +79,19 @@ The heuristic is plain: the first thing asked, the last thing said if the conver
 differs, the skill that handled it, and how it ended (`answered`, `proposed`, `done`, `refused`,
 `cancelled`, `handed_off`). No model call is made to write it.
 
+## Who sees what
+
+| Who | Sees |
+|---|---|
+| The customer | Their own conversations that they have not hidden. Never another customer's |
+| The agent | A summary of the last 8 of those, other than the chat in progress |
+| Another customer who signs in afterwards on the same screen | Nothing of the previous one: what is loaded belongs to the customer it was loaded for, and the screen asks nothing with a token that is not that customer's |
+| The bank | Everything, hidden or not, in `ops.conversations` and `ops.messages` |
+
+To erase a customer's conversations for real (a request, or a retention policy), that is a decision of the
+bank, made in the database and not offered to the customer:
+`DELETE FROM ops.messages WHERE conversation_id IN (SELECT conversation_id FROM ops.conversations WHERE customer_id = '<ID>'); DELETE FROM ops.conversations WHERE customer_id = '<ID>';`
+
 ## Safety rules
 
 | Rule | Where |
@@ -89,7 +104,9 @@ differs, the skill that handled it, and how it ended (`answered`, `proposed`, `d
 | The outcome is one of six words; anything else is refused | `OUTCOMES`, `set_outcome`, `append_message` |
 | Only an assistant or a person of the team can be added to a conversation; never "customer" | `append_message` |
 | Saving never breaks the chat: a failure is logged and the turn goes on | `record_turn`, `past_for_agent` |
-| Never more than 8 conversations to the agent, nor 30 in the list | `MAX_PAST`, `MAX_LISTED` |
+| Never more than 8 conversations to the agent, nor more than 500 in the list (a ceiling, not a page) | `MAX_PAST`, `MAX_LISTED` |
+| A hidden conversation is not listed, not opened and not told to the agent, and keeps being recorded if the chat goes on | `hidden_at IS NULL` in `LIST`, `READ_HEADER`, `PAST` |
+| The screen asks the API only with the token of the customer it is for | `web/lib/use-history.ts` |
 | What the customer typed is text on the screen, never markup; a reply is Markdown without raw HTML | `web/components/history.tsx` |
 
 The operator console keeps its own mirror of live chats in memory; deleting a customer's history does not
@@ -100,18 +117,20 @@ touch it, because it is a tool of the bank and not something the customer keeps.
 In this order, so the API never reads columns that are not there:
 
 1. Merge the pull request. Nothing changes: the memory is off.
-2. Apply the migration to Cloud SQL (it only adds columns and indexes, and can be repeated):
+2. Apply the two migrations to Cloud SQL, in this order (they only add columns and indexes, and can be repeated):
 
    ```bash
    cloud-sql-proxy --gcloud-auth --port 5433 factored-510201:us-central1:factored-db   # another terminal
-   PGPASSWORD="$(gcloud secrets versions access latest --secret=factored-db-password --project=factored-510201)" \
-     psql -h localhost -p 5433 -U agent -d agent -v ON_ERROR_STOP=1 \
-     -f app/adapters/outbound/postgres/migrations/003_chat_memory.sql
+   for f in 003_chat_memory.sql 004_chat_memory_hidden.sql; do
+     PGPASSWORD="$(gcloud secrets versions access latest --secret=factored-db-password --project=factored-510201)" \
+       psql -h localhost -p 5433 -U agent -d agent -v ON_ERROR_STOP=1 \
+       -f app/adapters/outbound/postgres/migrations/$f
+   done
    ```
 
 3. Set the repository variable and deploy: `gh variable set CHAT_MEMORY_ENABLED --body true`, then run the
    deploy (a push to `main`, or the workflow by hand).
-4. Check it: sign in, write two messages, press "Nueva conversación"; the first should be in the list.
+4. Check it: sign in (the `Historial` button appears), write two messages, press "Nueva conversación"; the first should be in the list. Press "Ocultar mi historial" and it should go, and still be in the table.
 
 ## Going back
 
@@ -120,8 +139,7 @@ In this order, so the API never reads columns that are not there:
    The chat behaves as before and the tables are neither read nor written.
 2. To remove the code, `git revert` the merge of the pull request. The added columns can stay: nothing
    reads them.
-3. To forget what was stored:
-   `DELETE FROM ops.messages WHERE conversation_id IN (SELECT conversation_id FROM ops.conversations WHERE customer_id IS NOT NULL); DELETE FROM ops.conversations WHERE customer_id IS NOT NULL;`
+3. To erase what was stored, for everybody: `DELETE FROM ops.messages WHERE conversation_id IN (SELECT conversation_id FROM ops.conversations WHERE customer_id IS NOT NULL); DELETE FROM ops.conversations WHERE customer_id IS NOT NULL;`
 
 ## Tests
 
@@ -133,4 +151,4 @@ In this order, so the API never reads columns that are not there:
 | `tests/test_chat_memory_api.py` | The routes and the chat, with a fake store | nothing |
 | `tests/test_chat_memory_sql.py` | The store against Postgres | Postgres with the migration |
 | `tests/test_chat_memory_e2e.py` | The routes and the real store together | Postgres with the migration |
-| `web/tests/history.test.mjs` | The history components and the API client (`bash web/tests/run.sh`) | `npm ci` in `web/`; not run by the CI |
+| `web/tests/history.test.mjs` | The history components, the panel, the hook that wires them to the session (`useHistory`) and the API client (`bash web/tests/run.sh`) | `npm ci` in `web/`; not run by the CI |

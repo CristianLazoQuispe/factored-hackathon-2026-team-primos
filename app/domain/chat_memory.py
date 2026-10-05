@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 MAX_PAST = 8  # earlier conversations the agent is told about
-MAX_LISTED = 30  # earlier conversations the customer sees
+MAX_LISTED = 500  # earlier conversations the customer sees: all of them, up to a ceiling for safety
 MAX_STORED = 2000  # characters kept of one message
 MAX_TITLE = 80
 MAX_QUOTED = 160  # characters of a question quoted to the agent

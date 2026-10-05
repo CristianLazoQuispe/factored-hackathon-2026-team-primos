@@ -508,14 +508,15 @@ async def my_conversation(
 
 
 @app.delete("/api/me/conversations")
-async def forget_my_conversations(
+async def hide_my_conversations(
     token_customer_id: Annotated[str | None, Depends(token_customer)],
     customer_id: str | None = None,
+    thread_id: str | None = None,  # the chat open on their screen: it is not hidden
 ) -> dict:
-    """Forget everything kept of this customer's conversations. The chat open on their screen is
-    not touched; the next message starts it again."""
+    """Take the customer's earlier conversations out of their sight and out of what the agent is
+    told. Nothing is deleted: the bank keeps the record. Another customer never sees them either."""
     customer = memory_customer(token_customer_id, customer_id)
-    return {"deleted": await memory_store.delete_history(customer)}
+    return {"hidden": await memory_store.hide_history(customer, thread_id)}
 
 
 class Transcript(BaseModel):
