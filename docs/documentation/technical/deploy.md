@@ -124,6 +124,10 @@ What a deploy does **not** do:
 - It does not touch the database. A change in `schema.sql` reaches Cloud SQL only with
   `make etl-cloud CONFIRM=yes`, which rebuilds and replaces `core`. New code reads the new columns,
   so run it **before** merging the change to `main`, and coordinate first.
+  Khipear is such a change: it needs `core.products.account_number` and `ops.transfers`. The
+  workflow deploys with `KHIPU_ENABLED=false` unless the repository variable `KHIPU_ENABLED` is
+  `true`: off, the skill is not offered and a transfer is refused as before. Set the variable
+  only after the reload; on without it, a transfer ends in a hand-off.
 - It does not create secrets such as `jwt-secret` or `operator-key`.
 - It **replaces** every environment variable of `factored-api`. A variable added by hand in the console
   is lost on the next deploy: add it to `.github/workflows/deploy.yml`.
@@ -229,6 +233,12 @@ curl -s $API/api/chat -H "Authorization: Bearer $TOKEN" -H 'content-type: applic
 Without a token `/api/chat` answers `401`; a wrong email or password gets `401` from `/api/auth/token`, and the ninth try in a minute gets `429`. In Swagger (`$API/docs`) paste the token in **Authorize**.
 
 ## Known limits (state them in the submission)
+
+- **Khipear writes to the stand-in core.** A confirmed transfer changes balances and adds
+  movements in `core`, the team's copy of the bank's data, not in a core banking system, and
+  `make etl-cloud` undoes them (`ops.transfers` keeps the record). The limits to another customer
+  (USD 1,000 per operation, USD 3,000 per day) are a team assumption, set with
+  `KHIPU_LIMIT_PER_OPERATION_USD` and `KHIPU_LIMIT_PER_DAY_USD`.
 
 - **`--max-instances 1`.** Conversation memory is an in-process `InMemorySaver`: with two instances a
   customer's thread would vanish between requests. Real fix: a Postgres checkpointer.
