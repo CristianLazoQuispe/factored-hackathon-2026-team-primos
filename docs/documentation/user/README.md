@@ -5,7 +5,7 @@ A customer-service assistant for a Latin American bank. You chat with it in **Sp
 ## Open it
 
 - **Local:** `cp .env.example .env && make up`, then open http://localhost:3000 and press **Hablar con Quipu**, or go straight to http://localhost:3000/chat (see the [root README](../../../README.md)).
-- **Sign in:** at the top of the chat, one of the eight demo emails and its password from the [root README](../../../README.md). That starts the session. **Salir** ends it.
+- **Sign in:** at the top of the chat, a customer ID from the list the field offers (the password is the same ID), or one of the eight demo emails from the [root README](../../../README.md). To try khipear, sign in as `DEMO-MX-KHIPU`: it has two accounts, a credit card and a loan. That starts the session. **Salir** ends it.
 
 ## What you can ask today
 
@@ -34,17 +34,17 @@ You can also **talk to it**: click the large microphone under Quipu's avatar, sa
 
 When actions are on, **Mensajes** at the top of the chat shows what the system sent you. In the demo nothing goes to a real address: a message either stays in that tray (it says *simulado · no se envió*) or goes to a demo inbox of the team (it says *aceptado por el servidor*, never "delivered", because that cannot be checked).
 
-Under each answer, small labels show what the assistant used (for example `balance_inquiry` and `get_balances`) or that you were transferred to a person. **Mis finanzas**, next to the chat, shows a summary of your spending; for now it is a sample with fixed figures, and so is the chart that answers *¿En qué gasto más?*.
+Under each answer, small labels show what the assistant used (for example `balance_inquiry` and `get_balances`) or that you were transferred to a person. **Mis finanzas**, next to the chat, shows a summary of your own spending, from the bank's data, and so does the chart that answers *¿En qué gasto más?*.
 
 ## Your data and safety
 
 - The assistant only sees the accounts of the customer in the session. It cannot show another customer's data, even if you ask for it by ID.
 - It never asks for passwords, OTP codes or full card numbers, and never sends links.
-- If you don't give a customer ID, it asks for it and checks that it exists before answering.
+- Where there is no sign-in (Telegram), it asks for your customer ID and checks that it exists before answering.
 
 ## Current limits
 
-- **It never moves money on its own, and never refunds.** A transfer or payment is only prepared (khipear, below) and runs when you press Confirmar. With actions off (the default) it is read-only: it looks things up and offers a person. With actions on it can, after you confirm, block or cancel a card, open an inquiry, ask for a call, set an alert and email you a summary; a card whose balance is owed, or that the bank itself blocked, is never cancelled by it and goes to a person.
+- **It never moves money on its own, and never refunds.** A transfer or payment is only prepared (khipear, below) and runs when you press Confirmar. With actions off (the default) it looks things up, prepares transfers and payments, and offers a person for the rest. With actions on it can, after you confirm, block or cancel a card, open an inquiry, ask for a call, set an alert and email you a summary; a card whose balance is owed, or that the bank itself blocked, is never cancelled by it and goes to a person.
 - **Moving money (khipear)** works in the web chat only, between accounts in the same currency, and always needs your click on Confirmar within 5 minutes. To another customer you give their account number or customer ID; there is a limit of USD 1,000 per operation and USD 3,000 per day (values chosen by the team). Writing or saying "sí" confirms nothing.
 - **A snapshot, not live data.** The data ends on 18 June 2026, so "this month" means the last month in the data.
 - **Response time:** a few seconds with the local model (Ollama), faster with Gemini.

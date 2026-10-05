@@ -1,8 +1,9 @@
 # Deploy: GitHub Actions → Cloud Run
 
 Every push to `main` runs lint and tests, then the [eval gate](#the-eval-gate), then deploys the two
-Cloud Run services that the team already uses, with the same steps as `make deploy-api` and
-`make deploy-web`:
+Cloud Run services that the team already uses, with the same build and deploy as `make deploy-api` and
+`make deploy-web`, plus the feature flags and mail settings, which only the workflow sets (a deploy by
+hand with `make deploy-api` leaves them at the code's defaults, so khipear would be on):
 
 | Service | Image | What it is |
 |---|---|---|
@@ -24,7 +25,9 @@ anywhere. Settings live in repository *variables*; there are no GitHub secrets.
   `aiplatform.user` (so it can read every secret and call Gemini through Vertex AI: no API key).
 - Secrets `factored-database-url`, `factored-db-password`, `jwt-secret` (signs the bearer tokens) and
   `operator-key` (opens the operator console; read it with
-  `gcloud secrets versions access latest --secret operator-key`).
+  `gcloud secrets versions access latest --secret operator-key`). The deploy also mounts
+  `langfuse-public-key`, `langfuse-secret-key` and `factored-smtp-password`: they must exist, even
+  while mail is simulated.
 - Secrets `langfuse-public-key` and `langfuse-secret-key`: the API keys of the team's project in
   Langfuse Cloud (US region, `https://us.cloud.langfuse.com`), where the agent's traces go. To use
   another Langfuse project, add a new version to both secrets and redeploy.
@@ -91,7 +94,8 @@ to another repository, repeat the last `add-iam-policy-binding` with the new `GH
 provider condition with `gcloud iam workload-identity-pools providers update-oidc github-provider
 --location=global --workload-identity-pool=github --attribute-condition="assertion.repository=='NEW/REPO'"`.
 
-**4. GitHub variables.** Six of them. With the GitHub CLI (needs `brew install gh` and `gh auth login`;
+**4. GitHub variables.** Six are required; six more are optional (`ACTIONS_ENABLED`, `KHIPU_ENABLED`,
+`MAIL_MODE`, `MAIL_FROM`, `SMTP_USER`, `DEMO_INBOXES`), each off or empty when unset. With the GitHub CLI (needs `brew install gh` and `gh auth login`;
 repository admin rights):
 
 ```bash
@@ -101,11 +105,11 @@ gh variable set GCP_REGION         --repo $R --body "us-central1"
 gh variable set CLOUD_SQL_INSTANCE --repo $R --body "factored-db"
 gh variable set GCP_DEPLOYER_SA    --repo $R --body "gh-deployer@factored-510201.iam.gserviceaccount.com"
 gh variable set GCP_WIF_PROVIDER   --repo $R --body "projects/531756916664/locations/global/workloadIdentityPools/github/providers/github-provider"
-gh variable set DEMO_CUSTOMER_IDS  --repo $R --body "DEMO-MX-DUPLICATE,DEMO-CO-PENDING,DEMO-MX-FX,DEMO-BR-PORTUGUESE,DEMO-AR-FRAUD,CLI-J0N40EZVP1P6,CLI-XKD238N6EUVH,CLI-AGDPF9SUW2Q4"
+gh variable set DEMO_CUSTOMER_IDS  --repo $R --body "DEMO-MX-DUPLICATE,DEMO-CO-PENDING,DEMO-MX-FX,DEMO-BR-PORTUGUESE,DEMO-AR-FRAUD,CLI-J0N40EZVP1P6,CLI-XKD238N6EUVH,CLI-AGDPF9SUW2Q4,DEMO-MX-KHIPU"
 gh variable list --repo $R
 ```
 
-`DEMO_CUSTOMER_IDS` is the list `GET /api/demo-customers` returns. Login is the eight demo emails in the root README, not this list.
+`DEMO_CUSTOMER_IDS` is the list `GET /api/demo-customers` returns and the IDs that can sign in (the password is the same ID); the eight demo emails in the root README sign in too. `DEMO-MX-KHIPU` is the customer with accounts for khipear, and it only signs in by ID.
 
 ## Day to day
 
@@ -127,7 +131,8 @@ What a deploy does **not** do:
   Khipear is such a change: it needs `core.products.account_number` and `ops.transfers`. The
   workflow deploys with `KHIPU_ENABLED=false` unless the repository variable `KHIPU_ENABLED` is
   `true`: off, the skill is not offered and a transfer is refused as before. Set the variable
-  only after the reload; on without it, a transfer ends in a hand-off.
+  only after the reload; on without it, a transfer fails (the tool errors on the missing table and column) and the
+  customer gets no proposal.
 - It does not create secrets such as `jwt-secret` or `operator-key`.
 - It **replaces** every environment variable of `factored-api`. A variable added by hand in the console
   is lost on the next deploy: add it to `.github/workflows/deploy.yml`.
@@ -255,7 +260,7 @@ Without a token `/api/chat` answers `401`; a wrong email or password gets `401` 
   container starts (5-10 s), so that no spoken message waits for them.
 - **One shared operator key.** Whoever has `OPERATOR_KEY` reads every chat; there are no operator
   accounts. Telegram chats do not reach the console.
-- **The token endpoint checks a demo password.** Five synthetic emails; the password is that same email. Three wrong passwords lock that account for 15 minutes. Eight tries per minute per client, then `429`. The lock lives in the API process, not in the database. In production the bank's identity provider replaces it; the rest stays. The Telegram webhook has its own secret.
+- **The token endpoint checks a demo password.** Eight synthetic emails and the IDs in `DEMO_CUSTOMER_IDS`; the password is that same text. Three wrong passwords lock that account for 15 minutes. Eight tries per minute per client, then `429`. The lock lives in the API process, not in the database. In production the bank's identity provider replaces it; the rest stays. The Telegram webhook has its own secret.
 - **Conversations are keyed by customer**, so nobody can continue another customer's thread.
 - **`/docs` (Swagger) is public.**
 - **Cloud SQL has a public IP** (`ipv4Enabled`); the app reaches it through the Cloud SQL socket.

@@ -1,6 +1,6 @@
 # MCP Tools
 
-What the agent can look up, and the one thing it can prepare (a money movement), tool by tool. Each skill of the agent has one MCP server (FastMCP, in `app/adapters/inbound/mcp/`); the server's tools run reviewed SQL over the `core` schema ([data model](../data/model.md)). Only one tool, `run_sql`, runs SQL written by the model, and it is the fallback.
+What the agent can look up, and what it can prepare for the customer to confirm (account actions and money movements), tool by tool. Each skill of the agent has one MCP server (FastMCP, in `app/adapters/inbound/mcp/`); the server's tools run reviewed SQL over the `core` schema ([data model](../data/model.md)). Only one tool, `run_sql`, runs SQL written by the model, and it is the fallback.
 
 | Skill (what the router picks) | Server | Tools | Page |
 |---|---|---|---|
@@ -28,8 +28,7 @@ What the agent can look up, and the one thing it can prepare (a money movement),
 ## Rules every tool follows
 
 - **No tool takes `customer_id`.** The agent passes the authenticated customer in the MCP request `meta` and the tool reads it with `session_customer(ctx)`. The model can neither see nor change whose data is read, and a call without a session customer is an error. Every query filters by that customer inside the SQL.
-- **Read-only.** No tool moves money or changes a record. The one exception in kind is `propose_actions`, which only *stores a proposal* in `ops.actions`: it runs when the customer confirms it in the app, never by the model ([actions](../actions.md)).
-- **`propose_transfer` is the other exception:** it stores a proposal in `ops.transfers` and changes no balance. Money moves only when the customer presses Confirmar on their screen ([transfers.md](transfers.md)).
+- **No tool executes anything.** Every tool reads, except two that store a proposal and nothing else: `propose_actions` (in `ops.actions`, [actions](../actions.md)) and `propose_transfer` (in `ops.transfers`, [transfers.md](transfers.md)). A proposal runs only when the customer confirms it on their screen, never by the model.
 - **An unknown is never a zero.** A value the database did not return is left out of the result. A lookup that failed is listed under `unavailable` (or counted in `not_checked`). `found: false` and an empty list mean the lookup ran and found nothing.
 - **Currencies are never added together.** Totals come per currency.
 - **"The last N days" counts back from the dataset's last day,** the same day for every customer, not from today: the dataset is a snapshot that ends on 2026-06-18.
@@ -42,8 +41,8 @@ What the agent can look up, and the one thing it can prepare (a money movement),
 | Piece | Path |
 |---|---|
 | Tools (signatures, docstrings the model reads) | `app/adapters/inbound/mcp/<server>.py` |
-| Reviewed SQL | `app/adapters/outbound/postgres/{accounts,spending,investigation,transfers}.py` |
-| Use cases that combine several lookups | `app/application/{spending,investigate,run_sql,transfers}.py` |
+| Reviewed SQL | `app/adapters/outbound/postgres/{accounts,spending,investigation,transfers,actions}.py` |
+| Use cases that combine several lookups | `app/application/{spending,investigate,run_sql,transfers,actions}.py` |
 | Pure rules (totals, change vs. the period before, evidence facts, SQL scoping) | `app/domain/` |
 | When to use each tool, in the model's words | `app/adapters/inbound/agent/skills/<skill>/SKILL.md` |
 | Registration of the servers | `SERVERS` in `app/adapters/inbound/agent/mcp_bridge.py` |
@@ -63,4 +62,4 @@ async with Client(accounts.mcp) as client:
     print(result.structured_content)
 ```
 
-Tests: `tests/test_accounts.py`, `tests/test_spending.py` and `tests/test_investigate.py` (fake database), and `tests/test_spending_sql.py`, `tests/test_investigate_sql.py`, `tests/test_dwh_sql.py` (the real demo data, skipped unless Postgres is up). To add a tool or a skill, see "Add a skill" in the [root README](../../../../README.md).
+Tests: `tests/test_accounts.py`, `tests/test_spending.py` and `tests/test_investigate.py` (fake database), and `tests/test_spending_sql.py`, `tests/test_investigate_sql.py`, `tests/test_dwh_sql.py` (the real demo data, skipped unless Postgres is up). Khipear: `tests/test_transfers.py`, `tests/test_khipu_flow.py`, `tests/test_transfers_sql.py`. Actions: `tests/test_actions_*.py`. To add a tool or a skill, see "Add a skill" in the [root README](../../../../README.md).

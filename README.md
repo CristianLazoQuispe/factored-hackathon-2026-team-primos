@@ -5,13 +5,15 @@ AI-first banking customer-service agent for the Factored AI & Data Hackathon 202
 **What it does.** A customer talks to **quipu**, typed or spoken, in Spanish or Portuguese. It answers from the
 bank's own data (balances, debts, spending, a charge they do not recognise, even from a photo of the
 statement), and, when the deployment turns it on, it can **act**: block or cancel a card, open a payment
-inquiry, ask for a call, set an alert, email a summary. It was built on four rules:
+inquiry, ask for a call, set an alert, email a summary. It can also prepare a transfer or a payment that the customer
+confirms (khipear). It was built on four rules:
 
 1. **The model never does anything.** It understands the request and proposes. What is allowed is decided by
    code, from the customer's data, and the customer confirms with a button.
 2. **Nothing is reported as done until the system has read it back.** The sentence on the card is written by
    code from what was stored and verified, never by the model.
-3. **Money is never moved.** Transfers and payments are refused; refunds, changes of phone or email, higher
+3. **Money moves only on the customer's button.** A transfer or a payment is prepared by khipear and
+   runs when the customer presses Confirmar; refunds, changes of phone or email, higher
    limits and new cards go to a person with the case already written.
 4. **It says how well it works.** The actions have their own evaluation, with held-out scenarios, a
    baseline, and the failures listed: see [Evaluation of the actions](#evaluation-of-the-actions).
@@ -45,12 +47,12 @@ No keys needed: it runs on Ollama (`qwen3.5:4b`) and a committed data sample.
 |---|---|---|
 | `/` | Landing | Static |
 | `/chat` | The customer's chat, typed or spoken | Real: the agent |
-| `/mis-finanzas` | The customer's spending | Sample (`web/lib/profile.ts`) |
+| `/mis-finanzas` | The customer's spending | Real: `GET /api/me/finances` (Postgres) |
 | `/consola` | The team's console: every chat, take one over, give it back (needs `OPERATOR_KEY`) | Real: the API's memory |
 | `/consola/perfil` | A customer's 360 profile | Sample (`web/lib/profile.ts`) |
 | `/consola/gerencia` | Management dashboard | Sample (`web/lib/ops.ts`) |
 
-The sample pages show the idea with fixed figures until the API serves them. In `/chat`, sign in with one of the eight demo emails and its password (the UI asks `POST /api/auth/token` and keeps the short-lived bearer token). The agent handles **balances**, **charges you don't recognize** and **questions about your own data**:
+The pages marked Sample show the idea with fixed figures until the API serves them. In `/chat`, sign in with a customer ID from `DEMO_CUSTOMER_IDS` (the password is the same ID) or one of the eight demo emails below (the UI asks `POST /api/auth/token` and keeps the short-lived bearer token). The agent handles **balances**, **charges you don't recognize** and **questions about your own data**, and prepares **transfers and payments** (khipear; try it as `DEMO-MX-KHIPU`, who has two accounts, a card and a loan, with `DEMO-MX-RECIBE` to receive):
 
 | Ask | What happens |
 |---|---|
@@ -64,10 +66,10 @@ The sample pages show the idea with fixed figures until the API serves them. In 
 | `¿y la de débito?` | Follows up in the same conversation |
 | `quiero hablar con una persona` | Handoff to a human, decided by code with no LLM call |
 | `¿me recomiendas una hipoteca?` | Short out-of-scope answer |
-| Empty Customer ID | The agent asks for it and validates it against the database |
+| No customer ID (Telegram, or `curl` locally without a token) | The agent asks for it and validates it against the database |
 | Click the **microphone**, speak in Spanish or Portuguese, click again | faster-whisper transcribes it and the agent answers as above. With the **Silencio** button switched to **Voz**, Kokoro also reads the answer aloud |
 
-The API is `POST /api/chat {message, thread_id?, image?, image_type?}`. Outside `APP_ENV=local` it needs `Authorization: Bearer <token>`. `POST /api/auth/token` takes `{email, password}` and the password is that same email. The customer is the token's, never the body's. Locally `curl` can still send `customer_id` in the body without a token. Swagger: http://localhost:8080/docs.
+The API is `POST /api/chat {message, thread_id?, image?, image_type?}`. Outside `APP_ENV=local` it needs `Authorization: Bearer <token>`. `POST /api/auth/token` takes `{user, password}`: `user` is an ID in `DEMO_CUSTOMER_IDS` or a demo email, and the password is that same text (`email` is still accepted as the field name). The customer is the token's, never the body's. Locally `curl` can still send `customer_id` in the body without a token. Swagger: http://localhost:8080/docs.
 
 The password of each account is the email itself. The statement images are in `web/public/casos/`. In `/chat`, sign in, attach that customer's image with the clip, and write the question. The text is required: the photo alone is not sent.
 
@@ -114,7 +116,8 @@ before. With them on, the agent **proposes** and the customer **confirms**:
 | Ask for a call | button | Morning, afternoon or evening |
 | Set an alert | button | Duplicate charge, or a payment about to fall due |
 | Email a summary | none | Balances, payment status or the receipt of an inquiry |
-| Transfer, pay, refund, change phone or email, raise a limit, new card | never automated | Refused, or sent to a person with the case |
+| Refund, change phone or email, raise a limit, new card | never automated | Sent to a person with the case |
+| Transfer, pay | not one of these actions | Goes to khipear, which prepares it for the customer to confirm; refused only with `KHIPU_ENABLED=false` |
 
 The cycle is propose, confirm, execute (retried up to three times), **verify** by reading the result back, and
 audit. Three independent locks keep it to signed-in customers (the router, the skill, and the tools). A
@@ -158,8 +161,8 @@ uv run python -m evals.actions.run --baseline --repeats 1              # the age
 uv run python -m evals.actions.run --split heldout --repeats 3         # held-out: once, blind
 ```
 
-It needs the demo database, the actions migration and Gemini (`LLM_PROVIDER=google_genai`); it builds
-`DEMO-EVL-*` customers for each scenario and removes them. `make test` runs the 940 tests.
+It needs the demo database, the actions migration and a model (Gemini with `LLM_PROVIDER=google_genai`, or Ollama); it builds
+`DEMO-EVL-*` customers for each scenario and removes them. `make test` runs the 990 tests.
 
 ## More
 
@@ -172,12 +175,12 @@ It needs the demo database, the actions migration and Gemini (`LLM_PROVIDER=goog
 
 ## Add a skill
 
-1. Create `app/adapters/inbound/agent/skills/<name>/SKILL.md` with frontmatter `name`, `description` (the router picks skills by it) and `mcp` (the server name), followed by the instructions.
+1. Create `app/adapters/inbound/agent/skills/<name>/SKILL.md` with frontmatter `name`, `description` (the router picks skills by it) and `mcp` (the server name), followed by the instructions. Optional: `sign_in: true` (only for a customer the token proved), `requires: actions` (only with `ACTIONS_ENABLED`; also needs sign-in) and `setting: <flag>` (the skill is left out when that setting is false).
 2. Add the tools as a FastMCP server in `app/adapters/inbound/mcp/<server>.py`. Read the customer with `session_customer(ctx)` and **never take `customer_id` as a tool argument**.
 3. Register the server in `SERVERS` (`app/adapters/inbound/agent/mcp_bridge.py`).
 4. Add a route test in `tests/test_agent_graph.py`.
 
-The graph doesn't change. Persona and scope live in `app/adapters/inbound/agent/AGENT.md`. Every tool that exists today is described in [docs/documentation/technical/mcp/](docs/documentation/technical/mcp/README.md).
+The graph doesn't change for a skill that only reads. Persona and scope live in `app/adapters/inbound/agent/AGENT.md`. Every tool that exists today is described in [docs/documentation/technical/mcp/](docs/documentation/technical/mcp/README.md).
 
 ## Let the SQL agent read a new table
 
@@ -185,7 +188,7 @@ The graph doesn't change. Persona and scope live in `app/adapters/inbound/agent/
 
 ## Deploy to GCP
 
-`factored-api` (FastAPI + agent, root `Dockerfile`) and `factored-web` (static Next.js on nginx, `web/Dockerfile`) run on Cloud Run in `us-central1`; the API reads Cloud SQL (Postgres 16, instance `CLOUD_SQL_INSTANCE`) through the Cloud SQL connector and calls Gemini on Vertex AI. Set `GCP_ACCOUNT`, `GCP_PROJECT_ID` and `CLOUD_SQL_INSTANCE` in `.env`.
+`factored-api` (FastAPI + agent, root `Dockerfile`) and `factored-web` (static Next.js on nginx, `web/Dockerfile`) run on Cloud Run in `us-central1`; the API reads and writes Cloud SQL (Postgres 16, instance `CLOUD_SQL_INSTANCE`) through the Cloud SQL connector and calls Gemini on Vertex AI. Set `GCP_ACCOUNT`, `GCP_PROJECT_ID` and `CLOUD_SQL_INSTANCE` in `.env`.
 
 One-time setup (project owner):
 
@@ -193,7 +196,7 @@ One-time setup (project owner):
 2. Create the Docker repository `factored` in Artifact Registry, and give the Compute default service account (Cloud Build) `artifactregistry.writer`, `logging.logWriter` and `storage.objectViewer`.
 3. Create the Cloud SQL instance, the database `agent` and the user `agent`. Store the password in the secret `factored-db-password` and the URL `postgresql://agent:PASSWORD@/agent?host=/cloudsql/PROJECT:REGION:INSTANCE` in `factored-database-url`.
 4. Create the service account `factored-api` with `cloudsql.client`, `aiplatform.user` and `secretmanager.secretAccessor`.
-5. Create the secret `jwt-secret` (`openssl rand -hex 32`): the key that signs the API's bearer tokens. The API does not start without it.
+5. Create the secrets `jwt-secret` (signs the API's bearer tokens) and `operator-key` (opens the operator console), both with `openssl rand -hex 32`: the API does not start without them. The deploy also mounts `langfuse-public-key`, `langfuse-secret-key` and `factored-smtp-password`, so they must exist (the SMTP one may hold a placeholder while `MAIL_MODE=simulated`).
 6. Load the data (this replaces `core`): in one terminal `make db-proxy` ([cloud-sql-proxy](https://cloud.google.com/sql/docs/postgres/sql-proxy)), in another `make etl-cloud CONFIRM=yes`. It runs the whole ETL on the dataset in `data/raw` and leaves its report in `docs/documentation/technical/data/quality_report_full.json`.
 
 From there GitHub deploys: every push to `main` runs the tests and then deploys both services (`.github/workflows/deploy.yml`). Do not run `make deploy*` by hand (the last deploy wins) and never `make etl-cloud` on the shared database without telling the team: it replaces `core`. Setup, rollback and limits: [deploy.md](docs/documentation/technical/deploy.md). The API runs with `--max-instances 1` because conversation memory is in process.
@@ -201,8 +204,8 @@ From there GitHub deploys: every push to `main` runs the tests and then deploys 
 ## Repo map
 
 ```
-app/adapters/inbound/agent/   agent graph (guard → router → skill_agent → handoff), AGENT.md, skills/
-app/adapters/inbound/mcp/     FastMCP servers (one per skill; `actions.py` proposes, never executes)
+app/adapters/inbound/agent/   agent graph (guard → router → skill_agent / refuse → handoff), AGENT.md, skills/
+app/adapters/inbound/mcp/     FastMCP servers (one per skill; `actions.py` and `transfers.py` propose, never execute)
 app/domain/                   the rules: actions policy, risk signals, routing, texts, claims
 app/application/actions.py    the gateway: propose, confirm, execute, verify, audit
 app/adapters/outbound/        Postgres queries + schema.sql, LLM factory

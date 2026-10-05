@@ -22,3 +22,5 @@ ADR 0001 shipped one image: FastAPI served the static Next.js build. The team wa
 - Two deploys, and CORS must list the web URL (`make deploy-web` sets it).
 - Conversation memory is in process (`InMemorySaver`), so the API runs with `--max-instances 1` until the checkpointer moves to Postgres.
 - `/api/demo-customers` is local-only, so on the deployed web the customer ID is typed by hand.
+  (Changed later: the route is served wherever `DEMO_CUSTOMER_IDS` is set, and the sign-in field
+  offers that list.)

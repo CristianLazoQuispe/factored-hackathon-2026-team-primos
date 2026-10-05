@@ -26,7 +26,7 @@ demand; they do not prove that a failed transfer causes a contact.
 
 ## Decision
 
-A fourth skill, `money_movement`, lets the customer khipear in three ways.
+A new skill, `money_movement`, lets the customer khipear in three ways.
 
 | Operation (`kind`) | From | To |
 |---|---|---|
@@ -161,8 +161,8 @@ transfer API instead.
   router call; the confirmation makes no model call.
 - **Human oversight:** every step is in `ops.decision_log` and `ops.transfers`; the operator
   console can show pending and executed operations later.
-- **Channels:** Telegram has no confirmation card, so it answers that khipear is available in the
-  web chat and the proposal expires. With the voice on, the web shows the same card; a spoken "sí"
+- **Channels:** Telegram has no signed-in session, so a transfer request there gets the sign-in
+  message and nothing is proposed. With the voice on, the web shows the same card; a spoken "sí"
   never confirms.
 - **Demo data:** two team fixtures, `DEMO-MX-KHIPU` (two accounts, a credit card and a loan) and
   `DEMO-MX-RECIBE` (who receives), because the eight dispute scenarios have no accounts.

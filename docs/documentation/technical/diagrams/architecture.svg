@@ -49,13 +49,13 @@
   <path class="edge" d="M820,409 V261 H869" marker-end="url(#arrow)"/>
   <path class="edge" d="M820,335 H869" marker-end="url(#arrow)"/>
   <path class="edge" d="M820,409 H869" marker-end="url(#arrow)"/>
-  <path class="edge soon" d="M820,409 V483 H869" marker-end="url(#arrow)"/>
+  <path class="edge" d="M820,409 V483 H869" marker-end="url(#arrow)"/>
   <path class="edge soon" d="M820,483 V557 H869" marker-end="url(#arrow)"/>
   <!-- tools → Postgres -->
   <path class="edge" d="M1090,261 H1140 V335"/>
   <path class="edge" d="M1090,335 H1189" marker-end="url(#arrow)"/>
   <path class="edge" d="M1090,409 H1140 V335"/>
-  <path class="edge soon" d="M1090,483 H1140 V409"/>
+  <path class="edge" d="M1090,483 H1140 V409"/>
   <path class="edge" d="M1310,500 V422" marker-end="url(#arrow)"/>
   <!-- backend → models -->
   <path class="edge" d="M420,546 V704" marker-end="url(#arrow)"/>
@@ -112,8 +112,9 @@
   <rect class="built" x="870" y="378" width="220" height="62" rx="4"/>
   <text class="name" x="980" y="405">Charge investigation</text>
   <text class="note" x="980" y="423">unrecognized or duplicate charges</text>
-  <rect class="planned" x="870" y="452" width="220" height="62" rx="4"/>
-  <text class="name soon" x="980" y="488">Disputes · cards</text>
+  <rect class="built" x="870" y="452" width="220" height="62" rx="4"/>
+  <text class="name" x="980" y="479">Actions · khipear</text>
+  <text class="note" x="980" y="497">cards · inquiries · transfers, confirmed</text>
   <rect class="planned" x="870" y="526" width="220" height="62" rx="4"/>
   <text class="name soon" x="980" y="553">Documents</text>
   <text class="note" x="980" y="571">OCR</text>
@@ -124,7 +125,7 @@
   <text class="name" x="1310" y="310">Postgres</text>
   <text class="note" x="1310" y="333">core: customers · products · transactions</text>
   <text class="note" x="1310" y="349">billing · complaints · fx_rates</text>
-  <text class="note" x="1310" y="372">ops: decision_log (audit)</text>
+  <text class="note" x="1310" y="372">ops: audit · actions · transfers</text>
   <rect class="built" x="1190" y="500" width="240" height="70" rx="4"/>
   <text class="name" x="1310" y="524">Data pipeline</text>
   <text class="note" x="1310" y="542">S3 → bronze → silver</text>
