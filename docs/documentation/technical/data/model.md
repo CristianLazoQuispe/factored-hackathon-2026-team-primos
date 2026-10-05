@@ -14,7 +14,8 @@ The brief asks to label every input. Each table carries its provenance as a `COM
 | `app_sessions` | one row per app/web session | derived from the organizer's `digital_events` |
 | `customer_service_summary` | one row per customer: contacts, escalations, open complaints, last CSAT | derived from the organizer's interactions, complaints and surveys |
 | `billing` | one row per credit card and loan: statement date, due date, statement balance, minimum payment or installment, past-due amount | **team-generated** by a fixed rule (below) |
-| rows with `is_synthetic_fixture = true` | the 8 demo customers and their dispute scenarios | **team-generated** (`fixtures.py`) |
+| rows with `is_synthetic_fixture = true` | the 8 demo customers and their dispute scenarios, and the 2 khipear customers (`DEMO-MX-KHIPU` with two accounts, a card and a loan; `DEMO-MX-RECIBE`, who receives) | **team-generated** (`fixtures.py`) |
+| movements whose `transaction_id` starts with `KHP-` | the two movements of each transfer or payment the customer confirmed | **written by the application** (khipear), gone at the next load |
 
 Not loaded: `call_transcripts`, `call_center_interactions` and `satisfaction_surveys`. Their text is templates (every transcript still has `{monto}` placeholders) and the survey scores do not follow their own scales, so the agent only gets what the summary aggregates from them. `service_agents` and `branches` are not loaded either: no question uses them.
 
@@ -35,4 +36,7 @@ The load refuses to run if a past-due product's due date disagrees with its `day
 - **No aggregate tables.** Over the 12-month window a customer has at most 56 transactions (median 10), so spending by category, by merchant or by month is computed on read through the `(customer_id, transaction_date)` index.
 - **`fx_rates` has no foreign key.** It is reference data, looked up by currency and date.
 - **Source relations that are broken are not modelled.** In the organizer's data a complaint's `affected_product_id` never belongs to the complaining customer, the products mentioned in a call almost never exist, and a customer's registration branch almost never matches a branch. No tool reads those columns.
-- **`ops` is separate from `core`.** `core` is rebuilt by every load; `ops` is written by the agent (today only `ops.decision_log`, the audit trail) and never reloaded.
+- **`ops` is separate from `core`.** `core` is rebuilt by every load; `ops` is written by the agent and never reloaded: `ops.decision_log` (the audit trail), `ops.transfers` (khipear) and the tables of the action gateway ([actions.md](../actions.md)).
+- **`products.account_number` exists only for savings and checking accounts.** It is the organizer's full `product_number`, kept so that a transfer can name the account that receives it. A card's or a loan's number is never loaded: those keep only `product_number_last4`.
+- **Khipear is the one writer of `core`.** A confirmed transfer or payment changes `current_balance` on two products and adds two rows to `transactions`, in one database transaction ([ADR 0004](../adr/0004-khipear-money-movement.md)). `ops.transfers` holds the operation through its life: `proposed`, then `executed`, `cancelled`, `expired` or `blocked`. A load puts `core` back to the dataset's state and leaves `ops.transfers` as the trail.
+- **A khipear movement is dated at the dataset's last moment, not today.** Every "last N days" counts back from `max(transaction_date)`; a movement dated today would empty those windows.

@@ -11,7 +11,7 @@ team wants the agent to operate, not only to answer, and to give the operation a
 with the agent.
 
 The data supports making this the next feature (see
-[EDA 02](../../../../notebooks/EDA/02.EDA_Transactions_campaign_sends.ipynb), 3 years of the
+[the findings of EDA 02](../../../strategy_analysis_01/13_transactions_campaigns_findings.md), 3 years of the
 organizer's dataset):
 
 | Fact | Value |
