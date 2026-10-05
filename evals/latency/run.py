@@ -6,7 +6,10 @@ It signs in once as one customer, sends each message in a new conversation and t
 round trip of POST /api/chat, as the web chat sees it. A reply that leaves a proposal is cancelled
 with the Cancelar button, which is timed too (no model runs there): nothing moves, so the run can
 be repeated. The table also shows the skill and the tools of each reply, so a request that was
-routed somewhere else is visible. The messages name the accounts of DEMO-MX-KHIPU.
+routed somewhere else is visible. A turn that ended in a hand-off (the model was unavailable, for
+example a 429 from the provider) is counted as such and left out of the percentiles; `--pause`
+waits between messages to stay under the provider's rate limit. The messages name the accounts
+of DEMO-MX-KHIPU.
 """
 
 import argparse
@@ -44,6 +47,7 @@ def main() -> None:
     parser.add_argument("--url", default="http://localhost:8080")
     parser.add_argument("--customer", default="DEMO-MX-KHIPU")
     parser.add_argument("--repeats", type=int, default=3)
+    parser.add_argument("--pause", type=float, default=0, help="seconds between messages")
     args = parser.parse_args()
 
     seconds: dict[str, list[float]] = {name: [] for name, _ in CASES} | {BUTTON: []}
@@ -54,7 +58,11 @@ def main() -> None:
         client.headers["Authorization"] = f"Bearer {token['access_token']}"
         for _ in range(args.repeats):
             for name, message in CASES:
+                time.sleep(args.pause)
                 took, reply = timed(client, "/api/chat", {"message": message})
+                if reply["handoff"]:
+                    seen[name][f"hand-off: {reply['handoff'].get('reason', 'asked')}"] += 1
+                    continue
                 seconds[name].append(took)
                 proposal = reply["confirmation"]
                 outcome = "propuesta" if proposal else "respuesta"
@@ -68,11 +76,9 @@ def main() -> None:
     print(f"{args.url}  customer {args.customer}  repeats {args.repeats}\n")
     print(f"{'case':28s} {'n':>3s} {'p50 s':>7s} {'p95 s':>7s}  skill [tools] outcome (times)")
     for name, values in seconds.items():
-        if not values:
-            continue
         what = "; ".join(f"{k} ({n})" for k, n in seen[name].most_common())
-        p50, p95 = percentile(values, 50), percentile(values, 95)
-        print(f"{name:28s} {len(values):3d} {p50:7.2f} {p95:7.2f}  {what}")
+        p50, p95 = (f"{percentile(values, q):7.2f}" if values else f"{'-':>7s}" for q in (50, 95))
+        print(f"{name:28s} {len(values):3d} {p50} {p95}  {what}")
 
 
 if __name__ == "__main__":
