@@ -5,10 +5,9 @@ The agent used to answer. This is how it **acts** without being trusted to: the 
 the result is reported only after the effect has been read back.
 
 > **Status.** Done and tested: the policy, the gateway, the Postgres and mail adapters, the MCP
-> server and skill that propose, the routes that confirm, and the deploy settings. **Not done yet:
-> the confirmation card and the message tray in the web**, so today a proposal can only be
-> confirmed with the API. Off by default: `ACTIONS_ENABLED=false`, and with it off the agent's
-> prompt, skills and routes are what they were before actions existed.
+> server and skill that propose, the routes that confirm, the deploy settings, and the
+> confirmation card and message tray in the web. Off by default: `ACTIONS_ENABLED=false`, and with
+> it off the agent's prompt, skills, routes and screen are what they were before actions existed.
 
 ## The cycle
 
@@ -145,9 +144,29 @@ All three need the token, answer 404 for a batch that is not the token customer'
 turns the chat over to the operator console with the case file: what was proposed, what happened
 and what is unresolved.
 
-## Not done yet
+## On the screen
 
-- The confirmation card and the message tray in the web.
+The chat draws what the agent proposes as a **card** (`web/components/action-card.tsx`): the title,
+exactly what will be done, the irreversible warning for a cancellation, the demo inboxes to pick
+from when an email is part of it, and **Confirmar** / **Cancelar**. Every sentence on it is written
+by the API from what it stored, in the language of the conversation; the browser adds none. The
+buttons are the confirmation: they call `POST /api/actions/{batch}/confirm` or `/cancel` with the
+customer's token. While a request is on its way both buttons are locked, a failure is said inside
+the card with the chance to try again, and once the API answers the same card shows what was
+verified, or why nothing was done. An outcome that needs a person marks the message *agente de
+soporte*.
+
+**Mensajes** (`web/components/outbox-panel.tsx`) lists what the system sent the customer. It tells
+the truth about each one: a simulated message says *simulado · no se envió*; one sent through a
+real server says *aceptado por el servidor* and names the demo inbox; "delivered" is never said.
+Asking for the tray uses the token as it is and never renews it or ends the session. With actions
+off the API answers 404 and the button does not appear.
+
+## Not done yet, and things to know
+
+- The web has no test runner in the repository. The behaviour of the card and the tray (37 checks
+  with jsdom, among them the earlier sign-in and finance screens) was run outside it; the types,
+  the linter and the static build do run in the project.
 - A stolen card goes through `account_actions` and not straight to a person (the skill proposes the
   block *and* asks for a person); with actions off the old rule stays.
 - Balances should show a blocked card as blocked: today only the actions' own facts apply the overlay.
