@@ -171,7 +171,9 @@ An action works for any signed-in customer who has what it needs: block and canc
 not closed; an inquiry needs a charge that is not reversed and not pending for less than three days; the
 email needs an address on file. Nothing in the code lists customers. `uv run python -m evals.actions.coverage`
 asks the policy, with the data, what it would do for each one (a dry run: nothing is stored or executed);
-point `DATABASE_URL` at the Cloud SQL proxy to check the customers that are really offered.
+point `DATABASE_URL` at the Cloud SQL proxy to check the customers that are really offered (it only
+reads, eight customers at a time, and prints its progress). Do not run the tests in a shell with that
+`DATABASE_URL`: they would skip, by design, but the habit is not worth having.
 
 Measured on the eight `DEMO-*` customers of the sample data:
 
