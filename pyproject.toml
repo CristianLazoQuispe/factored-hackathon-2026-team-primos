@@ -19,6 +19,7 @@ dependencies = [
     "langchain-ollama>=1.1.0",
     "langfuse>=4.15.6",
     "langgraph>=1.2.12",
+    "markdown-it-py>=4.2.0",
     "pandera>=0.33.1",
     "polars>=1.44.2",
     "psycopg[binary]>=3.2",
