@@ -128,7 +128,8 @@ What a deploy does **not** do:
 - It does not touch the database. A change in `schema.sql` reaches Cloud SQL only with
   `make etl-cloud CONFIRM=yes`, which rebuilds and replaces `core`. New code reads the new columns,
   so run it **before** merging the change to `main`, and coordinate first.
-  Khipear is such a change: it needs `core.products.account_number` and `ops.transfers`. The
+  Khipear is such a change: it needs `core.products.account_number`, `core.service_billers`,
+  `core.service_bills` and `ops.transfers` (with the kind `pay_service`). The
   workflow deploys with `KHIPU_ENABLED=false` unless the repository variable `KHIPU_ENABLED` is
   `true`: off, the skill is not offered and a transfer is refused as before. Set the variable
   only after the reload; on without it, a transfer fails (the tool errors on the missing table and column) and the
@@ -260,7 +261,7 @@ Without a token `/api/chat` answers `401`; a wrong email or password gets `401` 
   container starts (5-10 s), so that no spoken message waits for them.
 - **One shared operator key.** Whoever has `OPERATOR_KEY` reads every chat; there are no operator
   accounts. Telegram chats do not reach the console.
-- **The token endpoint checks a demo password.** Eight synthetic emails and the IDs in `DEMO_CUSTOMER_IDS`; the password is that same text. Three wrong passwords lock that account for 15 minutes. Eight tries per minute per client, then `429`. The lock lives in the API process, not in the database. In production the bank's identity provider replaces it; the rest stays. The Telegram webhook has its own secret.
+- **The token endpoint checks a demo password.** Eight synthetic emails and the IDs in `DEMO_CUSTOMER_IDS`; the password is that same text. With `*` in the list every customer ID in the database signs in with itself as password: fine for synthetic data, never for real customers. Three wrong passwords lock that account for 15 minutes. Eight tries per minute per client, then `429`. The lock lives in the API process, not in the database. In production the bank's identity provider replaces it; the rest stays. The Telegram webhook has its own secret.
 - **Conversations are keyed by customer**, so nobody can continue another customer's thread.
 - **`/docs` (Swagger) is public.**
 - **Cloud SQL has a public IP** (`ipv4Enabled`); the app reaches it through the Cloud SQL socket.

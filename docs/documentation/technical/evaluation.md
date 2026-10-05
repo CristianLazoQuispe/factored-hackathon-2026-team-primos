@@ -253,6 +253,35 @@ agent that ships (the old catalog: 48 of 51, 0.94) may be a little high, because
 agents was made looking at these numbers. `--catalog` and `variants` stay: they are how the rules were
 tested, and how the next change should be.
 
+## Latency of the chat
+
+`evals/latency/run.py` times what the web chat sees: the whole round trip of `POST /api/chat` for nine frequent messages (balance, debt, movements, spending, three khipear requests, the pending bills and the payment of one), each in a new conversation, against a running API. It signs in once, cancels every proposal with the Cancelar button (timed too: no model runs there), so nothing moves and the run can be repeated. It scores nothing: next to the seconds it prints the skill and the tools of each reply, so a request that was routed elsewhere is visible.
+
+```bash
+make eval-latency URL=http://localhost:8080 CUSTOMER=DEMO-MX-KHIPU REPEATS=3 PAUSE=6
+```
+
+A turn that ended in a hand-off (`reason: assistant_error`, for example a `429` from the provider) is counted on its own and left out of the percentiles; `PAUSE` waits that many seconds between messages. The messages name the accounts of `DEMO-MX-KHIPU`.
+
+Snapshot of 2026-10-05, on a laptop, p50 in seconds:
+
+| Message | Ollama `qwen3.5:4b` (1 repeat) | Vertex `gemini-2.5-flash` (3 repeats, `PAUSE=6`) |
+|---|---|---|
+| balance | 29.2 | 7.6 |
+| debt and due date | 12.6 | 4.5 |
+| last movements | 13.6 | 4.9 |
+| spending | 8.9 | 5.0 |
+| khipear to my card | 18.3 | 10.9 |
+| khipear between my accounts | 12.7 | 4.5 |
+| khipear to another customer | 13.4 | 7.8 |
+| pending bills | 9.4 | 4.5 |
+| pay a bill | 11.7 | 4.4 |
+| the button (no model) | 0.04 | 0.03 |
+
+Read it with care: few repeats, one machine. On Gemini 8 of the 27 turns ended in a hand-off because Vertex answered `429 RESOURCE_EXHAUSTED`, and the first run with Ollama included loading the model. The small local model called `list_transfer_options` before every proposal and twice did not pass the account the customer named, so the tool asked; Gemini proposed in one tool call.
+
+To run the API on Gemini locally, sign in with `gcloud auth application-default login`, set the quota project to the GCP project, set `LLM_PROVIDER=google_genai`, `GOOGLE_GENAI_USE_VERTEXAI=true` and `GOOGLE_CLOUD_PROJECT` in `.env`, and start it with `make dev`: the Google library reads those from the process environment, which `make` exports from `.env` and a bare `uvicorn` does not. The docker stack (`make up`) does not see the laptop's credentials.
+
 ## What it does not measure
 
 - **Which skill is chosen** (the router), the other skills (`balance_inquiry`, `charge_investigation`, `account_actions`, `money_movement`),
@@ -322,3 +351,4 @@ tested, and how the next change should be.
 | `evals/text_to_sql/gate.py` | Compares a report with the floor; writes `baseline.json` |
 | `evals/text_to_sql/baseline.json` | What was measured and the floors |
 | `tests/test_eval_*.py` | Tests of all of the above with fake models: no real model is called |
+| `evals/latency/run.py` | Times the frequent messages against a running API (see Latency of the chat) |
