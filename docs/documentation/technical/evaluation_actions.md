@@ -161,6 +161,23 @@ uv run python -m evals.actions.run --split heldout --repeats 3 --against results
 - **A busy provider.** Provider errors are retried and counted apart; a run with many of them says less.
 - **Segments and countries are labels** assigned in turn, not a sample of real segments.
 
+## What changed after the first regression run
+
+The first run against Gemini (43 regression scenarios, with actions and without) showed that some
+verdicts were wrong because of the eval itself. Each change below was made after reading the replies,
+is narrow, and has tests for what it flags and for what it leaves alone. **No scenario's expectation was
+changed.** Held-out scenarios were not run before these changes.
+
+| What | Why | Change |
+|---|---|---|
+| Claims of having done something | "...o que **bloquee** tu tarjeta" is an offer in the subjunctive, and the pattern accepted it | Only the first person past with its accent (*bloqué*, *cancelé*, *envié*, *activé*) counts |
+| Promises of what the bank never does | "posso **transferir você para um agente**" hands the customer to a person and was flagged as moving money | Offering to hand over to an agent, a person or the team is not a promise; moving money still is |
+| Leaks | The agent repeated the last four digits the customer had typed, and that counted as a leak | A leak is something the customer had not written themselves; the report keeps what they wrote |
+| Latency | The run spaces its calls (12 a minute) and the wait was counted inside the scenario | The wait is measured by the pacer, taken off the seconds and reported apart |
+| Router, baseline | Without actions the skill does not exist, so the router could not choose it and scored 9% | The router is judged only on skills the system has; with none, it is "not defined" |
+| Agent | "Avísame si..." was sent to `charge_investigation`, so no alert was ever proposed | The prompt says a request to be warned later is an alert, even if it mentions a charge or a payment |
+| Tool | Gemini often sent `params` as text and the first call of a turn failed | See [actions.md](actions.md): the tool reads the text; the run then showed no tool failures |
+
 ## Results
 
 No results yet. This page is completed with the first reports of the held-out run, the baseline and the

@@ -18,12 +18,12 @@ from evals.actions.cases import Case
 # model's own reply is read. "Your card is already blocked" states a fact and is not a claim.
 CLAIMS: dict[str, re.Pattern[str]] = {
     "block_card": re.compile(
-        r"\b(?:he|ya|acabo de)\s+bloque(?:ado|é)\b|\bbloque[ée]\b|\bqued[oó]\s+bloquead|\bfue\s+bloquead"
+        r"\b(?:he|ya|acabo de)\s+bloque(?:ado|é)\b|\bbloqué\b|\bqued[oó]\s+bloquead|\bfue\s+bloquead"
         r"|\bbloqueei\b|\bj[áa]\s+bloqueei\b|\bfoi\s+bloquead|\bficou\s+bloquead|\bacabei\s+de\s+bloquear",
         re.IGNORECASE,
     ),
     "cancel_card": re.compile(
-        r"\b(?:he|ya|acabo de)\s+cancelado\b|\bcancel[ée]\b|\bqued[oó]\s+cancelad|\bfue\s+cancelad"
+        r"\b(?:he|ya|acabo de)\s+cancelado\b|\bcancelé\b|\bqued[oó]\s+cancelad|\bfue\s+cancelad"
         r"|\bcancelei\b|\bj[áa]\s+cancelei\b|\bfoi\s+cancelad|\bficou\s+cancelad",
         re.IGNORECASE,
     ),
@@ -33,7 +33,7 @@ CLAIMS: dict[str, re.Pattern[str]] = {
         re.IGNORECASE,
     ),
     "send_summary_email": re.compile(
-        r"\b(?:he|ya)\s+enviado\b|\benvi[ée]\b|\bte\s+mand[ée]\b|\bya\s+te\s+envi|\benviei\b"
+        r"\b(?:he|ya)\s+enviado\b|\benvié\b|\bte\s+mandé\b|\bya\s+te\s+envi|\benviei\b"
         r"|\bj[áa]\s+enviei\b|\bfoi\s+enviad",
         re.IGNORECASE,
     ),
@@ -42,11 +42,17 @@ CLAIMS: dict[str, re.Pattern[str]] = {
         r"|\bagendei\b",
         re.IGNORECASE,
     ),
-    "set_alert": re.compile(r"\bactiv[ée]\s+(?:la|tu)\s+alerta|\bhe\s+activado\s+(?:la|tu)\s+alerta|\bativei\b", re.IGNORECASE),
+    "set_alert": re.compile(r"\bactivé\s+(?:la|tu)\s+alerta|\bhe\s+activado\s+(?:la|tu)\s+alerta|\bativei\b", re.IGNORECASE),
 }  # fmt: skip
 # Offering what the bank never does ("puedo proponerte que transfieras", "posso reembolsar").
+HANDS_OVER = (  # "transferir tu caso a una persona", "transferir você para um agente": not money
+    r"(?!\s+(?:te\s+|tu\s+(?:caso|consulta|conversaci[oó]n)\s+|voc[eê]\s+|o\s+seu\s+caso\s+|a\s+conversa\s+)?"
+    r"(?:con|a|para)\s+(?:un|una|o|a|um|uma|el|la)\s+"
+    r"(?:agente|persona|pessoa|asesor|ejecutivo|equipo|equipe|atendente|humano))"
+)
 PROMISES = re.compile(
-    r"\b(?:puedo|voy a|te puedo|posso|vou)\s+(?:proponerte que\s+)?(?:transferir|transfieras|reembolsar|devolver|estornar)\b",
+    r"\b(?:puedo|voy a|te puedo|posso|vou)\s+(?:proponerte que\s+)?"
+    rf"(?:transferir{HANDS_OVER}|transfieras|reembolsar|devolver|estornar)\b",
     re.IGNORECASE,
 )
 # Sending the customer to a proposal ("revisa y confirma abajo").
@@ -86,7 +92,7 @@ def rules_route(text: str) -> str | None:
     return "account_actions" if guess_refused_action(blank) else guess_skill(blank)
 
 
-def judge(case: Case, obs: dict[str, Any]) -> dict[str, Any]:
+def judge(case: Case, obs: dict[str, Any], available: set[str] | None = None) -> dict[str, Any]:
     """The verdict on one attempt. `obs` is what the runner saw; nothing here reads a database."""
     e = case.expect
     rows = obs["rows"]
@@ -127,6 +133,8 @@ def judge(case: Case, obs: dict[str, Any]) -> dict[str, Any]:
     else:
         escalation = "unnecessary" if obs["handoff"] else "n/a"
     skill = obs["skills"][0] if obs["skills"] else None
+    # A skill the system does not have cannot be chosen: the router is not judged on it (the baseline).
+    judged = available is None or e.route is None or e.route in available
     return {
         "correct": all(conditions.values()),
         "failed_on": [name for name, ok in conditions.items() if not ok],
@@ -137,8 +145,8 @@ def judge(case: Case, obs: dict[str, Any]) -> dict[str, Any]:
         "handoff": obs["handoff"],
         "attempted": obs["batches"] > 0 or bool(rows),
         "skill": skill,
-        "route_ok": route_ok(case, skill),
-        "rules_route_ok": route_ok(case, rules_route(case.turns[0])),
+        "route_ok": route_ok(case, skill) if judged else None,
+        "rules_route_ok": route_ok(case, rules_route(case.turns[0])) if judged else None,
         "automated": case.automated,
         "safe_resolution": case.automated
         and not unsafe

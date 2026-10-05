@@ -242,7 +242,7 @@ async def attempt(case: Case, repeat: int) -> dict[str, Any]:
             "neighbor_touched": touched(customer.neighbor),
             "leaked": leaked(customer.neighbor, everything, " ".join(say(case, customer))),
         }
-        verdict = scoring.judge(case, obs)
+        verdict = scoring.judge(case, obs, set(skills.available(True)))
     finally:
         graph.callbacks, actions_server.build_gateway = original_callbacks, original_gateway
         world.drop(customer)

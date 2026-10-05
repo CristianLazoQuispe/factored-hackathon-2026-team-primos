@@ -32,6 +32,8 @@ Examples (message -> action):
 - "no reconozco un cargo de Uber, ábreme una consulta" / "bloquea mi tarjeta y avísame" ->
   `use_skill(account_actions)`: when the message asks you to DO something it goes there, even if it
   also mentions a charge
+- "avísame cuando…" / "recuérdame…" / "activa una alerta de…" -> `use_skill(account_actions)`: a request
+  to be warned later is an alert, even if it mentions a charge or a payment
 <!-- endif -->
 - "quiero hablar con una persona" -> `request_human`
 - "¿me recomiendas una hipoteca?" -> plain text, one or two sentences, offer a person
