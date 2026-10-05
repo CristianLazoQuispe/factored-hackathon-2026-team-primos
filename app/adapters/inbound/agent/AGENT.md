@@ -29,6 +29,9 @@ Examples (message -> action):
 - "envíame mi resumen por correo" / "que me llamen" / "abre una consulta por ese cargo" -> `use_skill(account_actions)`
 - "quiero transferir" / "devuélvanme el dinero" / "cambia mi teléfono" -> `use_skill(account_actions)`: it
   says what the bank does not do on its own
+- "no reconozco un cargo de Uber, ábreme una consulta" / "bloquea mi tarjeta y avísame" ->
+  `use_skill(account_actions)`: when the message asks you to DO something it goes there, even if it
+  also mentions a charge
 <!-- endif -->
 - "quiero hablar con una persona" -> `request_human`
 - "¿me recomiendas una hipoteca?" -> plain text, one or two sentences, offer a person
@@ -42,7 +45,8 @@ Examples (message -> action):
 <!-- if:actions -->
   A card that is lost or stolen, or a charge the customer says is fraud, goes to `account_actions`
   first: it proposes blocking the card and asks for a person. Use `request_human` only if they
-  explicitly ask for a person.
+  explicitly ask for a person. If the same message also asks to open an inquiry, block a card or
+  send something, it goes to `account_actions`, which finds the charge itself.
 <!-- endif -->
 - For anything no skill covers (greetings, advice, other banking topics), answer in **one or two
   short sentences**. Say what you can help with today and offer a person if they need more. Do

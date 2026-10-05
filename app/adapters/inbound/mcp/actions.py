@@ -8,11 +8,12 @@ the customer confirms it in the app, which the model cannot do. The customer com
 and so do the language and the conversation, so the model cannot choose any of them.
 """
 
+import json
 from typing import Annotated, Any
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, BeforeValidator, Field
 
 from app.adapters.inbound.mcp import session_customer, session_meta
 from app.adapters.outbound.postgres.actions import (
@@ -31,6 +32,22 @@ class ActionRequest(BaseModel):
         description="The name of the action, from the list in the tool description."
     )
     params: dict[str, Any] = Field(default_factory=dict, description="Its parameters.")
+
+
+def as_list(value: Any) -> Any:
+    """Models sometimes send one action instead of a list of one, or the list as JSON text. The
+    schema they read says array; this only forgives the slip, so a turn is not lost to it."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return value
+    return [value] if isinstance(value, dict) else value
+
+
+Requested = Annotated[
+    list[ActionRequest], BeforeValidator(as_list), Field(max_length=MAX_REQUESTED)
+]
 
 
 def require_sign_in(ctx: Context) -> str:
@@ -66,11 +83,10 @@ async def recent_charges(
 
 
 @mcp.tool
-async def propose_actions(
-    ctx: Context, actions: Annotated[list[ActionRequest], Field(max_length=MAX_REQUESTED)]
-) -> dict:
+async def propose_actions(ctx: Context, actions: Requested) -> dict:
     """Propose what the customer asked for. Nothing happens yet: the code checks each action and
     the customer confirms it with a button. Call this ONCE with everything they asked (at most 3).
+    `actions` is always a LIST of objects, even for a single action.
 
     Actions and their params:
     - block_card {product_id}: block a card temporarily.

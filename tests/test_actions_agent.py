@@ -167,20 +167,22 @@ async def test_the_skill_itself_checks_the_session_again(w: World, monkeypatch):
 
 
 async def test_what_the_policy_sends_to_a_person_is_handed_off_with_the_case(w: World, monkeypatch):
-    refund = call("propose_actions", actions=[{"action": "refund", "params": {}}])
+    # Not worded as a refund, so the model (not the code that recognises refunds) proposes it.
+    owed = call("propose_actions", actions=[{"action": "compensation", "params": {}}])
     say(
         AIMessage("", tool_calls=[call("use_skill", name="account_actions")]),
-        AIMessage("", tool_calls=[refund]),
+        AIMessage("", tool_calls=[owed]),
         AIMessage("Eso lo decide una persona."),
         monkeypatch=monkeypatch,
     )
-    result = await talk("devuélvanme el dinero de ese cargo")
+    result = await talk("quiero una compensación por ese cargo")
     assert result["handoff"]["customer_id"] == "C1" and result["reply"] == graph.HANDOFF
+    text = result["actions"]["items"][0]["text"]
     assert result["handoff"]["actions"] == [
-        {"action": "refund", "status": "escalated", "text": result["actions"]["items"][0]["text"]}
+        {"action": "compensation", "status": "escalated", "text": text}
     ]
     assert result["handoff"]["unresolved"] == [
-        {"action": "refund", "reason": "needs_human_approval"}
+        {"action": "compensation", "reason": "needs_human_approval"}
     ]
 
 
@@ -265,3 +267,128 @@ async def test_what_one_turn_proposed_does_not_follow_the_next_turn(w: World, mo
     thread = uuid.uuid4().hex
     assert (await talk("bloquea mi tarjeta", thread=thread))["actions"] is not None
     assert (await talk("gracias", thread=thread))["actions"] is None
+
+
+# -------------------------------------------- what a model turn cannot be trusted with
+
+
+async def test_a_transfer_is_answered_by_the_policy_without_asking_the_model(w: World, monkeypatch):
+    model = say(monkeypatch=monkeypatch)  # nothing scripted: any model turn would fail
+    result = await talk("quiero transferir 500 pesos")
+    assert model.seen == [], "the model was never asked"
+    assert result["skill"] == "account_actions" and result["tools_used"] == ["propose_actions"]
+    assert result["actions"]["items"][0]["status"] == "refused"
+    assert "No puedo mover dinero" in result["reply"] and "confirm" not in result["reply"].lower()
+    assert not result["actions"]["needs_confirmation"] and result["handoff"] is None
+    assert w.effects.calls == []
+    (stored,) = w.store.rows.values()
+    assert (stored.action, stored.reason, stored.conversation_id) == (
+        "transfer_money",
+        "money_movement_not_authorized",
+        stored.conversation_id,
+    ) and stored.conversation_id
+
+
+async def test_a_transfer_asked_in_portuguese_is_answered_in_portuguese(w: World, monkeypatch):
+    say(monkeypatch=monkeypatch)
+    result = await talk("Olá, quero transferir dinheiro para minha mãe, você pode me ajudar?")
+    assert "Não posso movimentar dinheiro" in result["reply"]
+
+
+async def test_a_refund_goes_to_a_person_with_the_case_and_without_the_model(w: World, monkeypatch):
+    model = say(monkeypatch=monkeypatch)
+    result = await talk("devuélvanme el dinero de ese cargo")
+    assert model.seen == [] and result["reply"] == graph.HANDOFF
+    assert result["handoff"]["unresolved"] == [
+        {"action": "refund", "reason": "needs_human_approval"}
+    ]
+
+
+async def test_a_customer_who_only_typed_an_id_is_told_to_sign_in_not_answered_by_the_model(
+    w: World, monkeypatch
+):
+    model = say(monkeypatch=monkeypatch)
+    result = await talk("mi id es DEMO-MX-FX, quiero transferir 500 pesos", customer_id=None)
+    assert model.seen == [] and "entres con tu sesión" in result["reply"]
+    assert w.store.rows == {}
+
+
+async def test_a_question_about_the_same_things_still_reaches_the_model(w: World, monkeypatch):
+    model = say(AIMessage("Cobramos 0 por transferir."), monkeypatch=monkeypatch)
+    result = await talk("¿cuánto me cobran por transferir?")
+    assert len(model.seen) == 1 and result["reply"] == "Cobramos 0 por transferir."
+
+
+async def test_the_model_cannot_promise_a_proposal_that_does_not_exist(w: World, monkeypatch):
+    say(
+        AIMessage("", tool_calls=[call("use_skill", name="account_actions")]),
+        AIMessage("Puedes revisar y confirmar la acción abajo."),  # it called nothing
+        monkeypatch=monkeypatch,
+    )
+    result = await talk("necesito mi tarjeta bloqueada ya")
+    assert result["reply"] == graph.UNPROPOSED and result["actions"] is None
+    assert w.store.rows == {}
+
+
+async def test_a_question_is_not_a_promise(w: World, monkeypatch):
+    say(
+        AIMessage("", tool_calls=[call("use_skill", name="account_actions")]),
+        AIMessage("¿Cuál de tus dos tarjetas quieres bloquear?"),
+        monkeypatch=monkeypatch,
+    )
+    assert (await talk("necesito mi tarjeta bloqueada ya"))["reply"].startswith("¿Cuál")
+
+
+async def test_a_proposal_that_failed_is_not_reported_as_made(w: World, monkeypatch):
+    broken = call("propose_actions", actions="not json at all")
+    say(
+        AIMessage("", tool_calls=[call("use_skill", name="account_actions")]),
+        AIMessage("", tool_calls=[broken]),
+        AIMessage("Para bloquear tu tarjeta, revisa la propuesta y confirma abajo."),
+        monkeypatch=monkeypatch,
+    )
+    result = await talk("necesito mi tarjeta bloqueada ya")
+    assert result["reply"] == graph.UNPROPOSED and result["actions"] is None
+    assert w.store.rows == {}
+
+
+async def test_a_single_action_instead_of_a_list_still_makes_the_proposal(w: World, monkeypatch):
+    single = call(
+        "propose_actions", actions={"action": "block_card", "params": {"product_id": "CARD-1"}}
+    )
+    say(
+        AIMessage("", tool_calls=[call("use_skill", name="account_actions")]),
+        AIMessage("", tool_calls=[single]),
+        AIMessage("Revisa abajo."),
+        monkeypatch=monkeypatch,
+    )
+    result = await talk("necesito mi tarjeta bloqueada ya")
+    assert result["actions"]["items"][0]["status"] == "awaiting_confirmation"
+    assert result["reply"] == "Revisa abajo."
+
+
+async def test_asking_twice_in_a_chat_leaves_one_live_proposal(w: World, monkeypatch):
+    say(
+        AIMessage("", tool_calls=[call("use_skill", name="account_actions")]),
+        AIMessage("", tool_calls=[PROPOSE_BLOCK]),
+        AIMessage("Revisa abajo."),
+        AIMessage("", tool_calls=[call("use_skill", name="account_actions")]),
+        AIMessage("", tool_calls=[PROPOSE_BLOCK]),
+        AIMessage("Revisa abajo."),
+        monkeypatch=monkeypatch,
+    )
+    thread = uuid.uuid4().hex
+    first = (await talk("bloquea mi tarjeta", thread=thread))["actions"]["batch_id"]
+    second = (await talk("sí, bloquéala", thread=thread))["actions"]["batch_id"]
+    assert (await w.gateway.view("C1", first))["items"][0]["status"] == "cancelled"
+    assert (await w.gateway.view("C1", second))["items"][0]["status"] == "awaiting_confirmation"
+
+
+def test_the_prompts_send_a_request_that_also_mentions_a_charge_to_the_skill_that_acts(actions_on):
+    assert "even if it\n  also mentions a charge" in skills.agent_prompt()
+    instructions = skills.load_skills()["account_actions"].instructions
+    assert "as a LIST" in instructions and "do not ask which" in instructions
+    assert "Always call a tool before you answer" in instructions
+    assert (
+        "Do not say what you cannot do" in skills.load_skills()["charge_investigation"].instructions
+    )

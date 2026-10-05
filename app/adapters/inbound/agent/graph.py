@@ -30,7 +30,7 @@ from app.adapters.inbound.agent.tracing import callbacks
 from app.adapters.outbound.llm import chat_model
 from app.adapters.outbound.postgres.accounts import find_customer
 from app.domain.action_text import detect_language
-from app.domain.routing import guess_skill
+from app.domain.routing import guess_refused_action, guess_skill
 
 log = logging.getLogger(__name__)
 
@@ -55,6 +55,11 @@ NEEDS_SIGN_IN = (
     "Para hacer cambios en tu cuenta necesito que entres con tu sesión en la web o en la app. / "
     "Para fazer alterações na sua conta, entre na sua sessão pelo site ou pelo app."
 )
+UNPROPOSED = (
+    "No pude preparar esa acción. Dime con otras palabras qué necesitas, o te paso con una "
+    "persona. / Não consegui preparar essa ação. Diga com outras palavras o que precisa, ou passo "
+    "você para uma pessoa."
+)
 HANDOFF = (
     "Te comunico con una persona de nuestro equipo. Ya tiene tu caso, no tendrás que repetir "
     "nada. / Vou te transferir para uma pessoa da nossa equipe; ela já tem o seu caso."
@@ -66,6 +71,7 @@ class State(MessagesState):
     signed_in: bool  # the token proved the customer (not an ID typed in the chat)
     language: str | None
     actions: dict | None  # what this turn proposed, for the app to show
+    refused: str | None  # an obvious request for what the bank never does, caught by code
     route: str
     skill: str | None
     tools_used: list[str]
@@ -109,6 +115,11 @@ def needs_sign_in() -> dict:
 async def router(state: State) -> dict:
     signed_in = bool(state.get("signed_in"))
     usable = available(signed_in)
+    refused = guess_refused_action(last_customer_text(state))
+    if refused and "account_actions" in usable:  # obvious: no model turn can lose or invent it
+        return {"route": "refuse", "refused": refused}
+    if refused and "account_actions" in load_skills():  # asked, but only typed an ID
+        return needs_sign_in()
     system = f"{agent_prompt()}\n\n## Skills\n{catalog(signed_in)}"
     model = chat_model("fast").bind_tools([use_skill, request_human])
     response = await model.ainvoke([SystemMessage(system), *state["messages"]])
@@ -151,16 +162,48 @@ def proposed_actions(new_messages: list) -> dict | None:
     return found
 
 
-async def skill_agent(state: State, config: RunnableConfig) -> dict:
-    skill = load_skills()[state["skill"]]
-    if skill.needs_sign_in and not state.get("signed_in"):
-        return needs_sign_in()  # the router already checked; this is the second lock
+def action_session(state: State, config: RunnableConfig) -> tuple[str, dict[str, str]]:
+    """The language of this turn and what the code tells the actions server about the session."""
     language = detect_language(last_customer_text(state), state.get("language") or "es")
-    session = {
+    return language, {
         "language": language,
         "thread_id": config["configurable"]["thread_id"],
         "signed_in": "1" if state.get("signed_in") else "0",
     }
+
+
+async def refuse(state: State, config: RunnableConfig) -> dict:
+    """The customer asked for something the bank never does on its own (a transfer, a refund, a
+    change of phone...). The policy answers, through the same tool and audit as any proposal."""
+    language, session = action_session(state, config)
+    call = {"actions": [{"action": state["refused"], "params": {}}]}
+    async with client_for("actions") as client:
+        result = await client.call_tool(
+            "propose_actions",
+            call,
+            meta={**session, "customer_id": state["customer_id"]},
+            raise_on_error=False,
+        )
+    batch = result.structured_content
+    if result.is_error or not isinstance(batch, dict) or not batch.get("batch_id"):
+        log.warning("the policy could not answer %s: %s", state["refused"], result.content[0].text)
+        return {"route": "handoff", "language": language, "skill": "account_actions"}
+    update = {"skill": "account_actions", "language": language, "actions": batch}
+    update["tools_used"] = ["propose_actions"]
+    if batch.get("escalate"):
+        return {"route": "handoff", **update}
+    return {
+        "route": "end",
+        **update,
+        "messages": [AIMessage(" ".join(item["text"] for item in batch["items"]))],
+    }
+
+
+async def skill_agent(state: State, config: RunnableConfig) -> dict:
+    skill = load_skills()[state["skill"]]
+    if skill.needs_sign_in and not state.get("signed_in"):
+        return needs_sign_in()  # the router already checked; this is the second lock
+    language, session = action_session(state, config)
     async with client_for(skill.mcp) as client:
         tools = [*await load_tools(client, state["customer_id"], session), request_human]
         agent = create_agent(
@@ -178,6 +221,11 @@ async def skill_agent(state: State, config: RunnableConfig) -> dict:
     if "request_human" in tools_used or (actions and actions.get("escalate")):
         return {"route": "handoff", **update}  # the policy sent part of it to a person
     text = new[-1].text.strip() if new else ""
+    if skill.needs_sign_in and not actions and "?" not in text and "¿" not in text:
+        # A skill that can change things ended with no proposal, no question and no person. What
+        # the model said ("review and confirm below") would be about something that does not exist.
+        log.warning("%s ended without a proposal; not repeating %r", skill.name, text[:120])
+        text = UNPROPOSED
     return {"route": "end", **update, "messages": [AIMessage(text or NO_ANSWER)]}
 
 
@@ -197,7 +245,7 @@ def handoff(state: State) -> dict:
     return {"route": "end", "case_file": case_file, "messages": [AIMessage(HANDOFF)]}
 
 
-def next_node(state: State) -> Literal["router", "skill_agent", "handoff", "__end__"]:
+def next_node(state: State) -> Literal["router", "skill_agent", "refuse", "handoff", "__end__"]:
     return END if state["route"] == "end" else state["route"]
 
 
@@ -206,9 +254,10 @@ def build_graph():
     graph.add_node(guard)
     graph.add_node(router)
     graph.add_node(skill_agent)
+    graph.add_node(refuse)
     graph.add_node(handoff)
     graph.add_edge(START, "guard")
-    for node in ("guard", "router", "skill_agent"):
+    for node in ("guard", "router", "skill_agent", "refuse"):
         graph.add_conditional_edges(node, next_node)
     graph.add_edge("handoff", END)
     return graph.compile(checkpointer=InMemorySaver())

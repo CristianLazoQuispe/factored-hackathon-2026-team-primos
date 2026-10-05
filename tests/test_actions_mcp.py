@@ -1,8 +1,11 @@
 """The MCP server the model talks to: it can look and propose, and nothing else."""
 
+import logging
+
 import pytest
 from fastmcp import Client
 
+from app.adapters.inbound.agent.mcp_bridge import load_tools
 from app.adapters.inbound.mcp import actions as server
 from app.domain.actions import CATALOG, NEVER_AUTOMATED
 from tests.actions_support import World
@@ -123,3 +126,39 @@ async def test_what_the_model_reads_lists_every_action_and_what_is_never_done():
     ):
         assert name in NEVER_AUTOMATED and name in description
     assert "NOTHING is done until the customer confirms" in description
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        {"action": "block_card", "params": {"product_id": "CARD-1"}},  # one action, not a list
+        '[{"action": "block_card", "params": {"product_id": "CARD-1"}}]',  # the list as JSON text
+        '{"action": "block_card", "params": {"product_id": "CARD-1"}}',  # one action as JSON text
+    ],
+)
+async def test_a_slip_in_the_shape_of_the_call_does_not_lose_the_turn(w: World, shape):
+    result = await call("propose_actions", {"actions": shape})
+    assert not result.is_error
+    assert result.structured_content["items"][0]["status"] == "awaiting_confirmation"
+
+
+@pytest.mark.parametrize("garbage", ["not json at all", 42, [1, 2], [{"params": {}}]])
+async def test_what_cannot_be_read_as_actions_is_still_an_error(w: World, garbage):
+    assert (await call("propose_actions", {"actions": garbage})).is_error
+    assert w.store.rows == {}
+
+
+async def test_the_forgiveness_does_not_change_what_the_model_is_told():
+    async with Client(server.mcp) as client:
+        tool = next(t for t in await client.list_tools() if t.name == "propose_actions")
+    schema = tool.input_schema["properties"]["actions"]
+    assert schema["type"] == "array" and schema["maxItems"] == 6
+
+
+async def test_every_tool_error_leaves_a_trace_for_whoever_debugs(w: World, caplog):
+    async with Client(server.mcp) as client:
+        tools = {t.name: t for t in await load_tools(client, "C1", {"signed_in": "1"})}
+        with caplog.at_level(logging.WARNING, logger="app.adapters.inbound.agent.mcp_bridge"):
+            answer = await tools["propose_actions"].coroutine(actions="not json at all")
+    assert answer.startswith("Tool error:"), "the model still sees the error and can fix its call"
+    assert any("tool propose_actions failed" in r.message for r in caplog.records)
