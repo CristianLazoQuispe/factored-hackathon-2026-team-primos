@@ -99,7 +99,10 @@ The same scenarios are run against two baselines, so the numbers say what the ac
 
 It needs the demo database (`make demo-data`), the actions migration, and a model (Gemini with
 `LLM_PROVIDER=google_genai`, or Ollama). It writes customers to the database, so it runs only when
-`APP_ENV=local`.
+`APP_ENV=local` and **only against the development database**
+(`postgresql://agent:agent@localhost:5432/agent`): with another one it stops, and the tests skip the
+parts that need a database. Cloud SQL through the proxy is another one. `ALLOW_TEST_DATABASE=1` says a
+different database is yours and not shared.
 
 ```bash
 uv run python -m evals.actions.run --repeats 1                          # regression, to study
