@@ -246,6 +246,11 @@ def summarize(
         "efficiency": {
             "seconds_p50": percentile(seconds, 50),
             "seconds_p95": percentile(seconds, 95),
+            "pacing_seconds_mean": round(
+                sum(a.get("seconds_waiting", 0.0) for a in done) / len(done), 2
+            )
+            if done
+            else None,
             "model_calls_mean": round(sum(a["model_calls"] for a in done) / len(done), 2)
             if done
             else None,

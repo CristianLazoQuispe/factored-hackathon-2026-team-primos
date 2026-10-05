@@ -40,7 +40,7 @@ def lines(summary: dict[str, Any], blind: bool = False) -> list[str]:
     )
     f = s["efficiency"]
     out.append(
-        f"latency p50 / p95            {number(f['seconds_p50'], ' s')} / {number(f['seconds_p95'], ' s')}; "
+        f"latency p50 / p95            {number(f['seconds_p50'], ' s')} / {number(f['seconds_p95'], ' s')} (without the {number(f['pacing_seconds_mean'], ' s')} per case this run spent pacing its calls); "
         f"{number(f['model_calls_mean'])} model calls, {number(f['tokens_in_mean'])} tokens in and "
         f"{number(f['tokens_out_mean'])} out per case"
     )
