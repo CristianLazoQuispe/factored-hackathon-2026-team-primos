@@ -451,3 +451,75 @@ def test_the_cleanup_removes_the_eval_customers_and_never_a_demo_one():
     assert leftovers() == 0
     with psycopg.connect(get_settings().database_url) as conn:
         assert conn.execute(demo).fetchone()[0] == before > 0
+
+
+# ---------------------------------------------------------------- the model's credentials
+
+
+NAMES = (
+    "GOOGLE_API_KEY",
+    "GOOGLE_GENAI_USE_VERTEXAI",
+    "GOOGLE_CLOUD_PROJECT",
+    "GOOGLE_CLOUD_LOCATION",
+)
+
+
+@pytest.fixture
+def bare_environment(monkeypatch):
+    for name in NAMES:
+        monkeypatch.setenv(name, "")  # recorded: the test puts back what was there, maybe nothing
+        monkeypatch.delenv(name)
+
+
+def gemini(**rest) -> Settings:
+    return Settings(_env_file=None, llm_provider="google_genai", **rest)
+
+
+def test_the_key_in_the_settings_reaches_the_environment_the_client_reads(bare_environment):
+    import os
+
+    run.export_gemini_credentials(gemini(google_api_key="k-123", google_cloud_location="global"))
+    assert (
+        os.environ["GOOGLE_API_KEY"] == "k-123" and os.environ["GOOGLE_CLOUD_LOCATION"] == "global"
+    )
+    assert "GOOGLE_GENAI_USE_VERTEXAI" not in os.environ, "an empty value is not exported"
+
+
+def test_vertex_in_the_settings_reaches_the_environment_too(bare_environment):
+    import os
+
+    run.export_gemini_credentials(
+        gemini(google_genai_use_vertexai=True, google_cloud_project="p-1")
+    )
+    assert (
+        os.environ["GOOGLE_GENAI_USE_VERTEXAI"] == "true"
+        and os.environ["GOOGLE_CLOUD_PROJECT"] == "p-1"
+    )
+
+
+def test_what_the_shell_already_has_wins_over_the_file(bare_environment, monkeypatch):
+    import os
+
+    monkeypatch.setenv("GOOGLE_API_KEY", "from-the-shell")
+    run.export_gemini_credentials(gemini(google_api_key="from-the-file"))
+    assert os.environ["GOOGLE_API_KEY"] == "from-the-shell"
+
+
+def test_without_credentials_it_stops_with_one_clear_line(bare_environment):
+    with pytest.raises(SystemExit, match="No Gemini credentials") as stop:
+        run.export_gemini_credentials(gemini())
+    assert "\n" not in str(stop.value) and "GOOGLE_API_KEY" in str(stop.value)
+
+
+def test_vertex_without_a_project_says_so(bare_environment):
+    with pytest.raises(SystemExit, match="GOOGLE_CLOUD_PROJECT"):
+        run.export_gemini_credentials(gemini(google_genai_use_vertexai=True))
+
+
+def test_a_local_model_needs_no_credentials(bare_environment):
+    import os
+
+    run.export_gemini_credentials(
+        Settings(_env_file=None, llm_provider="ollama", google_api_key="ignored")
+    )
+    assert not any(name in os.environ for name in NAMES)

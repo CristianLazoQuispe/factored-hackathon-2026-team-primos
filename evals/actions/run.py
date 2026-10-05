@@ -17,6 +17,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import re
 import subprocess
 import time
@@ -300,6 +301,30 @@ def write_report(
     staging.replace(out)  # atomic: never a half-written file
 
 
+def export_gemini_credentials(settings) -> None:
+    """Make the Gemini client see the credentials in `.env`. The client library reads them from the
+    process environment; `make` exports `.env` but `uv run` does not, so the API worked and this did
+    not. A variable already set in the shell wins. Without credentials, stop with one clear line."""
+    if settings.provider != "google_genai":
+        return
+    wanted = {
+        "GOOGLE_API_KEY": settings.google_api_key,
+        "GOOGLE_GENAI_USE_VERTEXAI": "true" if settings.google_genai_use_vertexai else "",
+        "GOOGLE_CLOUD_PROJECT": settings.google_cloud_project,
+        "GOOGLE_CLOUD_LOCATION": settings.google_cloud_location,
+    }
+    for name, value in wanted.items():
+        if value and not os.environ.get(name):
+            os.environ[name] = str(value)
+    if not settings.llm_configured:
+        raise SystemExit(
+            "No Gemini credentials. Set GOOGLE_API_KEY in .env, or GOOGLE_GENAI_USE_VERTEXAI=true with "
+            "GOOGLE_CLOUD_PROJECT and run `gcloud auth application-default login`."
+        )
+    if settings.google_genai_use_vertexai and not settings.google_cloud_project:
+        raise SystemExit("GOOGLE_GENAI_USE_VERTEXAI=true needs GOOGLE_CLOUD_PROJECT in .env.")
+
+
 def configure(actions: bool) -> None:
     """Turn actions on or off for this run, and forget what depended on the setting."""
     import os
@@ -332,6 +357,7 @@ async def main() -> None:
     settings = get_settings()
     if settings.app_env != "local":
         raise SystemExit("The action evals build customers in the database: local only.")
+    export_gemini_credentials(settings)
     world.purge()
     cases = select(CASES, args.split, args.ids)
     meta = {
