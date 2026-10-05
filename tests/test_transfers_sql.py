@@ -183,3 +183,17 @@ async def test_expired_cancelled_and_someone_elses_proposals_never_execute(db):
     mine = await proposed("own_accounts", 10, from_last4="0011")
     assert await execute(ledger, LIMITS, OTHER, mine) == {"status": "not_found"}
     assert balance(db, SAVINGS) == 25_000
+
+
+async def test_a_dispute_scenario_customer_can_pay_their_card_without_being_asked_which(db):
+    scenario = "DEMO-MX-DUPLICATE"  # one savings account and one card: nothing to ask
+    result = await propose(ledger, LIMITS, scenario, "pay_debt", 100)
+    try:
+        assert result["status"] == "proposed", result
+        assert result["confirmation"]["origin"] == {
+            "product_type": "Cuenta Ahorro",
+            "last4": "0001",
+        }
+        assert result["confirmation"]["currency"] == "MXN"
+    finally:
+        db.execute("DELETE FROM ops.transfers WHERE customer_id = %s", (scenario,))
