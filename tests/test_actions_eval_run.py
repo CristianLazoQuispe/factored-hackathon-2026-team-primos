@@ -41,7 +41,9 @@ def need_database():
 @pytest.fixture(autouse=True)
 def actions_on(monkeypatch):
     monkeypatch.setattr(
-        skills, "get_settings", lambda: Settings(_env_file=None, actions_enabled=True)
+        skills,
+        "get_settings",
+        lambda: Settings(_env_file=None, actions_enabled=True, khipu_enabled=False),
     )
     skills.load_skills.cache_clear()
     skills.agent_prompt.cache_clear()
@@ -365,6 +367,7 @@ def test_configure_turns_actions_on_and_off_and_forgets_what_depended_on_it(monk
     monkeypatch.setattr(skills, "get_settings", get_settings)  # this file's fixture forces them on
     monkeypatch.setenv("ACTIONS_ENABLED", "x")  # so the test restores whatever was there
     monkeypatch.setenv("MAIL_MODE", "x")
+    monkeypatch.setenv("KHIPU_ENABLED", "true")
     run.configure(actions=False)
     assert get_settings().actions_enabled is False and get_settings().mail_mode == "simulated"
     off = run.prompt_version()

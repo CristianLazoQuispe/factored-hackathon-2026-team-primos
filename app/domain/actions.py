@@ -4,7 +4,8 @@ The model only *proposes* an action by name with typed parameters. Whether the a
 needs the customer's confirmation, is refused or goes to a person is decided here, from facts the
 code read from the bank's data. Anything that is not in the catalog goes to a person.
 
-Moving money is never automated: the challenge does not authorize it.
+Moving money is not an action of this policy: it refuses it. Transfers and payments are
+khipear's (app/domain/transfers.py), with its own rules and its own confirmation.
 """
 
 from dataclasses import dataclass, field

@@ -97,7 +97,14 @@ def test_fixtures_cover_every_demo_scenario() -> None:
     customers = con.execute(
         f"SELECT customer_id FROM '{SAMPLE / 'fixtures' / 'customers.parquet'}'"
     ).fetchall()
-    assert len(customers) == 8
+    assert len(customers) == 10  # the eight scenarios and the two khipear customers
+    accounts = scalar(
+        con,
+        f"""
+        SELECT count(*) FROM '{SAMPLE / "fixtures" / "products.parquet"}'
+        WHERE customer_id = 'DEMO-MX-KHIPU' AND account_number IS NOT NULL""",
+    )
+    assert accounts == 2  # more than one, so the agent has to ask "from which account?"
     duplicates = scalar(
         con,
         f"""

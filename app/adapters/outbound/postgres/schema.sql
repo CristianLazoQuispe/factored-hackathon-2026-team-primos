@@ -1,6 +1,8 @@
 -- Operational store for the customer-service agent.
 --   core: read-mostly mirror of the bank, reloaded from silver by `python -m data_pipeline.load`
 --         (which builds it as core_staging and swaps it in, so a failed load changes nothing).
+--         Its only writer is khipear (postgres/transfers.py): a confirmed transfer changes two
+--         balances and adds two movements, and a reload puts the dataset's state back.
 --   ops:  written only by the agent's tools; append-only or audited. Never reloaded.
 -- Where every table comes from is in its COMMENT ('provenance: ...'). The organizer's dataset is
 -- itself synthetic. Rows seeded by the team (demo scenarios) carry is_synthetic_fixture = true.
@@ -35,6 +37,7 @@ CREATE TABLE core.products (
     customer_id            text NOT NULL REFERENCES core.customers,
     product_type           text NOT NULL,
     product_number_last4   text,
+    account_number         text,            -- savings and checking only: how a transfer names it
     currency               text,
     current_balance        numeric(15, 2),
     credit_limit           numeric(15, 2),
@@ -46,6 +49,7 @@ CREATE TABLE core.products (
     is_synthetic_fixture   boolean NOT NULL DEFAULT false
 );
 CREATE INDEX ON core.products (customer_id);
+CREATE INDEX ON core.products (account_number);
 COMMENT ON TABLE core.products IS
     'provenance: organizer dataset; demo rows are team fixtures';
 
@@ -187,6 +191,29 @@ CREATE TABLE IF NOT EXISTS ops.pending_confirmations (
     expires_at             timestamptz NOT NULL,
     confirmed_at           timestamptz
 );
+
+-- Khipear: one row per money movement the agent proposed, through its whole life. The customer
+-- confirms with a button (never the LLM); `summary` is what that button showed them.
+CREATE TABLE IF NOT EXISTS ops.transfers (
+    transfer_id            uuid PRIMARY KEY,
+    customer_id            text NOT NULL,
+    kind                   text NOT NULL CHECK (kind IN ('own_accounts', 'pay_debt', 'third_party')),
+    origin_product_id      text NOT NULL,
+    destination_product_id text NOT NULL,
+    destination_customer_id text NOT NULL,
+    amount                 numeric(15, 2) NOT NULL CHECK (amount > 0),
+    currency               text NOT NULL,
+    amount_usd             numeric(15, 2),
+    summary                jsonb NOT NULL,
+    status                 text NOT NULL DEFAULT 'proposed'
+                           CHECK (status IN ('proposed', 'executed', 'cancelled', 'expired', 'blocked')),
+    status_reason          text,
+    created_at             timestamptz NOT NULL DEFAULT now(),
+    expires_at             timestamptz NOT NULL,
+    executed_at            timestamptz,
+    origin_balance_after   numeric(15, 2)
+);
+CREATE INDEX IF NOT EXISTS transfers_customer_day ON ops.transfers (customer_id, executed_at);
 
 CREATE TABLE IF NOT EXISTS ops.card_actions (
     action_id              uuid PRIMARY KEY,

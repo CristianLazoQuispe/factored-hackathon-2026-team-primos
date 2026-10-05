@@ -44,6 +44,8 @@ CUSTOMERS = """
 PRODUCTS = """
     SELECT product_id, customer_id, product_type,
            right(product_number::VARCHAR, 4) AS product_number_last4,
+           CASE WHEN product_type IN ('Cuenta Ahorro', 'Cuenta Corriente')
+                THEN product_number::VARCHAR END AS account_number,  -- never a card's number
            currency, current_balance, credit_limit, product_status,
            nullif(interest_rate, 0) AS interest_rate, opening_date, expiration_date,
            days_past_due::INT AS days_past_due, false AS is_synthetic_fixture
