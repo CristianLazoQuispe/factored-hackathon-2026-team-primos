@@ -1,5 +1,8 @@
 # Evaluation: does the data agent still write good SQL?
 
+This page is about the text-to-SQL of one skill. For the agent's actions (does it act safely and know
+when not to), see [evaluation_actions.md](evaluation_actions.md).
+
 The `data_lookup` skill answers questions such as "how much did I spend in June?" by writing one SQL
 query. A wrong query is a wrong answer, and a change to the prompt, the table catalog or the model can
 make it worse without anyone noticing. This eval measures it, and a job in the deploy pipeline stops a

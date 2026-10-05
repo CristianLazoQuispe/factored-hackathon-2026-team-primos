@@ -32,10 +32,12 @@ from app.adapters.inbound.mcp import transfers as khipu
 from app.adapters.inbound.telegram import build_application
 from app.adapters.outbound import llm, postgres, speech
 from app.adapters.outbound.postgres.accounts import list_customers
+from app.adapters.outbound.postgres.actions import build_gateway, recent_messages
 from app.adapters.outbound.postgres.audit import record_decision
 from app.adapters.outbound.postgres.finances import PostgresFinances
 from app.adapters.outbound.postgres.readonly import ReadOnlyPostgres
 from app.adapters.outbound.postgres.spending import PostgresSpending
+from app.application.actions import ActionGateway, NotFound
 from app.application.finances import FinancesUnavailable, own_finances
 from app.application.run_sql import run_scoped_sql
 from app.application.transfers import cancel as cancel_transfer
@@ -108,6 +110,7 @@ class ChatResponse(BaseModel):
     skill: str | None
     tools_used: list[str]
     handoff: dict | None
+    actions: dict | None = None  # what the agent proposes; nothing runs until the customer confirms
     confirmation: dict | None = None  # a money movement waiting for the Confirmar button
 
 
@@ -314,6 +317,92 @@ async def my_finances(
         raise HTTPException(404, "no_spending_in_period") from None
     except FinancesUnavailable:
         raise HTTPException(503, "finances_unavailable") from None
+
+
+def gateway() -> ActionGateway:
+    """The action gateway. While actions are off its routes answer 404, as if they did not exist."""
+    if not get_settings().actions_enabled:
+        raise HTTPException(404, "actions_disabled")
+    return build_gateway()
+
+
+class ActionDecision(BaseModel):
+    thread_id: str | None = None  # the chat the card came from: a person who picks it up sees this
+    customer_id: str | None = None  # local only, like the chat's: the token decides
+    inbox: str | None = None  # one of the demo inboxes the card offered
+
+
+def action_customer(proven: str | None, claimed: str | None) -> str:
+    customer = resolve_customer(proven, claimed)
+    if customer is None:
+        raise HTTPException(400, "customer_id is required without a token (local only).")
+    return customer
+
+
+def note_outcome(customer_id: str, thread_id: str | None, view: dict) -> None:
+    """Put what happened in the chat the operator console mirrors, and give the chat to a person
+    when the policy or a failed check says an action needs one."""
+    conversation = conversations.get(thread_key(customer_id, thread_id)) if thread_id else None
+    if conversation is None:
+        return
+    text = " · ".join(item["text"] for item in view["items"])
+    if not conversation.messages or conversation.messages[-1]["text"] != text:
+        conversation.add("assistant", text)
+    if view["escalate"] and conversation.status == "bot":
+        conversation.status = "waiting"
+        conversation.case_file = {
+            "customer_id": customer_id,
+            "request": "action_outcome",
+            "actions": [
+                {"action": i["action"], "status": i["status"], "text": i["text"]}
+                for i in view["items"]
+            ],
+            "unresolved": view["escalate"],
+        }
+
+
+@app.post("/api/actions/{batch_id}/confirm")
+async def confirm_actions(
+    batch_id: str,
+    body: ActionDecision,
+    token_customer_id: Annotated[str | None, Depends(token_customer)],
+) -> dict:
+    """The customer confirms what the agent proposed. Only this route runs it, never the chat, and
+    only for the customer the token proves. Asking again returns the same result."""
+    customer = action_customer(token_customer_id, body.customer_id)
+    try:
+        view = await gateway().confirm(customer, batch_id, inbox=body.inbox)
+    except NotFound:
+        raise HTTPException(404, "unknown_batch") from None
+    note_outcome(customer, body.thread_id, view)
+    return view
+
+
+@app.post("/api/actions/{batch_id}/cancel")
+async def cancel_actions(
+    batch_id: str,
+    body: ActionDecision,
+    token_customer_id: Annotated[str | None, Depends(token_customer)],
+) -> dict:
+    customer = action_customer(token_customer_id, body.customer_id)
+    try:
+        view = await gateway().cancel(customer, batch_id)
+    except NotFound:
+        raise HTTPException(404, "unknown_batch") from None
+    note_outcome(customer, body.thread_id, view)
+    return view
+
+
+@app.get("/api/me/outbox")
+async def my_outbox(
+    token_customer_id: Annotated[str | None, Depends(token_customer)],
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    customer_id: str | None = None,  # local only, like the chat's: the token decides
+) -> list[dict]:
+    """What the system sent this customer, newest first: the simulated phone of the demo."""
+    customer = action_customer(token_customer_id, customer_id)
+    gateway()  # 404 while actions are off
+    return await recent_messages(customer, limit)
 
 
 class Transcript(BaseModel):

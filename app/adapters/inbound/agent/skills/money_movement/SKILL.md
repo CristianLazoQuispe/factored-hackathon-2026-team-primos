@@ -2,6 +2,8 @@
 name: money_movement
 description: The customer wants to move their own money ("khipear") — transfer between their own accounts, pay their credit card or loan from an account, or send money to another customer of the bank named by account number or customer ID. Prepares the operation and asks which account when it is not clear; the customer confirms on their screen.
 mcp: transfers
+sign_in: true
+setting: khipu_enabled
 ---
 
 # Khipear: move the customer's money

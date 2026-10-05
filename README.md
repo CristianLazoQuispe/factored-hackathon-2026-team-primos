@@ -2,6 +2,20 @@
 
 AI-first banking customer-service agent for the Factored AI & Data Hackathon 2026.
 
+**What it does.** A customer talks to **quipu**, typed or spoken, in Spanish or Portuguese. It answers from the
+bank's own data (balances, debts, spending, a charge they do not recognise, even from a photo of the
+statement), and, when the deployment turns it on, it can **act**: block or cancel a card, open a payment
+inquiry, ask for a call, set an alert, email a summary. It was built on four rules:
+
+1. **The model never does anything.** It understands the request and proposes. What is allowed is decided by
+   code, from the customer's data, and the customer confirms with a button.
+2. **Nothing is reported as done until the system has read it back.** The sentence on the card is written by
+   code from what was stored and verified, never by the model.
+3. **Money is never moved.** Transfers and payments are refused; refunds, changes of phone or email, higher
+   limits and new cards go to a person with the case already written.
+4. **It says how well it works.** The actions have their own evaluation, with held-out scenarios, a
+   baseline, and the failures listed: see [Evaluation of the actions](#evaluation-of-the-actions).
+
 ![Component architecture](docs/documentation/technical/diagrams/architecture.svg)
 
 Solid = built, dashed = planned. Details in [architecture.md](docs/documentation/technical/architecture.md).
@@ -87,6 +101,66 @@ The assistant should name the two Uber Trip charges of 312.40 MXN on 11 Jun 2026
 | `deps ... llm: error` | `make llm` |
 | `deps ... db: error` | `make down && make up` |
 
+## Actions
+
+Off by default (`ACTIONS_ENABLED=false`): the agent, the routes and the screen are then exactly what they were
+before. With them on, the agent **proposes** and the customer **confirms**:
+
+| Action | Confirmation | Notes |
+|---|---|---|
+| Block a card | button | Refused if already blocked or closed; escalated if the bank suspended it |
+| Cancel a card | button, with an irreversible warning | Escalated if it owes a balance or is past due |
+| Open a payment inquiry | button | Refused for a reversed charge or a very recent pending one; priority from the fraud score and signals |
+| Ask for a call | button | Morning, afternoon or evening |
+| Set an alert | button | Duplicate charge, or a payment about to fall due |
+| Email a summary | none | Balances, payment status or the receipt of an inquiry |
+| Transfer, pay, refund, change phone or email, raise a limit, new card | never automated | Refused, or sent to a person with the case |
+
+The cycle is propose, confirm, execute (retried up to three times), **verify** by reading the result back, and
+audit. Three independent locks keep it to signed-in customers (the router, the skill, and the tools). A
+stolen card is blocked **and** handed to a person.
+
+To try it: put `ACTIONS_ENABLED=true` in `.env`, apply
+`app/adapters/outbound/postgres/migrations/001_actions.sql`, restart, sign in at `/chat` as
+`demo-mx-duplicate@demo.bank` and write `bloquea mi tarjeta` or `no reconozco el cargo de Uber, abre una consulta
+y mándame el comprobante`. A card shows exactly what will be done; **Mensajes** lists what the system sent.
+
+Mail is simulated unless `MAIL_MODE=smtp`; a real one goes only to the closed list `DEMO_INBOXES`, never to a
+customer's synthetic address, and the screen says "accepted by the server", never "delivered". Details in
+[actions.md](docs/documentation/technical/actions.md).
+
+## Evaluation of the actions
+
+The agent with actions was measured against the same agent without them (`--baseline`), on 65 scenarios (49
+Spanish, 16 Portuguese) with a mechanical regression / held-out split fixed before any model answered. No
+model judges anything: every verdict comes from the rows the actions left and from the replies. The 22
+held-out scenarios were run once, blind, three times each:
+
+| 66 attempts each | Without actions | With actions |
+|---|---|---|
+| Correct end state | 27% | 100% |
+| Safe automated resolution | 0 of 18 | 18 of 18 |
+| Needed a person: handed over correctly / missed / unnecessary | 8 / 10 / 12 | 18 / 0 / 0 |
+| Unsafe outcomes confirmed | 0 | 0 |
+| Latency p50 / p95 | 2.1 s / 6.6 s | 5.8 s / 12.3 s |
+| Cost per attempt | 0.0010 USD | 0.0026 USD |
+
+100% is **not** "perfect": 22 distinct scenarios (95% interval about 85-100%), and the same system scored **91%**
+on the 43 regression scenarios it was tuned on, with four known, safe failures. What it shows, what it does
+not, what was changed after seeing results and why: [evaluation_actions.md](docs/documentation/technical/evaluation_actions.md).
+The raw reports, with every reply, are in
+[evaluation_results/](docs/documentation/technical/evaluation_results/). The text-to-SQL skill has its own
+evaluation and a quality floor that stops a deploy: [evaluation.md](docs/documentation/technical/evaluation.md).
+
+```bash
+uv run python -m evals.actions.run --repeats 1                         # regression, to study
+uv run python -m evals.actions.run --baseline --repeats 1              # the agent without actions
+uv run python -m evals.actions.run --split heldout --repeats 3         # held-out: once, blind
+```
+
+It needs the demo database, the actions migration and Gemini (`LLM_PROVIDER=google_genai`); it builds
+`DEMO-EVL-*` customers for each scenario and removes them. `make test` runs the 940 tests.
+
 ## More
 
 - **Use Gemini locally** (e.g. for evals): in `.env` set `LLM_PROVIDER=google_genai` and `GOOGLE_API_KEY`. In the cloud it's Gemini by default.
@@ -128,9 +202,12 @@ From there GitHub deploys: every push to `main` runs the tests and then deploys 
 
 ```
 app/adapters/inbound/agent/   agent graph (guard → router → skill_agent → handoff), AGENT.md, skills/
-app/adapters/inbound/mcp/     FastMCP servers (one per skill)
+app/adapters/inbound/mcp/     FastMCP servers (one per skill; `actions.py` proposes, never executes)
+app/domain/                   the rules: actions policy, risk signals, routing, texts, claims
+app/application/actions.py    the gateway: propose, confirm, execute, verify, audit
 app/adapters/outbound/        Postgres queries + schema.sql, LLM factory
 .github/workflows/           lint + tests on every PR; deploy of both services on push to main
+evals/                        text_to_sql/ (quality floor of a deploy) and actions/ (safety of acting)
 data_pipeline/                raw → bronze → sample → silver → Postgres
 data/sample/                  committed mini-set of the organizer data + demo fixtures
 web/                          Next.js chat (own image: web/Dockerfile)

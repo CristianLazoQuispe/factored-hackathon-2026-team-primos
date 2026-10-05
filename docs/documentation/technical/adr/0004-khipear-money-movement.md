@@ -167,6 +167,14 @@ transfer API instead.
 - **Demo data:** two team fixtures, `DEMO-MX-KHIPU` (two accounts, a credit card and a loan) and
   `DEMO-MX-RECIBE` (who receives), because the eight dispute scenarios have no accounts.
 
+- **Next to the action gateway:** the actions of `account_actions` (block a card, open an inquiry;
+  see [actions.md](../actions.md)) have their own policy, card and routes, and that policy refuses
+  to move money. A transfer or a payment is sent to `money_movement` by code before the policy is
+  asked, and khipear needs a signed-in customer like those actions do. `KHIPU_ENABLED=false`
+  removes the skill and a transfer is refused as before; the action eval runs that way, because
+  it measures the policy on its own. Folding khipear into the gateway (one card, one set of
+  routes) is the natural next step.
+
 ## Open questions
 
 - Spelling of the verb: the product is written **quipu**, the verb is **khipear**. The UI and the
