@@ -3,11 +3,14 @@
 import { type ChangeEvent, type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 
+import { ActionCard } from "@/components/action-card";
 import { AppHeader } from "@/components/app-header";
 import { Corona, type CoronaHandle } from "@/components/corona";
 import { AgentIcon, Logo } from "@/components/logo";
+import { OutboxPanel } from "@/components/outbox-panel";
 import { revealed, visible } from "@/components/spoken";
 import { type MicrophoneAccess, useRecorder } from "@/components/use-recorder";
+import { type ActionBatch, type OutboxMessage, cancelActions, confirmActions, getOutbox } from "@/lib/actions";
 import { useDemoCustomers } from "@/lib/demo-customers";
 import { type Category, formatAmount, getOwnFinances } from "@/lib/profile";
 import { readSession, saveSession, useSession } from "@/lib/session";
@@ -27,6 +30,7 @@ type Message = {
   tools?: string[];
   handoff?: boolean;
   chart?: Category[];
+  actions?: ActionBatch; // what the agent proposes: the card the customer confirms
   reading?: number;
   shown?: number;
 };
@@ -39,6 +43,7 @@ type ChatResponse = {
   skill: string | null;
   tools_used: string[];
   handoff: object | null;
+  actions?: ActionBatch | null; // proposed by the agent; nothing runs until the customer confirms
 };
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -118,8 +123,20 @@ function newThread() {
   return crypto.randomUUID();
 }
 
+// The token as it is, only if it is still good. For what the customer did not ask for (the message
+// tray): unlike `authHeader` it never renews a token and never ends a session.
+function currentAuth(): Record<string, string> | null {
+  const current = readSession();
+  return current && current.expiresAt > Date.now() ? { Authorization: `Bearer ${current.token}` } : null;
+}
+
 function trace(response: ChatResponse) {
-  return { skill: response.skill, tools: response.tools_used, handoff: response.handoff !== null };
+  return {
+    skill: response.skill,
+    tools: response.tools_used,
+    handoff: response.handoff !== null,
+    actions: response.actions ?? undefined,
+  };
 }
 
 function SpendingChart({ categories }: { categories: Category[] }) {
@@ -224,6 +241,46 @@ export default function Chat() {
     return { Authorization: `Bearer ${data.access_token}` };
   }, []);
 
+  // What the system sent this customer. `null`: this deployment has no actions, so there is no tray.
+  const [outbox, setOutbox] = useState<OutboxMessage[] | null>(null);
+  const [tray, setTray] = useState(false);
+  const refreshOutbox = useCallback(async () => {
+    const auth = currentAuth();
+    if (!auth) return;
+    try {
+      setOutbox(await getOutbox(auth));
+    } catch {
+      // the tray is a convenience: if it cannot be read it stays as it was
+    }
+  }, []);
+  useEffect(() => {
+    const auth = customerId ? currentAuth() : null;
+    if (!auth) return;
+    let live = true;
+    getOutbox(auth)
+      .then((found) => {
+        if (live) setOutbox(found);
+      })
+      .catch(() => undefined); // the tray is a convenience: if it cannot be read there is none
+    return () => {
+      live = false;
+    };
+  }, [customerId]);
+
+  // The customer's answer to a card. The API runs the batch once however often this is called and
+  // answers with the card as it stands: done and verified, refused, or waiting for a person.
+  async function decide(batchId: string | null, confirm: boolean, inbox: string | null) {
+    if (!batchId) return;
+    const auth = await authHeader(false);
+    const view = confirm ? await confirmActions(auth, batchId, threadId, inbox) : await cancelActions(auth, batchId, threadId);
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.actions?.batch_id === view.batch_id ? { ...m, actions: view, ...(view.escalate.length ? { handoff: true } : {}) } : m,
+      ),
+    );
+    void refreshOutbox();
+  }
+
   async function signIn(event: FormEvent) {
     event.preventDefault();
     setLoginError("");
@@ -257,6 +314,8 @@ export default function Chat() {
     setLoginError("");
     setThreadId(newThread());
     setMessages([]);
+    setOutbox(null);
+    setTray(false);
     operatorCursor.current = 0;
   }
 
@@ -525,6 +584,11 @@ export default function Chat() {
           {customerId ? (
             <>
               <span style={{ fontSize: 13, color: "var(--q-fog)" }}>{session?.user}</span>
+              {outbox !== null && (
+                <button type="button" className="q-btn q-btn-sm q-btn-ghost" onClick={() => setTray((open) => !open)} aria-expanded={tray}>
+                  Mensajes{outbox.length ? ` (${outbox.length})` : ""}
+                </button>
+              )}
               <button type="button" className="q-btn q-btn-sm q-btn-ghost" onClick={signOut}>
                 Salir
               </button>
@@ -590,6 +654,8 @@ export default function Chat() {
           </button>
         </div>
       </AppHeader>
+
+      {tray && outbox && <OutboxPanel messages={outbox} onClose={() => setTray(false)} />}
 
       <div className="cols">
         <aside
@@ -682,6 +748,13 @@ export default function Chat() {
                       <Markdown>{message.shown === undefined ? message.text : visible(message.text, message.shown)}</Markdown>
                     </div>
                     {message.chart && <SpendingChart categories={message.chart} />}
+                    {message.actions && (
+                      <ActionCard
+                        batch={message.actions}
+                        onConfirm={(inbox) => decide(message.actions?.batch_id ?? null, true, inbox)}
+                        onCancel={() => decide(message.actions?.batch_id ?? null, false, null)}
+                      />
+                    )}
                     {message.chart && (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                         <span className="q-chip">render_chart</span>
