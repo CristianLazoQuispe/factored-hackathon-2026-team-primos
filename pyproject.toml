@@ -54,6 +54,9 @@ pythonpath = ["app", "."]
 [dependency-groups]
 dev = [
     "ipykernel>=7.3.0",
+    "matplotlib>=3.11.2",
+    "pandas>=3.0.6",
     "pytest>=9.1.1",
     "ruff>=0.16.9",
+    "seaborn>=0.13.2",
 ]
