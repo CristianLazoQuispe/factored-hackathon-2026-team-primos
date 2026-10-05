@@ -8,12 +8,13 @@ the customer confirms it in the app, which the model cannot do. The customer com
 and so do the language and the conversation, so the model cannot choose any of them.
 """
 
+import ast
 import json
 from typing import Annotated, Any
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
-from pydantic import BaseModel, BeforeValidator, Field
+from pydantic import BaseModel, BeforeValidator, Field, model_validator
 
 from app.adapters.inbound.mcp import session_customer, session_meta
 from app.adapters.outbound.postgres.actions import (
@@ -22,6 +23,7 @@ from app.adapters.outbound.postgres.actions import (
     fetch_recent_charges,
 )
 from app.domain.action_text import LANGUAGES
+from app.domain.actions import CATALOG
 
 mcp = FastMCP("actions")
 MAX_REQUESTED = 6
@@ -32,6 +34,50 @@ class ActionRequest(BaseModel):
         description="The name of the action, from the list in the tool description."
     )
     params: dict[str, Any] = Field(default_factory=dict, description="Its parameters.")
+
+    @model_validator(mode="before")
+    @classmethod
+    def params_as_an_object(cls, data: Any) -> Any:
+        """Gemini often sends `params` as text: JSON, a Python-style dict, or just the one value the
+        action asks for. The schema says object; this only forgives the slip, so the turn is not
+        lost to it. What comes out still goes through the gateway's checks on the customer's data.
+        """
+        if not isinstance(data, dict) or not isinstance(data.get("params"), str):
+            return data
+        text = data["params"].strip()
+        found = parse_mapping(text)
+        if found is None:
+            found = lone_value(data.get("action"), text)
+        return {**data, "params": found or {}}
+
+
+MAX_PARAMS_TEXT = 2000
+
+
+def parse_mapping(text: str) -> dict[str, Any] | None:
+    """A dict written as JSON or as a Python literal, or None. Only literals: nothing runs."""
+    if not text or len(text) > MAX_PARAMS_TEXT:
+        return None
+    for read in (json.loads, ast.literal_eval):
+        try:
+            value = read(text)
+        except (ValueError, SyntaxError, MemoryError, RecursionError):
+            continue
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def lone_value(action: Any, text: str) -> dict[str, Any] | None:
+    """`"CARD-1"` for block_card: when the action has exactly one required parameter and the text is
+    not a dict, the text is that parameter. The gateway still checks it belongs to the customer."""
+    spec = CATALOG.get(action) if isinstance(action, str) else None
+    required = (
+        [name for name, f in spec.params.model_fields.items() if f.is_required()] if spec else []
+    )
+    if len(required) != 1 or not text or len(text) > MAX_PARAMS_TEXT:
+        return None
+    return {required[0]: text.strip().strip("'\"")}
 
 
 def as_list(value: Any) -> Any:
