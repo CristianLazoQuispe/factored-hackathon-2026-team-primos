@@ -1,7 +1,7 @@
 -include .env
 export
 
-.PHONY: build up smoke down logs llm setup data data-lite bronze sample fixtures silver db-up db-load demo-data models dev web test lint docker telegram-local db-proxy etl-cloud deploy-api deploy-web api-cors deploy telegram-webhook diagrams
+.PHONY: build up smoke down logs llm setup data data-lite bronze sample fixtures silver db-up db-load demo-data models dev web test lint docker telegram-local db-proxy etl-cloud deploy-api deploy-web api-cors deploy telegram-webhook diagrams eval-latency
 
 # Mirrors Settings.provider (app/config.py): Ollama unless LLM_PROVIDER says otherwise or APP_ENV isn't local.
 LLM_PROVIDER_RESOLVED := $(or $(LLM_PROVIDER),$(if $(filter local,$(or $(APP_ENV),local)),ollama,google_genai))
@@ -91,6 +91,9 @@ web:              ## Next.js dev server on :3000
 
 test:
 	uv run pytest -q
+
+eval-latency:     ## Time the frequent questions and khipear requests against a running API (URL=, CUSTOMER=, REPEATS=)
+	uv run python -m evals.latency.run --url $(URL) --customer $(or $(CUSTOMER),DEMO-MX-KHIPU) --repeats $(or $(REPEATS),3)
 
 lint:
 	.githooks/pre-commit
