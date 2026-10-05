@@ -1,9 +1,11 @@
+import warnings
+
 import pytest
 
 from app.adapters.inbound.agent import skills
 from app.adapters.outbound import speech
 from app.config import get_settings
-from tests.actions_support import purge_leftovers
+from evals.actions.world import purge as purge_leftovers
 
 
 @pytest.fixture(autouse=True)
@@ -12,13 +14,21 @@ def no_speech_models(monkeypatch, tmp_path):
     monkeypatch.setattr(speech, "MODELS", tmp_path / "models")
 
 
+def clean() -> None:
+    """Best effort: a failed clean-up warns and does not take every test of the project down."""
+    try:
+        purge_leftovers()
+    except Exception as error:  # noqa: BLE001
+        warnings.warn(f"could not remove what a stopped run left behind: {error}", stacklevel=2)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def no_leftovers_of_the_action_tests():
     """What an interrupted run left in the developer's database is removed before this one starts
     and after it ends (see `purge_leftovers`)."""
-    purge_leftovers()
+    clean()
     yield
-    purge_leftovers()
+    clean()
 
 
 @pytest.fixture(autouse=True)

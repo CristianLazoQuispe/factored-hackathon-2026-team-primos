@@ -28,11 +28,6 @@ from app.domain.actions import (
 )
 
 AS_OF = date(2026, 6, 18)
-LEFTOVER_OPS = ("actions", "outbox", "preferences", "card_actions", "handoff_cases", "disputes")
-LEFTOVER_CORE = ("billing", "transactions", "products", "customers")
-# The customers the SQL tests of the actions build: TEST-ACT-0a1b2c3d and TEST-OTH-0a1b2c3d. Exactly
-# that shape and nothing wider, so that a real customer (DEMO-..., CLI-...) can never match.
-TEST_CUSTOMER_ID = r"^TEST-(ACT|OTH)-[0-9a-f]{8}$"
 T0 = datetime(2026, 6, 18, 12, 0, tzinfo=UTC)
 
 
@@ -292,25 +287,3 @@ class World:
         self.facts.cards[("C1", "CARD-1")] = card()
         self.facts.txs[("C1", "T1")] = tx()
         self.facts.emails["C1"] = "c***@demo.bank"
-
-
-def purge_leftovers() -> None:
-    """Remove the customers the SQL tests of the actions build in `core`, and what the actions wrote
-    for them, if a run was stopped (Ctrl+C) before it could. Left there, they break tests of other
-    people that count rows. All in one transaction, so a failure removes nothing. Quiet when there
-    is no database: the tests that need one skip."""
-    import psycopg
-
-    from app.config import get_settings
-
-    try:
-        with psycopg.connect(get_settings().database_url, connect_timeout=2) as conn:
-            has_ops = conn.execute("SELECT to_regclass('ops.actions')").fetchone()[0] is not None
-            tables = [("ops", name) for name in LEFTOVER_OPS if has_ops]
-            tables += [("core", name) for name in LEFTOVER_CORE]
-            for schema, table in tables:
-                conn.execute(
-                    f"DELETE FROM {schema}.{table} WHERE customer_id ~ %s", (TEST_CUSTOMER_ID,)
-                )
-    except Exception:  # noqa: BLE001 - no database, or not this kind of database: nothing to clean
-        return

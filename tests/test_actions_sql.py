@@ -25,7 +25,9 @@ from app.application.actions import (
 )
 from app.config import get_settings
 from app.domain.actions import AWAITING, CONFIRMED, ActionRecord
-from tests.actions_support import TEST_CUSTOMER_ID, MemoryStore, purge_leftovers
+from evals.actions.world import TEST_CUSTOMER_ID
+from evals.actions.world import purge as purge_leftovers
+from tests.actions_support import MemoryStore
 
 pytestmark = pytest.mark.anyio
 ROOT = Path(__file__).resolve().parents[1] / "app/adapters/outbound/postgres"
@@ -727,7 +729,9 @@ def test_the_data_of_these_tests_respects_the_billing_rule_other_tests_check(ban
     assert debts == billed == 4 and disagree == 0 and over == 0
 
 
-@pytest.mark.parametrize("customer", ["TEST-ACT-0a1b2c3d", "TEST-OTH-ffffffff"])
+@pytest.mark.parametrize(
+    "customer", ["TEST-ACT-0a1b2c3d", "TEST-OTH-ffffffff", "DEMO-EVL-0A1B2C3D"]
+)
 def test_the_cleanup_pattern_matches_the_customers_these_tests_build(customer: str):
     assert re.fullmatch(TEST_CUSTOMER_ID, customer)
     assert re.fullmatch(TEST_CUSTOMER_ID, Bank().id) and re.fullmatch(
@@ -739,7 +743,7 @@ def test_the_cleanup_pattern_matches_the_customers_these_tests_build(customer: s
     "customer",
     [
         "DEMO-MX-DUPLICATE", "CLI-NRO6HF74BFQD", "TEST-ACT-keepme", "TEST-ACT-0a1b2c3d4", "TEST-ACT-0A1B2C3D",
-        "TEST-", "", "XTEST-ACT-0a1b2c3d", "TEST-ACT-0a1b2c3d ", "TEST-OTHER-0a1b2c3d",
+        "TEST-", "", "XTEST-ACT-0a1b2c3d", "TEST-ACT-0a1b2c3d ", "TEST-OTHER-0a1b2c3d", "DEMO-EVLX-0A1B2C3D", "DEMO-EVL-0A1B2C3", "DEMO-EVL-0a1b2c3d", "DEMO-EVL-KEEPME", "TEST-ACT-0A1B2C3D", "DEMO-AR-FRAUD", "TEST-EVL-0a1b2c3d",
     ],
 )  # fmt: skip
 def test_the_cleanup_pattern_can_never_match_anyone_else(customer: str):
