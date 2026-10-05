@@ -498,6 +498,23 @@ async def test_store_contract_expiry_cancel_and_marks(store, bank: Bank):
     )
 
 
+async def test_store_contract_a_newer_proposal_replaces_only_the_ones_waiting_in_its_own_chat(
+    store, bank: Bank
+):
+    chat, other_chat = f"{bank.id}:chat", f"{bank.id}:other"
+    old, elsewhere, newest = records(bank.id, n=1), records(bank.id, n=1), records(bank.id, n=1)
+    old[0].conversation_id = newest[0].conversation_id = chat
+    elsewhere[0].conversation_id = other_chat
+    await store.insert(old + elsewhere + newest)
+    assert await store.supersede(bank.other, chat, newest[0].batch_id) == 0, "not someone else's"
+    assert await store.supersede(bank.id, chat, newest[0].batch_id) == 1
+    assert await store.supersede(bank.id, chat, newest[0].batch_id) == 0, "nothing left to replace"
+    replaced = (await store.batch(old[0].batch_id, bank.id))[0]
+    assert (replaced.status, replaced.reason) == ("cancelled", "superseded")
+    for kept in (elsewhere, newest):
+        assert (await store.batch(kept[0].batch_id, bank.id))[0].status == AWAITING
+
+
 # ---------------------------------------------------------------- the whole cycle on real tables
 
 

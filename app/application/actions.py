@@ -132,6 +132,9 @@ class StorePort(Protocol):
     async def claim(self, batch_id: str, customer_id: str, now: datetime) -> int: ...
     async def expire(self, batch_id: str, customer_id: str, now: datetime) -> int: ...
     async def cancel(self, batch_id: str, customer_id: str) -> int: ...
+    async def supersede(
+        self, customer_id: str, conversation_id: str, keep_batch_id: str
+    ) -> int: ...
     async def mark(
         self,
         action_id: str,
@@ -265,6 +268,8 @@ class ActionGateway:
         for record in records:
             record.status = self._initial_status(record, needs_confirmation)
         await self.store.insert(records)
+        if conversation_id and needs_confirmation:  # only the latest proposal keeps its button
+            await self.store.supersede(customer_id, conversation_id, batch_id)
         for record in records:
             await self.audit(
                 tool=record.action, proposed=record.params, verdict=record.decision,

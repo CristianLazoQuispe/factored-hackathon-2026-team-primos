@@ -205,6 +205,16 @@ class PostgresStore:
             {"batch_id": batch_id, "customer_id": customer_id},
         )
 
+    async def supersede(self, customer_id: str, conversation_id: str, keep_batch_id: str) -> int:
+        """A newer proposal in the same chat replaces the ones still waiting: one live button."""
+        return await self._update(
+            "UPDATE ops.actions SET status = 'cancelled', reason = 'superseded', "
+            "finished_at = now() "
+            "WHERE customer_id = %(customer_id)s AND conversation_id = %(conversation_id)s "
+            "AND batch_id <> %(keep)s AND status = 'awaiting_confirmation'",
+            {"customer_id": customer_id, "conversation_id": conversation_id, "keep": keep_batch_id},
+        )
+
     async def mark(
         self,
         action_id: str,

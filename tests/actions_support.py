@@ -112,6 +112,15 @@ class MemoryStore:
     async def cancel(self, batch_id: str, customer_id: str) -> int:
         return self._move(batch_id, customer_id, CANCELLED)
 
+    async def supersede(self, customer_id: str, conversation_id: str, keep_batch_id: str) -> int:
+        moved = 0
+        for r in list(self.rows.values()):
+            same = r.customer_id == customer_id and r.conversation_id == conversation_id
+            if same and r.batch_id != keep_batch_id and r.status == AWAITING:
+                self.rows[r.action_id] = replace(r, status=CANCELLED, reason="superseded")
+                moved += 1
+        return moved
+
     async def mark(
         self,
         action_id: str,

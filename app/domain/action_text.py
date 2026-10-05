@@ -246,6 +246,7 @@ REASONS: dict[str, dict[str, str]] = {
 STATE: dict[str, dict[str, str]] = {
     "es": {
         "cancelled": "Cancelaste esta acción; no se hizo nada.",
+        "superseded": "Esta propuesta fue reemplazada por una más reciente; no se hizo nada.",
         "expired": "La confirmación caducó y no se hizo nada. Si todavía lo quieres, pídemelo otra vez.",
         "skipped": "No lo hice porque un paso anterior no se completó.",
         "nothing": "No se hizo ningún cambio.",
@@ -253,6 +254,7 @@ STATE: dict[str, dict[str, str]] = {
     },
     "pt": {
         "cancelled": "Você cancelou esta ação; nada foi feito.",
+        "superseded": "Esta proposta foi substituída por uma mais recente; nada foi feito.",
         "expired": "A confirmação expirou e nada foi feito. Se ainda quiser, peça de novo.",
         "skipped": "Não fiz porque uma etapa anterior não foi concluída.",
         "nothing": "Nenhuma alteração foi feita.",
@@ -314,6 +316,8 @@ def outcome(record: ActionRecord, lang: str) -> tuple[str, str]:
         return state["failed"].format(reason=reason_text(record.reason, lang)), "error"
     if status == SKIPPED:
         return state["skipped"], "warn"
+    if status == "cancelled" and record.reason == "superseded":
+        return state["superseded"], "warn"
     if status in ("cancelled", "expired"):
         return state[status], "warn"
     return f"{reason_text(record.reason, lang)} {state['nothing']}", "warn"  # refused, escalated

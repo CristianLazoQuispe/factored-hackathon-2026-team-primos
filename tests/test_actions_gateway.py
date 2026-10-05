@@ -373,3 +373,44 @@ async def test_every_decision_and_outcome_is_audited(w: World):
     assert ("block_card", "needs_confirmation", False, False) in seen
     assert ("refund", "escalated", False, False) in seen
     assert ("block_card", "needs_confirmation", True, True) in seen
+
+
+# ---------------------------------------------------------------- one live proposal per chat
+
+
+async def test_a_newer_proposal_in_the_same_chat_replaces_the_one_still_waiting(w: World):
+    first = await w.gateway.propose("C1", [BLOCK], language="es", conversation_id="C1:chat")
+    second = await w.gateway.propose("C1", [BLOCK], language="es", conversation_id="C1:chat")
+    assert statuses(await w.gateway.view("C1", first["batch_id"])) == ["cancelled"]
+    old = await w.gateway.confirm("C1", first["batch_id"])
+    assert statuses(old) == ["cancelled"] and "reemplazada" in old["items"][0]["text"]
+    assert w.effects.calls == [], "the replaced proposal can no longer be confirmed"
+    assert statuses(second) == ["awaiting_confirmation"]
+    assert statuses(await w.gateway.confirm("C1", second["batch_id"])) == ["verified"]
+
+
+async def test_the_replacement_is_told_in_the_customers_language(w: World):
+    first = await w.gateway.propose("C1", [BLOCK], language="pt", conversation_id="C1:chat")
+    await w.gateway.propose("C1", [BLOCK], language="pt", conversation_id="C1:chat")
+    assert "substituída" in (await w.gateway.view("C1", first["batch_id"]))["items"][0]["text"]
+
+
+async def test_only_the_same_customer_and_chat_are_replaced(w: World):
+    w.facts.cards[("C2", "CARD-1")] = card()
+    elsewhere = await w.gateway.propose("C1", [BLOCK], language="es", conversation_id="C1:other")
+    nowhere = await w.gateway.propose("C1", [BLOCK], language="es")
+    theirs = await w.gateway.propose("C2", [BLOCK], language="es", conversation_id="C1:chat")
+    await w.gateway.propose("C1", [BLOCK], language="es", conversation_id="C1:chat")
+    for batch, customer in ((elsewhere, "C1"), (nowhere, "C1"), (theirs, "C2")):
+        assert statuses(await w.gateway.view(customer, batch["batch_id"])) == [
+            "awaiting_confirmation"
+        ]
+
+
+async def test_a_proposal_nobody_has_to_confirm_replaces_nothing(w: World):
+    first = await w.gateway.propose("C1", [BLOCK], language="es", conversation_id="C1:chat")
+    refused = await w.gateway.propose(
+        "C1", [{"action": "transfer_money", "params": {}}], language="es", conversation_id="C1:chat"
+    )
+    assert statuses(refused) == ["refused"]
+    assert statuses(await w.gateway.view("C1", first["batch_id"])) == ["awaiting_confirmation"]
