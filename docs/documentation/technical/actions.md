@@ -167,6 +167,32 @@ real server says *aceptado por el servidor* and names the demo inbox; "delivered
 Asking for the tray uses the token as it is and never renews it or ends the session. With actions
 off the API answers 404 and the button does not appear.
 
+## What each demo customer can do
+
+An action works for any signed-in customer who has what it needs: block and cancel need a card that is
+not closed; an inquiry needs a charge that is not reversed and not pending for less than three days; the
+email needs an address on file. Nothing in the code lists customers. `uv run python -m evals.actions.coverage`
+asks the policy, with the data, what it would do for each one (a dry run: nothing is stored or executed);
+point `DATABASE_URL` at the Cloud SQL proxy to check the customers that are really offered (it only
+reads, eight customers at a time, and prints its progress). Do not run the tests in a shell with that
+`DATABASE_URL`: they would skip, by design, but the habit is not worth having.
+
+Measured on the eight `DEMO-*` customers of the sample data:
+
+| Action | Result for all eight |
+|---|---|
+| Block a card | Proposed, with confirmation |
+| Open an inquiry | 24 or 25 of their last 25 charges are eligible. The ones that are not are the cases built to be refused: the pending Amazon charge of `DEMO-CO-PENDING` and the reversed Mercado Libre charge of `DEMO-AR-REVERSED` |
+| Email a summary | Sent directly |
+| Ask for a call, set an alert | Proposed, with confirmation |
+| **Cancel a card** | **Sent to a person** (`outstanding_balance`): their only card is a credit card with a balance |
+
+So cancelling a card can only be shown with a customer who holds a card with no balance. The tool counts
+every card of each customer ("1 of 2" is one card that can be cancelled out of two) and says why the
+others cannot, so it tells which of the offered customers can in the deployed data. Run on the
+deployed data it showed block, inquiry, email, call and alert working for every customer checked (32),
+and only a few able to cancel.
+
 ## Not done yet, and things to know
 
 - The SQL tests build customers of their own in `core` (`TEST-ACT-<8 hex>` and `TEST-OTH-<8 hex>`)

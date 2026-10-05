@@ -1,3 +1,4 @@
+import os
 import warnings
 
 import pytest
@@ -5,6 +6,7 @@ import pytest
 from app.adapters.inbound.agent import skills
 from app.adapters.outbound import speech
 from app.config import get_settings
+from evals.actions import world
 from evals.actions.world import purge as purge_leftovers
 
 
@@ -23,7 +25,32 @@ def clean() -> None:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def no_leftovers_of_the_action_tests():
+def tests_only_touch_the_development_database():
+    """Tests build and delete customers. If the database in use is not the development one (a shell
+    that still has DATABASE_URL pointing at Cloud SQL through the proxy), they are given a database
+    that cannot be reached: the ones that need it skip, and nothing is written anywhere.
+    ALLOW_TEST_DATABASE=1 says the other database is yours and not shared."""
+    if world.is_development_database():
+        yield
+        return
+    warnings.warn(
+        "DATABASE_URL is not the development database: the tests that need a database will skip. "
+        "Set ALLOW_TEST_DATABASE=1 if it is yours and not shared.",
+        stacklevel=1,
+    )
+    before = os.environ.get("DATABASE_URL")
+    os.environ["DATABASE_URL"] = world.UNREACHABLE
+    get_settings.cache_clear()
+    yield
+    if before is None:
+        os.environ.pop("DATABASE_URL", None)
+    else:
+        os.environ["DATABASE_URL"] = before
+    get_settings.cache_clear()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def no_leftovers_of_the_action_tests(tests_only_touch_the_development_database):
     """What an interrupted run left in the developer's database is removed before this one starts
     and after it ends (see `purge_leftovers`)."""
     clean()
