@@ -98,3 +98,79 @@ def test_probe_what_a_session_is_given():
     if os.environ.get("PROBE") != "1":
         pytest.skip("only runs inside the session the test above starts")
     assert get_settings().database_url == world.UNREACHABLE, get_settings().database_url
+
+
+# ------------------------------------------- the audit rows of a test customer are cleaned too
+
+
+def audit(proposed: dict) -> int:
+    import psycopg
+    from psycopg.types.json import Jsonb
+
+    with psycopg.connect(get_settings().database_url) as conn:
+        return conn.execute(
+            "INSERT INTO ops.decision_log (tool, proposed, policy_decision, executed) "
+            "VALUES ('block_card', %s, 'needs_confirmation', false) RETURNING log_id",
+            (Jsonb(proposed),),
+        ).fetchone()[0]
+
+
+def audit_rows(*log_ids: int) -> int:
+    import psycopg
+
+    with psycopg.connect(get_settings().database_url) as conn:
+        return conn.execute(
+            "SELECT count(*) FROM ops.decision_log WHERE log_id = ANY(%s)", (list(log_ids),)
+        ).fetchone()[0]
+
+
+@pytest.fixture
+def development_database():
+    import psycopg
+
+    try:
+        with psycopg.connect(get_settings().database_url, connect_timeout=2) as conn:
+            ready = conn.execute("SELECT to_regclass('ops.decision_log')").fetchone()[0]
+    except Exception:
+        pytest.skip("the development database is not running")
+    if ready is None or not world.is_development_database():
+        pytest.skip("needs the development database with the ops tables")
+
+
+def test_dropping_a_customer_removes_the_audit_of_its_cards_and_not_anybody_elses(
+    development_database,
+):
+    customer = world.build("single", "Plus", "México", "es", neighbor=True)
+    mine = audit({"params": {"product_id": customer.cards["main"]}})
+    neighbors = audit({"params": {"product_id": customer.neighbor.cards["main"]}})
+    real = audit({"params": {"product_id": "DEMO-MX-DUPLICATE-CARD"}})
+    unrelated = audit({"params": {"topic": "balances"}})
+    try:
+        world.drop(customer)
+        assert audit_rows(mine, neighbors) == 0, "both customers' audit is gone"
+        assert audit_rows(real, unrelated) == 2, "nobody else's is touched"
+    finally:
+        import psycopg
+
+        with psycopg.connect(get_settings().database_url) as conn:
+            conn.execute(
+                "DELETE FROM ops.decision_log WHERE log_id = ANY(%s)", ([real, unrelated],)
+            )
+
+
+def test_the_cleanup_removes_the_audit_a_stopped_run_left_and_still_nobody_elses(
+    development_database,
+):
+    left_behind = audit({"params": {"transaction_id": "DEMO-EVL-0A1B2C3D-uber2"}})
+    old_test = audit({"params": {"product_id": "TEST-ACT-0a1b2c3d-credit"}})
+    real = audit({"params": {"product_id": "CLI-NRO6HF74BFQD-card"}})
+    similar = audit({"params": {"product_id": "DEMO-EVL-keepme-card"}})  # not the exact shape
+    try:
+        world.purge()
+        assert audit_rows(left_behind, old_test) == 0
+        assert audit_rows(real, similar) == 2
+    finally:
+        import psycopg
+
+        with psycopg.connect(get_settings().database_url) as conn:
+            conn.execute("DELETE FROM ops.decision_log WHERE log_id = ANY(%s)", ([real, similar],))

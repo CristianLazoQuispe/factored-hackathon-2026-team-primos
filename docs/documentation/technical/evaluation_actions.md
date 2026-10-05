@@ -102,7 +102,9 @@ It needs the demo database (`make demo-data`), the actions migration, and a mode
 `APP_ENV=local` and **only against the development database**
 (`postgresql://agent:agent@localhost:5432/agent`): with another one it stops, and the tests skip the
 parts that need a database. Cloud SQL through the proxy is another one. `ALLOW_TEST_DATABASE=1` says a
-different database is yours and not shared.
+different database is yours and not shared. Each scenario's customers are removed afterwards with what they
+left in the ops tables, including the audit rows (`ops.decision_log`), which have no customer column and
+are recognised by the ids in what was proposed.
 
 ```bash
 uv run python -m evals.actions.run --repeats 1                          # regression, to study

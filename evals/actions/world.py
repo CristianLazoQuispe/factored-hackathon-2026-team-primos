@@ -211,12 +211,19 @@ def build(
     return customer
 
 
+# The audit has no customer column: what was proposed carries the ids of the card or charge, which for a
+# test customer start with its own id. Contains, not anchored; the shape is as strict as the customer's.
+AUDIT_OF_A_TEST_CUSTOMER = r"(TEST-(ACT|OTH)-[0-9a-f]{8}|DEMO-EVL-[0-9A-F]{8})"
+
+
 def drop(customer: Customer) -> None:
     ids = [customer.id] + ([customer.neighbor.id] if customer.neighbor else [])
     with _connect() as conn:
         for schema, tables in (("ops", OPS_TABLES), ("core", CORE_TABLES)):
             for table in tables:
                 conn.execute(f"DELETE FROM {schema}.{table} WHERE customer_id = ANY(%s)", (ids,))
+        for one in ids:
+            conn.execute("DELETE FROM ops.decision_log WHERE proposed::text LIKE %s", (f"%{one}%",))
 
 
 def purge() -> None:
@@ -231,4 +238,9 @@ def purge() -> None:
         for schema, table in tables:
             conn.execute(
                 f"DELETE FROM {schema}.{table} WHERE customer_id ~ %s", (TEST_CUSTOMER_ID,)
+            )
+        if has_ops:
+            conn.execute(
+                "DELETE FROM ops.decision_log WHERE proposed::text ~ %s",
+                (AUDIT_OF_A_TEST_CUSTOMER,),
             )
