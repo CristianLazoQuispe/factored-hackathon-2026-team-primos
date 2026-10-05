@@ -1,0 +1,3 @@
+# The renderer writes these when it draws the examples; only the images are kept.
+*.html
+*.txt
