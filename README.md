@@ -159,6 +159,7 @@ evaluation and a quality floor that stops a deploy: [evaluation.md](docs/documen
 uv run python -m evals.actions.run --repeats 1                         # regression, to study
 uv run python -m evals.actions.run --baseline --repeats 1              # the agent without actions
 uv run python -m evals.actions.run --split heldout --repeats 3         # held-out: once, blind
+make eval-latency URL=http://localhost:8080 REPEATS=3                  # seconds per frequent question and khipear request
 ```
 
 It needs the demo database, the actions migration and a model (Gemini with `LLM_PROVIDER=google_genai`, or Ollama); it builds
