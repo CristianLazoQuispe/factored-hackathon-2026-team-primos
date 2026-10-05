@@ -681,6 +681,17 @@ def test_the_migration_is_exactly_the_block_in_schema_sql():
     assert migration.endswith(block + "\n"), "migrations/001_actions.sql drifted from schema.sql"
 
 
+def test_the_services_migration_is_exactly_the_block_in_schema_sql():
+    schema = (ROOT / "schema.sql").read_text()
+    block = (
+        schema.split("-- BEGIN services migration\n", 1)[1]
+        .split("-- END services migration", 1)[0]
+        .strip()
+    )
+    migration = (ROOT / "migrations/002_services.sql").read_text()
+    assert migration.endswith(block + "\n"), "migrations/002_services.sql drifted from schema.sql"
+
+
 # ---------------------------------------------------------------- the tests leave nothing behind
 
 

@@ -19,6 +19,7 @@ from app.adapters.inbound.agent import reply
 from app.adapters.inbound.auth import (
     account_locked,
     allow_login,
+    claimed_customer,
     clear_failures,
     customer_from_login,
     issue_token,
@@ -31,7 +32,7 @@ from app.adapters.inbound.finances_schema import OwnFinances
 from app.adapters.inbound.mcp import transfers as khipu
 from app.adapters.inbound.telegram import build_application
 from app.adapters.outbound import llm, postgres, speech
-from app.adapters.outbound.postgres.accounts import list_customers
+from app.adapters.outbound.postgres.accounts import find_customer, list_customers
 from app.adapters.outbound.postgres.actions import build_gateway, recent_messages
 from app.adapters.outbound.postgres.audit import record_decision
 from app.adapters.outbound.postgres.finances import PostgresFinances
@@ -159,9 +160,10 @@ class TokenResponse(BaseModel):
 
 
 @app.post("/api/auth/token")
-def demo_token(body: TokenRequest, request: Request) -> TokenResponse:
+async def demo_token(body: TokenRequest, request: Request) -> TokenResponse:
     """Demo login: a customer ID from DEMO_CUSTOMER_IDS (or one of eight emails) plus its password,
-    which is that same ID (or email), then the same short-lived bearer token.
+    which is that same ID (or email), then the same short-lived bearer token. With `*` in that
+    list, the ID of any customer in the database signs in the same way.
 
     A wrong login and a wrong password get the same 401. Three wrong passwords lock that account
     for 15 minutes (423), even with the right password afterwards. Eight attempts per minute per
@@ -173,7 +175,12 @@ def demo_token(body: TokenRequest, request: Request) -> TokenResponse:
         raise HTTPException(429, "Demasiados intentos. Espera un minuto.")
     if account_locked(body.user):
         raise HTTPException(423, "Cuenta bloqueada. Espera 15 minutos.")
-    customer_id = customer_from_login(body.user, body.password)
+    # scrypt is slow on purpose: off the event loop, as when this route was a plain function.
+    customer_id = await run_in_threadpool(customer_from_login, body.user, body.password)
+    if customer_id is None:
+        claimed = await run_in_threadpool(claimed_customer, body.user, body.password)
+        if claimed and await find_customer(claimed):
+            customer_id = claimed
     if customer_id is None:
         if register_failure(body.user):
             raise HTTPException(423, "Cuenta bloqueada. Espera 15 minutos.")

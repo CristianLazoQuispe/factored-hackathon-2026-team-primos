@@ -38,11 +38,23 @@ With one candidate, code takes it without asking. By customer ID, code picks the
 | `currency_mismatch`, `origin_unavailable`, `no_source_account` | 57 |
 | `limit_unknown` (no exchange rate to check the limit) | 96 |
 
+## `list_service_bills()`
+
+Returns `bills`: the customer's pending service bills, the one due first on top. Each has `service` (`luz`, `agua`, `teléfono`, `internet` or `cable`), `biller`, `reference`, `amount`, `currency` and `due_date`. The catalog (`core.service_billers`) is team-defined and the bills (`core.service_bills`) are team-generated: illustrative, not bank records.
+
+## `propose_service_payment(service?, from_last4?, from_type?)`
+
+Prepares the payment of one pending bill from one of the customer's accounts. There is no amount argument: a bill is paid whole, for the amount in `core.service_bills`. `service` is the one the customer named; with none named and one bill pending, code takes that one. Only accounts in the bill's currency can pay.
+
+The `status` is the same as for `propose_transfer`: `needs_clarification` (`missing` is `bill` or `origin`), `blocked` or `proposed`. The `confirmation` has `kind: "pay_service"` and a `destination` with the biller's `name`, the `service` and the `reference`. Reasons: `nothing_to_pay` (14), `no_source_account`, `origin_unavailable`, `currency_mismatch` (57), `insufficient_funds` (51) and, at the button, `already_paid` (94).
+
+In `ops.transfers` the proposal keeps the bill in `destination_product_id` and the biller in `destination_customer_id`.
+
 ## The button: `POST /api/khipu/confirm` and `/api/khipu/cancel`
 
 Body: `{"transfer_id": "<uuid>"}`. The customer is the one the bearer token proves. No model runs.
 
-`confirm` locks the proposal and both products, runs every rule again, changes the two balances, adds two movements to `core.transactions` and marks the proposal `executed`, all in one transaction. It answers `executed` (with a `receipt` and the origin's `new_balance`), `blocked` (with `reason`), `expired` or `cancelled`; a transfer that does not exist or belongs to someone else is 404. Confirming twice returns the same receipt.
+`confirm` locks the proposal and both products, runs every rule again, changes the two balances, adds two movements to `core.transactions` and marks the proposal `executed`, all in one transaction. It answers `executed` (with a `receipt` and the origin's `new_balance`), `blocked` (with `reason`), `expired` or `cancelled`; a transfer that does not exist or belongs to someone else is 404. Confirming twice returns the same receipt. For a service payment it locks the account and the bill, checks them again, lowers the one balance, marks the bill `paid` and adds one movement (`Payment`, category `Services`, the biller as merchant).
 
 Both the tools and the routes write to `ops.decision_log` (`propose_transfer` with `needs_confirmation` when it proposes, `confirm_transfer`, `cancel_transfer`).
 

@@ -6,10 +6,12 @@ expires is one of the failure cases the challenge asks to test).
 
 `POST /api/auth/token` checks a demo login and its password, then signs that JWT. A login is the ID
 of a customer in DEMO_CUSTOMER_IDS (the password is that same ID) or one of eight demo emails.
+A `*` in DEMO_CUSTOMER_IDS lets the ID of any customer in the database sign in the same way.
 In production the bank's identity provider replaces the check; `customer_from_token` is what stays.
 """
 
 import hashlib
+import re
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from secrets import compare_digest
@@ -43,6 +45,8 @@ _DEMO_CUSTOMERS = {
     "demo-ar-reversed@demo.bank": "DEMO-AR-REVERSED",
 }
 _DUMMY_SALT = b"factored-demo-dummy"
+ANY_CUSTOMER = "*"  # in DEMO_CUSTOMER_IDS: the ID of every customer in the database can sign in
+_CUSTOMER_ID = re.compile(r"(?:cli|demo)-[a-z0-9-]+")
 
 
 def _digest(password: str, salt: bytes) -> bytes:
@@ -86,7 +90,7 @@ def allow_login(origin: str) -> bool:
 def _demo_ids() -> dict[str, str]:
     """The IDs that can sign in (DEMO_CUSTOMER_IDS): lower-cased ID -> the ID as it is listed."""
     ids = get_settings().demo_customer_ids.split(",")
-    return {i.strip().lower(): i.strip() for i in ids if i.strip()}
+    return {i.strip().lower(): i.strip() for i in ids if i.strip() not in ("", ANY_CUSTOMER)}
 
 
 @lru_cache(maxsize=256)
@@ -148,6 +152,17 @@ def customer_from_login(login: str, password: str) -> str | None:
     if customer is None or not compare_digest(given, expected):
         return None
     return customer
+
+
+def claimed_customer(login: str, password: str) -> str | None:
+    """With `*` in DEMO_CUSTOMER_IDS: the customer ID this login names, when the password is that
+    same ID. It proves nothing about the database: the caller checks that the customer exists."""
+    key = login.strip().lower()
+    listed = (i.strip() for i in get_settings().demo_customer_ids.split(","))
+    if ANY_CUSTOMER not in listed or not _CUSTOMER_ID.fullmatch(key):
+        return None
+    given = _digest(password.strip().upper(), key.encode())
+    return key.upper() if compare_digest(given, _id_digest(key)) else None
 
 
 class AuthError(Exception):

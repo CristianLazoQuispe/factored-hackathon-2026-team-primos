@@ -14,6 +14,7 @@ The brief asks to label every input. Each table carries its provenance as a `COM
 | `app_sessions` | one row per app/web session | derived from the organizer's `digital_events` |
 | `customer_service_summary` | one row per customer: contacts, escalations, open complaints, last CSAT | derived from the organizer's interactions, complaints and surveys |
 | `billing` | one row per credit card and loan: statement date, due date, statement balance, minimum payment or installment, past-due amount | **team-generated** by a fixed rule (below) |
+| `service_billers`, `service_bills` | the five services that can be paid (electricity, water, phone, internet, cable TV) and three pending bills for every customer with an active account | **team-defined** catalog; bills **team-generated** by a fixed rule in `load.py` (amount, due date and reference from a stable hash of the customer id). A bill the customer pays is marked `paid` by khipear until the next load |
 | rows with `is_synthetic_fixture = true` | the 8 demo customers and their dispute scenarios, and the 2 khipear customers (`DEMO-MX-KHIPU` with two accounts, a card and a loan; `DEMO-MX-RECIBE`, who receives) | **team-generated** (`fixtures.py`) |
 | movements whose `transaction_id` starts with `KHP-` | the two movements of each transfer or payment the customer confirmed | **written by the application** (khipear), gone at the next load |
 

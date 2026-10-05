@@ -8,6 +8,8 @@ the result is reported only after the effect has been read back.
 > server and skill that propose, the routes that confirm, the deploy settings, and the
 > confirmation card and message tray in the web. Off by default: `ACTIONS_ENABLED=false`, and with
 > it off the agent's prompt, skills, routes and screen are what they were before actions existed.
+> Moving money is not one of these actions: khipear has its own skill, routes and flag
+> (`KHIPU_ENABLED`, [ADR 0004](adr/0004-khipear-money-movement.md)).
 
 ## The cycle
 
@@ -63,7 +65,7 @@ dataset flags as fraud average a score of 55.7 against 14.8 for the rest.
 
 ## Where it writes
 
-The bank's own tables (`core`) are **never written**. What the customer does is laid over them:
+The action gateway **never writes** the bank's own tables (`core`); the one writer of `core` is khipear. What the customer does through an action is laid over them:
 
 | Effect | Where |
 |---|---|

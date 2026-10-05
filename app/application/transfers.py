@@ -1,4 +1,6 @@
 """Khipear: propose a movement of the customer's money, then execute it when they confirm.
+A movement goes to an account, a card or a loan (`propose`) or pays a service bill
+(`propose_service_payment`); both leave the same kind of proposal and confirm the same way.
 
 `propose` never moves anything. It resolves the accounts from the customer's own products (the
 model only passes what the customer said), asks when there is more than one candidate, applies the
@@ -14,13 +16,16 @@ from uuid import uuid4
 
 from app.domain.accounts import DEBT_TYPES
 from app.domain.transfers import (
+    PAY_SERVICE,
     Block,
     Kind,
     Limits,
+    bill_option,
     can_be_paid,
     can_receive,
     can_send,
     check,
+    check_service,
     choose,
     option,
     recipient_name,
@@ -43,6 +48,9 @@ class Ledger(Protocol):
 
     async def sent_today_usd(self, customer_id: str) -> float: ...
 
+    async def pending_bills(self, customer_id: str) -> list[dict]:
+        """The customer's unpaid service bills with their biller, the one due first on top."""
+
     async def save(self, proposal: dict) -> datetime:
         """Stores the proposal and returns when it expires."""
 
@@ -51,11 +59,11 @@ class Ledger(Protocol):
     async def cancel(self, transfer_id: str, customer_id: str) -> bool: ...
 
 
-def _ask(missing: str, candidates: list[dict], question: str) -> dict[str, Any]:
+def _ask(missing: str, candidates: list[dict], question: str, show=option) -> dict[str, Any]:
     return {
         "status": "needs_clarification",
         "missing": missing,
-        "options": [option(c) for c in candidates],
+        "options": [show(c) for c in candidates],
         "ask": question,
     }
 
@@ -211,6 +219,78 @@ async def propose(
     }
 
 
+async def service_bills(ledger: Ledger, customer_id: str) -> dict[str, Any]:
+    return {"bills": [bill_option(b) for b in await ledger.pending_bills(customer_id)]}
+
+
+async def propose_service_payment(
+    ledger: Ledger,
+    customer_id: str,
+    service: str | None = None,
+    from_last4: str | None = None,
+    from_type: str | None = None,
+) -> dict[str, Any]:
+    """Prepare the payment of one pending service bill, for its whole amount. `service` is the
+    one the customer named ("la luz"); with none named and one bill pending, it is that one."""
+    pending = await ledger.pending_bills(customer_id)
+    bills = [b for b in pending if service in (None, b["category"])]
+    if not bills:
+        named = f" for {service}" if service and pending else ""
+        return _blocked(Block("nothing_to_pay", "14", f"No pending service bill{named}."))
+    if len(bills) > 1:
+        return _ask("bill", bills, "Which service bill do they want to pay?", bill_option)
+    bill = bills[0]
+
+    products = await ledger.products(customer_id)
+    sources = [
+        p
+        for p in products
+        if can_send(p)
+        and from_type in (None, p["product_type"])
+        and p["currency"] == bill["currency"]
+    ]
+    if not sources:
+        return _blocked(
+            Block(
+                "no_source_account", "57", f"No active account in {bill['currency']} to pay from."
+            )
+        )
+    origin = choose(sources, from_last4)
+    if origin is None:
+        return _ask("origin", sources, "Which account should the money come from?")
+    block = check_service(origin, bill)
+    if block:
+        return _blocked(block)
+
+    rate = await ledger.usd_rate(bill["currency"])
+    confirmation = {
+        "transfer_id": str(uuid4()),
+        "kind": PAY_SERVICE,
+        "origin": {k: v for k, v in option(origin).items() if k in ("product_type", "last4")},
+        "destination": {
+            "name": bill["name"],
+            "service": bill["category"],
+            "reference": bill["reference"],
+        },
+        "amount": bill["amount"],
+        "currency": bill["currency"],
+    }
+    expires_at = await ledger.save(
+        confirmation
+        | {
+            "customer_id": customer_id,
+            "origin_product_id": origin["product_id"],
+            "destination_product_id": bill["bill_id"],
+            "destination_customer_id": bill["biller_id"],
+            "amount_usd": None if rate is None else round(bill["amount"] * rate, 2),
+        }
+    )
+    return {
+        "status": "proposed",
+        "confirmation": confirmation | {"expires_at": expires_at.isoformat()},
+    }
+
+
 async def execute(
     ledger: Ledger, limits: Limits, customer_id: str, transfer_id: str
 ) -> dict[str, Any]:
@@ -218,6 +298,8 @@ async def execute(
     receipt and moves nothing."""
 
     def recheck(transfer: dict, origin: dict, destination: dict, sent_today_usd: float):
+        if transfer["kind"] == PAY_SERVICE:  # the destination is the bill, locked like the account
+            return check_service(origin, destination)
         return check(
             transfer["kind"],
             origin,

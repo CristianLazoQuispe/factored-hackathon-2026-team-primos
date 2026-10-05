@@ -1,8 +1,9 @@
 """The ledger behind khipear (see app/application/transfers.py). Reviewed SQL only.
 
 This is the one place that writes to `core`: `execute` changes two balances and adds two
-movements in a single database transaction, with the proposal and both products locked. In a real
-deployment it would call the bank's transfer API instead.
+movements in a single database transaction, with the proposal and both products locked. Paying a
+service bill changes one balance, marks the bill paid and adds one movement, with the bill locked
+the same way. In a real deployment it would call the bank's transfer API instead.
 """
 
 from datetime import datetime
@@ -14,7 +15,7 @@ from psycopg.types.json import Jsonb
 from app.adapters.outbound.postgres import plain, query
 from app.application.transfers import Recheck
 from app.config import get_settings
-from app.domain.transfers import ACCOUNT_TYPES, Block
+from app.domain.transfers import ACCOUNT_TYPES, PAY_SERVICE, Block
 
 _PRODUCT = """p.product_id, p.customer_id, p.product_type, p.product_number_last4, p.currency,
            p.current_balance, p.product_status"""
@@ -45,6 +46,20 @@ SENT_TODAY = """
     SELECT coalesce(sum(amount_usd), 0) AS sent FROM ops.transfers
     WHERE customer_id = %(customer_id)s AND kind = 'third_party' AND status = 'executed'
       AND executed_at >= date_trunc('day', now())
+"""
+_BILL = """
+    SELECT b.bill_id, b.customer_id, b.biller_id, s.name, s.category, b.reference, b.amount,
+           b.currency, b.due_date::text AS due_date, b.status
+    FROM core.service_bills b JOIN core.service_billers s ON s.biller_id = b.biller_id
+"""
+PENDING_BILLS = (
+    _BILL
+    + """ WHERE b.customer_id = %(customer_id)s AND b.status = 'pending'
+    ORDER BY b.due_date, b.bill_id"""
+)
+LOCK_BILL = _BILL + " WHERE b.bill_id = %(bill_id)s FOR UPDATE OF b"
+PAY_BILL = """
+    UPDATE core.service_bills SET status = 'paid', paid_at = now() WHERE bill_id = %(bill_id)s
 """
 SAVE = """
     INSERT INTO ops.transfers (transfer_id, customer_id, kind, origin_product_id,
@@ -81,12 +96,12 @@ MOVE = """
 # from max(transaction_date), and a movement dated today would empty those windows.
 MOVEMENT = """
     INSERT INTO core.transactions (transaction_id, customer_id, product_id, transaction_date,
-        transaction_type, amount, currency, amount_usd, channel, transaction_status,
-        response_code, is_fraud)
+        transaction_type, transaction_category, merchant_name, amount, currency, amount_usd,
+        channel, transaction_status, response_code, is_fraud)
     SELECT %(transaction_id)s, %(customer_id)s, %(product_id)s,
         coalesce((SELECT max(transaction_date) FROM core.transactions), now()::timestamp),
-        %(transaction_type)s, %(amount)s, %(currency)s, %(amount_usd)s, 'App', 'Approved',
-        '00', false
+        %(transaction_type)s, %(category)s, %(merchant)s, %(amount)s, %(currency)s,
+        %(amount_usd)s, 'App', 'Approved', '00', false
 """
 EXECUTED = """
     UPDATE ops.transfers
@@ -140,6 +155,9 @@ class PostgresLedger:
     async def sent_today_usd(self, customer_id: str) -> float:
         return (await query(SENT_TODAY, {"customer_id": customer_id}))[0]["sent"]
 
+    async def pending_bills(self, customer_id: str) -> list[dict]:
+        return await query(PENDING_BILLS, {"customer_id": customer_id})
+
     async def save(self, proposal: dict) -> datetime:
         summary = {"origin": proposal["origin"], "destination": proposal["destination"]}
         minutes = get_settings().khipu_confirmation_minutes
@@ -175,25 +193,38 @@ class PostgresLedger:
                 transfer["origin_product_id"],
                 transfer["destination_product_id"],
             )
-            locked = await run(LOCK_PRODUCTS, {"ids": [origin_id, destination_id]})
-            products = {p["product_id"]: p for p in locked}
+            # For a service payment the destination is a bill, locked after the account.
+            pays_service = transfer["kind"] == PAY_SERVICE
+            ids = [origin_id] if pays_service else [origin_id, destination_id]
+            products = {p["product_id"]: p for p in await run(LOCK_PRODUCTS, {"ids": ids})}
+            if pays_service:
+                bills = await run(LOCK_BILL, {"bill_id": destination_id})
+                destination = bills[0] if bills else None
+            else:
+                destination = products.get(destination_id)
             block = GONE
-            if origin_id in products and destination_id in products:
+            if origin_id in products and destination:
                 sent = (await run(SENT_TODAY, key))[0]["sent"]
-                block = recheck(transfer, products[origin_id], products[destination_id], sent)
+                block = recheck(transfer, products[origin_id], destination, sent)
             if block:
                 await run(CLOSE, key | {"status": "blocked", "reason": block.reason})
                 return {"status": "blocked", "block": block}
 
             amount, pays_debt = transfer["amount"], transfer["kind"] == "pay_debt"
             balance = (await run(MOVE, {"product_id": origin_id, "delta": -amount}))[0]
-            await run(
-                MOVE, {"product_id": destination_id, "delta": -amount if pays_debt else amount}
-            )
-            for side, product_id, transaction_type in (
-                ("O", origin_id, "Transfer"),
-                ("D", destination_id, "Payment" if pays_debt else "Deposit"),
-            ):
+            if pays_service:
+                await run(PAY_BILL, {"bill_id": destination_id})
+                movements = [("O", origin_id, "Payment", "Services", destination["name"])]
+            else:
+                await run(
+                    MOVE, {"product_id": destination_id, "delta": -amount if pays_debt else amount}
+                )
+                received = "Payment" if pays_debt else "Deposit"
+                movements = [
+                    ("O", origin_id, "Transfer", None, None),
+                    ("D", destination_id, received, None, None),
+                ]
+            for side, product_id, transaction_type, category, merchant in movements:
                 await run(
                     MOVEMENT,
                     {
@@ -201,6 +232,8 @@ class PostgresLedger:
                         "customer_id": products[product_id]["customer_id"],
                         "product_id": product_id,
                         "transaction_type": transaction_type,
+                        "category": category,
+                        "merchant": merchant,
                         "amount": amount,
                         "currency": transfer["currency"],
                         "amount_usd": transfer["amount_usd"],
