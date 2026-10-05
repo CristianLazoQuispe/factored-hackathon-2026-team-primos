@@ -15,6 +15,8 @@ erDiagram
     customers ||--o{ transactions : "makes"
     products ||--o{ transactions : "on"
     products ||--o| billing : "cards and loans"
+    customers ||--o{ service_bills : "owes"
+    service_billers ||--o{ service_bills : "issues"
     customers ||--o{ complaints : "files"
     customers ||--o{ app_sessions : "opens"
     customers ||--o| customer_service_summary : "summarized in"
@@ -72,6 +74,22 @@ erDiagram
         numeric past_due_amount
         integer remaining_installments "loans"
         text provenance "team_generated"
+    }
+    service_billers {
+        text biller_id PK
+        text name
+        text category "luz, agua, teléfono, internet, cable"
+    }
+    service_bills {
+        text bill_id PK
+        text customer_id FK
+        text biller_id FK
+        text reference "contract with the biller"
+        numeric amount
+        text currency
+        date due_date
+        text status "pending, paid"
+        timestamptz paid_at
     }
     complaints {
         text complaint_id PK
