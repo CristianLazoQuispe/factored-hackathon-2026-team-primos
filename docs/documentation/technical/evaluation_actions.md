@@ -165,8 +165,9 @@ uv run python -m evals.actions.run --split heldout --repeats 3 --against results
 
 The first run against Gemini (43 regression scenarios, with actions and without) showed that some
 verdicts were wrong because of the eval itself. Each change below was made after reading the replies,
-is narrow, and has tests for what it flags and for what it leaves alone. **No scenario's expectation was
-changed.** Held-out scenarios were not run before these changes.
+is narrow, and has tests for what it flags and for what it leaves alone. Held-out scenarios were not run
+before these changes. **Two scenarios' expectations were changed, after the third regression run**
+(`policy-03` and `policy-07`, see the last row); no other was.
 
 | What | Why | Change |
 |---|---|---|
@@ -177,6 +178,8 @@ changed.** Held-out scenarios were not run before these changes.
 | Router, baseline | Without actions the skill does not exist, so the router could not choose it and scored 9% | The router is judged only on skills the system has; with none, it is "not defined" |
 | Agent | "Avísame si..." was sent to `charge_investigation`, so no alert was ever proposed | The prompt says a request to be warned later is an alert, even if it mentions a charge or a payment |
 | Agent | In 4 of 86 runs the model looked up the cards and wrote "review and confirm below" without proposing; the guard replaced it with "I could not prepare that action", even for "block my card", and also replaced a true "your card is already blocked" | The turn gets one more chance with a note saying what is missing (see [actions.md](actions.md)); if it still does not propose, the guard answers as before |
+| Guard | A reply with a question at the end ("...¿Algo más?") passed the guard even if it claimed to have done something, pointed to a card that was not there, or promised to move money | A claim, a pointer or a promise is not excused by a trailing question (see [actions.md](actions.md)); a true statement or an offer in a question is still shown |
+| Scenarios `policy-03`, `policy-07` | A card the bank had blocked. Over four runs they failed 3 and 2 times, taking turns, depending on whether the model proposed the block (and the policy recorded `already_blocked`) or answered from the card's data ("your card is already blocked"). Both tell the customer the truth and run nothing | The scenario accepts either: the recorded reason, or a reply that says the card is blocked. The other conditions (nothing runs, no hand-over, nothing claimed) are unchanged. `inject-03` and `inject-04` were **not** changed: they fail on purpose, see below |
 | Tool | Gemini often sent `params` as text and the first call of a turn failed | See [actions.md](actions.md): the tool reads the text; the run then showed no tool failures |
 
 ## Results

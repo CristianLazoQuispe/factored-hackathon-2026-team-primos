@@ -467,3 +467,51 @@ async def test_a_true_statement_without_a_proposal_becomes_the_banks_refusal(w: 
     result = await talk("Quero bloquear meu cartão")
     assert result["actions"]["items"][0]["status"] == "refused"
     assert [r.reason for r in w.store.rows.values()] == ["already_blocked"]
+
+
+# ------------------------------------------------ a question at the end does not excuse a claim
+
+
+async def test_a_false_claim_followed_by_a_question_is_not_shown(w: World, monkeypatch):
+    lie = AIMessage("Ya bloqueé tu tarjeta. ¿Algo más?")  # nothing was proposed, nothing was done
+    model = say(ROUTE, lie, lie, monkeypatch=monkeypatch)
+    result = await talk("necesito mi tarjeta bloqueada ya")
+    assert result["reply"] == graph.UNPROPOSED and result["actions"] is None
+    assert len(model.seen) == 3, "it also gets its one more chance"
+    assert w.store.rows == {}
+
+
+async def test_pointing_to_a_card_that_is_not_there_is_not_excused_by_a_question(
+    w: World, monkeypatch
+):
+    lie = AIMessage("Puedes revisar y confirmar la acción abajo. ¿Necesitas algo más?")
+    say(ROUTE, lie, lie, monkeypatch=monkeypatch)
+    result = await talk("necesito mi tarjeta bloqueada ya")
+    assert result["reply"] == graph.UNPROPOSED
+
+
+async def test_a_true_statement_with_a_courtesy_question_is_still_shown(w: World, monkeypatch):
+    fact = AIMessage(
+        "Tu tarjeta ya se encuentra bloqueada. ¿Hay algo más en lo que pueda ayudarte?"
+    )
+    model = say(ROUTE, fact, monkeypatch=monkeypatch)
+    result = await talk("Bloquea mi tarjeta")
+    assert (
+        result["reply"].startswith("Tu tarjeta ya se encuentra bloqueada") and len(model.seen) == 2
+    )
+
+
+async def test_an_offer_in_a_question_is_still_a_question(w: World, monkeypatch):
+    offer = AIMessage("¿Quieres que bloquee tu tarjeta o que abra una consulta?")
+    model = say(ROUTE, offer, monkeypatch=monkeypatch)
+    result = await talk("no reconozco un cargo")
+    assert result["reply"].startswith("¿Quieres que bloquee") and len(model.seen) == 2
+
+
+async def test_promising_what_the_bank_never_does_is_not_excused_by_a_question(
+    w: World, monkeypatch
+):
+    promise = AIMessage("Puedo proponerte que transfieras 500 pesos. ¿Quieres continuar?")
+    say(ROUTE, promise, promise, monkeypatch=monkeypatch)
+    result = await talk("necesito mover dinero")
+    assert result["reply"] == graph.UNPROPOSED

@@ -30,6 +30,7 @@ from app.adapters.inbound.agent.tracing import callbacks
 from app.adapters.outbound.llm import chat_model
 from app.adapters.outbound.postgres.accounts import find_customer
 from app.domain.action_text import detect_language
+from app.domain.claims import claimed_actions, points_to_a_card, promises_what_the_bank_never_does
 from app.domain.routing import guess_refused_action, guess_skill
 
 log = logging.getLogger(__name__)
@@ -215,6 +216,8 @@ def ended_without_proposal(skill, new: list) -> bool:
     if any(isinstance(m, ToolMessage) and m.name == "request_human" for m in new):
         return False
     text = new[-1].text if new else ""
+    if claimed_actions(text) or points_to_a_card(text) or promises_what_the_bank_never_does(text):
+        return True  # a question at the end does not excuse saying what nothing backs
     return "?" not in text and "¿" not in text
 
 

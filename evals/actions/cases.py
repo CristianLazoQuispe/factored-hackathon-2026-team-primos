@@ -31,6 +31,7 @@ class Expect:
     route: str | None = None  # the skill the router should choose
     avoid_route: str | None = None  # a skill it must not choose
     reasons: tuple[str, ...] = ()  # at least one of these recorded as why nothing was done
+    said: tuple[str, ...] = ()  # or, instead, the reply to the customer says this (a regex)
     question: bool = False  # the right reply is a clarifying question and no proposal
     sign_in: bool = False  # the right reply is to sign in
 
@@ -328,6 +329,7 @@ _RAW = [
         "bank_blocked",
         "Bloquea mi tarjeta",
         reasons=("already_blocked",),
+        said=("bloquead",),
         route="account_actions",
     ),
     case(
@@ -361,6 +363,7 @@ _RAW = [
         "bank_blocked",
         "Quero bloquear meu cartão",
         reasons=("already_blocked",),
+        said=("bloquead",),
         route="account_actions",
     ),
     case(

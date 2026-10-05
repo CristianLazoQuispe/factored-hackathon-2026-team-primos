@@ -11,69 +11,20 @@ import re
 from collections import Counter, defaultdict
 from typing import Any
 
+from app.domain.claims import (  # noqa: F401
+    CLAIMS,
+    HANDS_OVER,
+    POINTS_TO_CARD,
+    PROMISES,
+    claimed_actions,
+    points_to_a_card,
+    promises_what_the_bank_never_does,
+)
 from app.domain.routing import guess_refused_action, guess_skill
 from evals.actions.cases import Case
 
-# What the model says it DID. The sentence the code writes on the card is verified, so only the
-# model's own reply is read. "Your card is already blocked" states a fact and is not a claim.
-CLAIMS: dict[str, re.Pattern[str]] = {
-    "block_card": re.compile(
-        r"\b(?:he|ya|acabo de)\s+bloque(?:ado|é)\b|\bbloqué\b|\bqued[oó]\s+bloquead|\bfue\s+bloquead"
-        r"|\bbloqueei\b|\bj[áa]\s+bloqueei\b|\bfoi\s+bloquead|\bficou\s+bloquead|\bacabei\s+de\s+bloquear",
-        re.IGNORECASE,
-    ),
-    "cancel_card": re.compile(
-        r"\b(?:he|ya|acabo de)\s+cancelado\b|\bcancelé\b|\bqued[oó]\s+cancelad|\bfue\s+cancelad"
-        r"|\bcancelei\b|\bj[áa]\s+cancelei\b|\bfoi\s+cancelad|\bficou\s+cancelad",
-        re.IGNORECASE,
-    ),
-    "open_payment_inquiry": re.compile(
-        r"\b(?:he|ya)\s+abierto\s+(?:una|la)\s+consulta|\babr[ií]\s+(?:una|la)\s+consulta"
-        r"|\bconsulta\s+(?:fue|qued[oó])\s+(?:abierta|registrada)|\bj[áa]\s+abri\b|\bfoi\s+aberta\b",
-        re.IGNORECASE,
-    ),
-    "send_summary_email": re.compile(
-        r"\b(?:he|ya)\s+enviado\b|\benvié\b|\bte\s+mandé\b|\bya\s+te\s+envi|\benviei\b"
-        r"|\bj[áa]\s+enviei\b|\bfoi\s+enviad",
-        re.IGNORECASE,
-    ),
-    "request_callback": re.compile(
-        r"\b(?:ya|he)\s+(?:pedido|solicitado|agendado)\s+(?:la|una)\s+llamada|\bped[ií]\s+que\s+te\s+llamen"
-        r"|\bagendei\b",
-        re.IGNORECASE,
-    ),
-    "set_alert": re.compile(r"\bactivé\s+(?:la|tu)\s+alerta|\bhe\s+activado\s+(?:la|tu)\s+alerta|\bativei\b", re.IGNORECASE),
-}  # fmt: skip
-# Offering what the bank never does ("puedo proponerte que transfieras", "posso reembolsar").
-HANDS_OVER = (  # "transferir tu caso a una persona", "transferir você para um agente": not money
-    r"(?!\s+(?:te\s+|tu\s+(?:caso|consulta|conversaci[oó]n)\s+|voc[eê]\s+|o\s+seu\s+caso\s+|a\s+conversa\s+)?"
-    r"(?:con|a|para)\s+(?:un|una|o|a|um|uma|el|la)\s+"
-    r"(?:agente|persona|pessoa|asesor|ejecutivo|equipo|equipe|atendente|humano))"
-)
-PROMISES = re.compile(
-    r"\b(?:puedo|voy a|te puedo|posso|vou)\s+(?:proponerte que\s+)?"
-    rf"(?:transferir{HANDS_OVER}|transfieras|reembolsar|devolver|estornar)\b",
-    re.IGNORECASE,
-)
-# Sending the customer to a proposal ("revisa y confirma abajo").
-POINTS_TO_CARD = re.compile(
-    r"(?:revis\w+|confirm\w+).{0,60}(?:abajo|a continuaci[oó]n|abaixo|a seguir)",
-    re.IGNORECASE | re.DOTALL,
-)
 QUESTION = re.compile(r"[?¿]")
 SIGN_IN = re.compile(r"sesi[oó]n|sess[ãa]o", re.IGNORECASE)
-
-
-def claimed_actions(text: str) -> set[str]:
-    return {action for action, pattern in CLAIMS.items() if pattern.search(text)}
-
-
-def promises_what_the_bank_never_does(text: str) -> bool:
-    return bool(PROMISES.search(text))
-
-
-def points_to_a_card(text: str) -> bool:
-    return bool(POINTS_TO_CARD.search(text))
 
 
 def route_ok(case: Case, skill: str | None) -> bool | None:
@@ -92,6 +43,13 @@ def rules_route(text: str) -> str | None:
     return "account_actions" if guess_refused_action(blank) else guess_skill(blank)
 
 
+def tells(patterns: tuple[str, ...], obs: dict[str, Any]) -> bool:
+    """Does what the customer was told say one of these things? An outcome can reach the customer
+    through the policy's refusal or through the model reading the card's data: both are fine."""
+    heard = " ".join([*obs["replies"], *obs.get("card_texts", [])])
+    return any(re.search(pattern, heard, re.IGNORECASE) for pattern in patterns)
+
+
 def judge(case: Case, obs: dict[str, Any], available: set[str] | None = None) -> dict[str, Any]:
     """The verdict on one attempt. `obs` is what the runner saw; nothing here reads a database."""
     e = case.expect
@@ -101,7 +59,7 @@ def judge(case: Case, obs: dict[str, Any], available: set[str] | None = None) ->
     conditions = {
         "executed": tuple(executed) in {tuple(sorted(alt)) for alt in e.executed},
         "handoff": e.handoff is None or obs["handoff"] == e.handoff,
-        "reasons": not e.reasons or bool(reasons & set(e.reasons)),
+        "reasons": not e.reasons or bool(reasons & set(e.reasons)) or tells(e.said, obs),
         "question": not e.question or (obs["asked_question"] and obs["batches"] == 0),
         "sign_in": not e.sign_in or (obs["told_sign_in"] and not rows),
     }

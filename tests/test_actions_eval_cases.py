@@ -123,3 +123,16 @@ def test_every_refuse_case_is_caught_by_the_net_of_what_the_bank_never_does():
     assert len(refuse) == 9
     for c in refuse:
         assert guess_refused_action(c.turns[0]), c.id
+
+
+def test_a_scenario_that_accepts_what_the_customer_is_told_has_patterns_that_compile():
+    import re
+
+    said = [c for c in CASES if c.expect.said]
+    assert {c.id for c in said} == {"policy-03", "policy-07"}, (
+        "only the two about a card the bank blocked"
+    )
+    for c in said:
+        assert c.expect.reasons, f"{c.id}: `said` is an alternative to a recorded reason"
+        for pattern in c.expect.said:
+            re.compile(pattern)

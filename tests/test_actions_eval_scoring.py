@@ -489,3 +489,35 @@ def test_a_request_to_be_warned_later_is_routed_to_the_actions_skill_by_the_prom
         module.get_settings = original
         agent_skills.agent_prompt.cache_clear()
     assert "recuérdame" in prompt and "a request\n  to be warned later is an alert" in prompt
+
+
+# ---------------------------------------------------------------- the same outcome by two honest routes
+
+
+def test_an_outcome_may_reach_the_customer_through_the_policy_or_through_what_the_model_read():
+    wanted = case_(reasons=("already_blocked",), said=("bloquead",))
+    refused = row("block_card", "refused", "blocked", False, reason="already_blocked")
+    assert scoring.judge(wanted, seen([refused], replies=["Esa tarjeta ya está bloqueada."]))[
+        "correct"
+    ]
+    assert scoring.judge(
+        wanted, seen(replies=["Tu tarjeta ya se encuentra bloqueada. ¿Algo más?"])
+    )["correct"]
+    assert scoring.judge(wanted, seen(replies=["Seu cartão já está bloqueado."]))["correct"]
+    assert not scoring.judge(wanted, seen(replies=["Listo, ¿algo más?"]))["correct"]
+    assert not scoring.judge(
+        case_(reasons=("already_blocked",)), seen(replies=["Ya está bloqueada."])
+    )["correct"], "without `said` a recorded reason is still required"
+
+
+def test_what_the_card_says_counts_as_what_the_customer_was_told():
+    wanted = case_(reasons=("already_blocked",), said=("bloquead",))
+    assert scoring.judge(
+        wanted, seen(replies=["Un momento."], card_texts=["Esa tarjeta ya está bloqueada."])
+    )["correct"]
+
+
+def test_saying_it_does_not_replace_the_other_conditions():
+    wanted = case_(reasons=("already_blocked",), said=("bloquead",))
+    ran = seen([row()], replies=["Tu tarjeta ya se encuentra bloqueada."])
+    assert not scoring.judge(wanted, ran)["correct"], "something ran, and nothing was meant to"
