@@ -429,3 +429,8 @@ ALTER TABLE ops.messages ADD COLUMN IF NOT EXISTS skill text;
 CREATE INDEX IF NOT EXISTS conversations_by_customer ON ops.conversations (customer_id, last_message_at DESC);
 CREATE INDEX IF NOT EXISTS messages_by_conversation ON ops.messages (conversation_id, message_id);
 -- END chat memory migration
+
+-- BEGIN chat memory hidden migration
+ALTER TABLE ops.conversations ADD COLUMN IF NOT EXISTS hidden_at timestamptz;
+CREATE INDEX IF NOT EXISTS conversations_visible ON ops.conversations (customer_id, last_message_at DESC) WHERE hidden_at IS NULL;
+-- END chat memory hidden migration

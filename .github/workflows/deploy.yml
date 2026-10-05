@@ -140,6 +140,9 @@ jobs:
       # Khipear (transfers and payments). Off unless the repository variable says true: it needs
       # a core loaded with account numbers and ops.transfers (make etl-cloud).
       KHIPU_ENABLED: ${{ vars.KHIPU_ENABLED }}
+      # The chat remembers each customer's earlier conversations. Off unless the variable says true;
+      # it needs migrations/003_chat_memory.sql and 004_chat_memory_hidden.sql applied to Cloud SQL first.
+      CHAT_MEMORY_ENABLED: ${{ vars.CHAT_MEMORY_ENABLED }}
       MAIL_MODE: ${{ vars.MAIL_MODE }}
       MAIL_FROM: ${{ vars.MAIL_FROM }}
       SMTP_USER: ${{ vars.SMTP_USER }}
@@ -176,7 +179,7 @@ jobs:
             --service-account "factored-api@${PROJECT}.iam.gserviceaccount.com" \
             --add-cloudsql-instances "${PROJECT}:${REGION}:${SQL_INSTANCE}" \
             --set-secrets "DATABASE_URL=factored-database-url:latest,JWT_SECRET=jwt-secret:latest,OPERATOR_KEY=operator-key:latest,LANGFUSE_PUBLIC_KEY=langfuse-public-key:latest,LANGFUSE_SECRET_KEY=langfuse-secret-key:latest,SMTP_PASSWORD=factored-smtp-password:latest" \
-            --set-env-vars "^;^APP_ENV=cloud;GOOGLE_GENAI_USE_VERTEXAI=true;GOOGLE_CLOUD_PROJECT=${PROJECT};GOOGLE_CLOUD_LOCATION=${REGION};CORS_ORIGINS=${web:-http://localhost:3000};DEMO_CUSTOMER_IDS=${DEMO_IDS};ACTIONS_ENABLED=${ACTIONS_ENABLED:-false};KHIPU_ENABLED=${KHIPU_ENABLED:-false};MAIL_MODE=${MAIL_MODE:-simulated};MAIL_FROM=${MAIL_FROM:-};SMTP_USER=${SMTP_USER:-};DEMO_INBOXES=${DEMO_INBOXES:-};LANGFUSE_BASE_URL=https://us.cloud.langfuse.com" \
+            --set-env-vars "^;^APP_ENV=cloud;GOOGLE_GENAI_USE_VERTEXAI=true;GOOGLE_CLOUD_PROJECT=${PROJECT};GOOGLE_CLOUD_LOCATION=${REGION};CORS_ORIGINS=${web:-http://localhost:3000};DEMO_CUSTOMER_IDS=${DEMO_IDS};ACTIONS_ENABLED=${ACTIONS_ENABLED:-false};KHIPU_ENABLED=${KHIPU_ENABLED:-false};CHAT_MEMORY_ENABLED=${CHAT_MEMORY_ENABLED:-false};MAIL_MODE=${MAIL_MODE:-simulated};MAIL_FROM=${MAIL_FROM:-};SMTP_USER=${SMTP_USER:-};DEMO_INBOXES=${DEMO_INBOXES:-};LANGFUSE_BASE_URL=https://us.cloud.langfuse.com" \
             --memory 4Gi --cpu 4 --cpu-boost --max-instances 1 --allow-unauthenticated
           url=$(gcloud run services describe factored-api --project "$PROJECT" --region "$REGION" --format='value(status.url)')
           echo "url=$url" >> "$GITHUB_OUTPUT"

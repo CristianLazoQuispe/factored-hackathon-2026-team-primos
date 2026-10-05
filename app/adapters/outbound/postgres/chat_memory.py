@@ -49,7 +49,7 @@ LIST = """
            (SELECT count(*) FROM ops.messages m
              WHERE m.conversation_id = c.conversation_id) AS messages
     FROM ops.conversations c
-    WHERE c.customer_id = %(customer)s AND c.last_message_at IS NOT NULL
+    WHERE c.customer_id = %(customer)s AND c.last_message_at IS NOT NULL AND c.hidden_at IS NULL
     ORDER BY c.last_message_at DESC
     LIMIT %(limit)s
 """
@@ -58,7 +58,7 @@ READ_HEADER = """
     SELECT conversation_id::text AS conversation_id, title, skill, outcome, language,
            last_message_at
     FROM ops.conversations
-    WHERE conversation_id = %(id)s AND customer_id = %(customer)s
+    WHERE conversation_id = %(id)s AND customer_id = %(customer)s AND hidden_at IS NULL
 """
 
 READ_MESSAGES = """
@@ -77,7 +77,7 @@ PAST = """
              WHERE m.conversation_id = c.conversation_id AND m.role = 'customer') AS turns
     FROM ops.conversations c
     WHERE c.customer_id = %(customer)s AND c.conversation_id <> %(exclude)s
-      AND c.last_message_at IS NOT NULL
+      AND c.last_message_at IS NOT NULL AND c.hidden_at IS NULL
     ORDER BY c.last_message_at DESC
     LIMIT %(limit)s
 """
@@ -126,6 +126,33 @@ async def record_turn(
         return True
     except Exception:
         log.exception("chat memory: could not save a turn")
+        return False
+
+
+async def append_message(
+    customer_id: str, thread_id: str, role: str, text: str, *, outcome: str | None = None
+) -> bool:
+    """Add a message to a conversation that already exists and is the customer's: what came of a
+    card the customer pressed, or what a person of the team answered from the console. Nothing is
+    created and nothing of anyone else's is touched. False if it was not saved."""
+    if role not in ("assistant", "operator") or (
+        outcome is not None and outcome not in rules.OUTCOMES
+    ):
+        return False
+    try:
+        cid = conversation_id(customer_id, thread_id)
+        async with await psycopg.AsyncConnection.connect(get_settings().database_url) as conn:
+            if text and text.strip():
+                params = {"id": cid, "customer": customer_id, "role": role, "skill": None}
+                await conn.execute(INSERT_MESSAGE, params | {"content": rules.stored(text)})
+            await conn.execute(
+                "UPDATE ops.conversations SET last_message_at = now(), "
+                "outcome = COALESCE(%s, outcome) WHERE conversation_id = %s AND customer_id = %s",
+                (outcome, cid, customer_id),
+            )
+        return True
+    except Exception:
+        log.exception("chat memory: could not add a message")
         return False
 
 
@@ -204,16 +231,16 @@ async def past_for_agent(
     ]
 
 
-async def delete_history(customer_id: str) -> int:
-    """Forget everything kept of this customer. Returns how many conversations went."""
+async def hide_history(customer_id: str, keep_thread_id: str | None = None) -> int:
+    """Take this customer's earlier conversations out of their sight, and out of what the agent is
+    told. Nothing is deleted: the rows stay, marked, because the bank keeps the record. The thread
+    that is open (`keep_thread_id`) is left alone. Returns how many conversations were hidden."""
+    keep = conversation_id(customer_id, keep_thread_id) if keep_thread_id else None
     async with await psycopg.AsyncConnection.connect(get_settings().database_url) as conn:
-        await conn.execute(
-            "DELETE FROM ops.messages WHERE conversation_id IN "
-            "(SELECT conversation_id FROM ops.conversations WHERE customer_id = %s)",
-            (customer_id,),
-        )
         done = await conn.execute(
-            "DELETE FROM ops.conversations WHERE customer_id = %s", (customer_id,)
+            "UPDATE ops.conversations SET hidden_at = now() WHERE customer_id = %(customer)s "
+            "AND hidden_at IS NULL AND conversation_id IS DISTINCT FROM %(keep)s",
+            {"customer": customer_id, "keep": keep},
         )
         return done.rowcount
 
