@@ -14,6 +14,7 @@ from email.utils import formatdate, make_msgid
 from functools import cache
 from typing import Protocol
 
+from app.adapters.outbound.email_template import compose
 from app.application.actions import EmailDraft, PermanentError, TransientError
 from app.config import Settings, get_settings
 from app.domain.action_text import mask_email
@@ -80,8 +81,25 @@ class SmtpMailer(_Inboxes):
         message["Auto-Submitted"] = "auto-generated"
         message["X-Demo-Data"] = "synthetic"
         message.set_content(draft.body)  # this clears every Content-* header, so it goes first
+        self._add_page(message, draft)
         message["Content-Language"] = draft.language
         return message
+
+    @staticmethod
+    def _add_page(message: EmailMessage, draft: EmailDraft) -> None:
+        """The HTML part, with the logo attached, for a message that has structured content.
+        If the page cannot be made the message still goes as plain text: a receipt is never lost
+        to a design."""
+        if draft.content is None:
+            return
+        try:
+            page = compose.html_for(draft.content)
+            logo = compose.logo_png()
+        except Exception:  # noqa: BLE001 - any failure of the template leaves the plain text, which is complete
+            log.exception("the HTML of a message could not be made: it goes as plain text")
+            return
+        message.add_alternative(page, subtype="html")
+        message.get_payload()[1].add_related(logo, "image", "png", cid=f"<{compose.LOGO_CID}>")
 
     def send(self, draft: EmailDraft, to: str | None) -> str:
         if not to:

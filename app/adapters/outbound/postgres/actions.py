@@ -403,9 +403,21 @@ class PostgresEffects:
 
     async def send_email(self, draft: EmailDraft, inbox: str | None) -> SendReceipt:
         """Store the message, hand it to the mailer, and record what the mailer answered. A message
-        already accepted for this action is never sent again."""
+        already accepted for this action is never sent again, not even if a second request for it
+        arrives while the first is still talking to the mail server: the second waits for the first
+        on a lock of the database (one per message, released when the connection closes), and then
+        finds it accepted."""
         to = self.mailer.resolve(inbox)
         delivered = mask_email(to) if to else None
+        async with _conn() as guard:
+            await guard.execute(
+                "SELECT pg_advisory_lock(hashtextextended(%s, 0))", (str(draft.action_id),)
+            )
+            return await self._store_and_send(draft, to, delivered)
+
+    async def _store_and_send(
+        self, draft: EmailDraft, to: str | None, delivered: str | None
+    ) -> SendReceipt:
         async with _conn() as conn:
             cursor = await conn.execute(
                 OUTBOX_UPSERT,

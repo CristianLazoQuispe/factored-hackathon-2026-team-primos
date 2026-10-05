@@ -42,6 +42,7 @@ from app.domain.actions import (
     sla_due,
     utcnow,
 )
+from app.domain.email_content import EmailContent, balances_content, content_text
 
 log = logging.getLogger(__name__)
 MAX_ATTEMPTS = 3
@@ -74,8 +75,9 @@ class EmailDraft:
     template: str
     language: str
     subject: str
-    body: str
+    body: str  # the plain text: what the outbox keeps, and the text part of the message
     to_masked: str
+    content: EmailContent | None = None  # when there is one, the mailer also makes the HTML part
 
 
 @dataclass(frozen=True)
@@ -462,10 +464,32 @@ class ActionGateway:
             "reason_codes": draft.reason_codes,
         }
 
+    async def send_receipt(self, customer_id: str, key: str, content: EmailContent) -> bool:
+        """Email the receipt of something that already happened, such as a transfer the customer
+        confirmed. It is not an action: nothing is proposed, confirmed or verified, and it changes
+        nothing. `key` (the id of the transfer) makes it go out once: a message already accepted
+        for it is never sent again. A mail that fails is a log line and a False, not an error in
+        the operation it reports."""
+        to_masked = await self.facts.email_masked(customer_id)
+        if not to_masked:
+            return False  # no address on file
+        draft = EmailDraft(
+            customer_id, key, content.kind, content.language, content.subject,
+            content_text(content), to_masked, content,
+        )  # fmt: skip
+        try:
+            receipt = await self.effects.send_email(draft, None)
+        except (TransientError, PermanentError) as error:
+            log.warning("the receipt %s was not sent: %s", key, error)
+            return False
+        return receipt.status == "accepted"
+
     async def _send_email(self, record: ActionRecord, params: Any, run: Run) -> dict[str, Any]:
         customer, topic = record.customer_id, params.topic
+        content: EmailContent | None = None
         if topic == "balances":
-            data: dict[str, Any] = {"products": await self.facts.products(customer)}
+            content = balances_content(record.language, await self.facts.products(customer))
+            data: dict[str, Any] = {}
         elif topic == "payment_status":
             as_of = await self.facts.as_of()
             data = {
@@ -480,10 +504,13 @@ class ActionGateway:
                 "case": run.results["open_payment_inquiry"],
                 "tx": {k: charge.get(k) for k in ("merchant", "amount", "currency", "date")},
             }
-        subject, body = build_email(topic, record.language, data)
+        if content is not None:
+            subject, body = content.subject, content_text(content)
+        else:
+            subject, body = build_email(topic, record.language, data)
         draft = EmailDraft(
             customer, record.action_id, topic, record.language, subject, body,
-            str(record.view.get("to") or ""),
+            str(record.view.get("to") or ""), content,
         )  # fmt: skip
         receipt = await self.effects.send_email(draft, run.inbox)
         if receipt.status != "accepted":
