@@ -6,11 +6,11 @@ import { formatAmount } from "@/lib/profile";
 
 // What the agent proposed (`confirmation` of a chat reply). Quipu prepares it; only the Confirmar
 // button here moves money, through /api/khipu/confirm, where no model runs.
-type Side = { product_type?: string; last4?: string; name?: string };
+type Side = { product_type?: string; last4?: string; name?: string; reference?: string };
 
 export type Confirmation = {
   transfer_id: string;
-  kind: "own_accounts" | "pay_debt" | "third_party";
+  kind: "own_accounts" | "pay_debt" | "third_party" | "pay_service";
   origin: Side;
   destination: Side;
   amount: number;
@@ -30,6 +30,7 @@ const TITLE: Record<Confirmation["kind"], string> = {
   own_accounts: "Entre mis cuentas",
   pay_debt: "Pago de deuda",
   third_party: "Khipu a otro cliente",
+  pay_service: "Pago de servicio",
 };
 
 const BLOCKED: Record<string, string> = {
@@ -37,6 +38,7 @@ const BLOCKED: Record<string, string> = {
   over_debt: "El monto es mayor que la deuda.",
   over_operation_limit: "Supera el límite por operación.",
   over_daily_limit: "Supera el límite diario para otros clientes.",
+  already_paid: "Ese recibo ya está pagado.",
 };
 
 function side(value: Side): string {
@@ -95,6 +97,7 @@ export function KhipuCard({
       <span style={{ fontFamily: "var(--q-mono)", fontSize: 12, color: "var(--q-teal)" }}>{TITLE[confirmation.kind]}</span>
       <Row label="Desde">{side(confirmation.origin)}</Row>
       <Row label="Para">{side(confirmation.destination)}</Row>
+      {confirmation.destination.reference && <Row label="Referencia">{confirmation.destination.reference}</Row>}
       <Row label="Monto">
         <strong>{amount}</strong>
       </Row>

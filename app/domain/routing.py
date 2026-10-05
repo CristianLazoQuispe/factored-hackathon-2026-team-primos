@@ -28,7 +28,10 @@ _RULES = (
             r"|\b(env[ií]a(r|le|me)?|manda(r|le)?) .{0,20}"
             r"\b(pesos|d[oó]lares|reais|mxn|cop|ars|usd|\d)"
             r"|(?<!que )\b(pagar?|paga|pague|abonar?|abona) .{0,25}(tarjeta|cart[aã]o|pr[eé]stamo"
-            r"|empr[eé]stimo|cr[eé]dito|deuda|d[ií]vida)"
+            r"|empr[eé]stimo|cr[eé]dito|deuda|d[ií]vida|recibo|factura|fatura|servicio|servi[cç]o"
+            r"|\bluz\b|\b[aá]gua\b|tel[eé]fono|telefone|celular|internet|\bcable\b)"
+            r"|\b(recibos?|facturas?|faturas?) (pendientes?|por pagar|a pagar|de (la |el )?"
+            r"(luz|agua|tel[eé]fono|internet|cable))|(mis|meus|minhas) (recibos|facturas|faturas)\b"
             r"|p[aá]sa(r|me)? .{0,25}\b(a|para) (mi|minha|meu) (cuenta|conta|ahorro|corriente)",
             re.IGNORECASE,
         ),

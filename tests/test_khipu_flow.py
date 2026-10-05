@@ -11,7 +11,7 @@ from app.adapters.inbound import http
 from app.adapters.inbound.agent import graph
 from app.adapters.inbound.mcp import transfers as server
 from tests.test_agent_graph import call, script
-from tests.test_transfers import CARD, CHECKING, SAVINGS, FakeLedger
+from tests.test_transfers import CARD, CHECKING, LIGHT, SAVINGS, WATER, FakeLedger
 
 pytestmark = pytest.mark.anyio
 ME = "DEMO-MX-KHIPU"
@@ -174,3 +174,32 @@ async def test_cancelar_closes_the_proposal_and_the_cloud_needs_the_token(monkey
         assert client.post("/api/khipu/confirm", json=body).json() == {"status": "cancelled"}
         monkeypatch.setattr(get_settings(), "app_env", "cloud")
         assert client.post("/api/khipu/confirm", json=body).status_code == 401
+
+
+async def test_a_service_bill_is_proposed_by_the_agent_and_paid_by_the_button(monkeypatch, bank):
+    ledger, _ = bank
+    ledger.bills = [LIGHT, WATER]
+    script(
+        monkeypatch,
+        AIMessage("", tool_calls=[call("use_skill", name="money_movement")]),
+        # The model also names an account the customer never said: the tool drops it and asks.
+        AIMessage(
+            "", tool_calls=[call("propose_service_payment", service="luz", from_last4="1111")]
+        ),
+        AIMessage("¿Desde qué cuenta? Ahorro •1111 o Corriente •2222."),
+        AIMessage(
+            "", tool_calls=[call("propose_service_payment", service="luz", from_last4="2222")]
+        ),
+        AIMessage("Listo para pagar 630 MXN de luz. Presiona Confirmar."),
+    )
+    thread = uuid.uuid4().hex
+    question = await ask("paga la luz", thread)
+    assert question["skill"] == "money_movement" and question["confirmation"] is None
+
+    answer = await ask("la 2222", thread)
+    confirmation = answer["confirmation"]
+    assert (confirmation["kind"], confirmation["amount"]) == ("pay_service", 630.0)
+    assert confirmation["destination"]["service"] == "luz" and len(ledger.saved) == 1
+    body = {"transfer_id": confirmation["transfer_id"], "customer_id": ME}
+    with TestClient(http.app) as client:
+        assert client.post("/api/khipu/confirm", json=body).json()["status"] == "executed"

@@ -1,7 +1,7 @@
 """MCP server for the `money_movement` skill (khipear): it proposes, it never executes.
 
-There is no tool that moves money. `propose_transfer` stores a proposal; only the customer's
-Confirmar button (POST /api/khipu/confirm) executes it.
+There is no tool that moves money. `propose_transfer` and `propose_service_payment` store a
+proposal; only the customer's Confirmar button (POST /api/khipu/confirm) executes it.
 
 python -m app.adapters.inbound.mcp.transfers   # stdio, e.g. for MCP Inspector
 """
@@ -14,9 +14,14 @@ from pydantic import Field
 from app.adapters.inbound.mcp import session_customer
 from app.adapters.outbound.postgres.audit import record_decision
 from app.adapters.outbound.postgres.transfers import PostgresLedger
-from app.application.transfers import propose, transfer_options
+from app.application.transfers import (
+    propose,
+    service_bills,
+    transfer_options,
+)
+from app.application.transfers import propose_service_payment as propose_payment
 from app.config import get_settings
-from app.domain.transfers import Kind, Limits, said
+from app.domain.transfers import Kind, Limits, Service, said
 
 mcp = FastMCP("transfers")
 ledger = PostgresLedger()
@@ -125,6 +130,61 @@ async def propose_transfer(
         executed=False,
     )
     return result | {"evidence_lookup": "propose_transfer"}
+
+
+@mcp.tool
+async def list_service_bills(ctx: Context) -> dict:
+    """The authenticated customer's pending service bills (`bills`: service, biller, reference,
+    amount, currency and due date): electricity, water, phone, internet, cable TV. Read-only."""
+    customer_id = session_customer(ctx)
+    bills = await service_bills(ledger, customer_id)
+    await record_decision(
+        "list_service_bills",
+        {"customer_id": customer_id},
+        "allowed",
+        f"bills={len(bills['bills'])}",
+        executed=True,
+    )
+    return bills | {"evidence_lookup": "list_service_bills"}
+
+
+@mcp.tool
+async def propose_service_payment(
+    ctx: Context,
+    service: Service | None = None,
+    from_last4: Last4 | None = None,
+    from_type: AccountType | None = None,
+) -> dict:
+    """Prepare the payment of one of the authenticated customer's pending service bills from one
+    of their accounts. It pays NOTHING: the customer confirms on their screen. The amount is the
+    bill's, never one you pass.
+
+    service: the one the customer named ("la luz" -> "luz", "el agua" -> "agua", "mi celular" ->
+    "teléfono", "el wifi" -> "internet", "la tele" -> "cable"). Leave it out if they named none.
+    from_last4 / from_type: the account that pays, only if the customer said which.
+
+    `status` is "needs_clarification", "blocked" or "proposed", exactly as in `propose_transfer`.
+    """
+    customer_id = session_customer(ctx)
+    words = (ctx.request_context.meta or {}).get("said")
+    if words is not None:  # as in propose_transfer: what the customer did not say is dropped
+        service = service if said(words, product_type=service) else None
+        from_last4 = from_last4 if said(words, last4=from_last4) else None
+        from_type = from_type if said(words, product_type=from_type) else None
+    result = await propose_payment(ledger, customer_id, service, from_last4, from_type)
+    status = result["status"]
+    await record_decision(
+        "propose_service_payment",
+        {
+            "customer_id": customer_id,
+            "service": service,
+            "transfer_id": result.get("confirmation", {}).get("transfer_id"),
+        },
+        DECISION[status],
+        result.get("reason") or (f"asked: {result['missing']}" if "missing" in result else None),
+        executed=False,
+    )
+    return result | {"evidence_lookup": "propose_service_payment"}
 
 
 if __name__ == "__main__":

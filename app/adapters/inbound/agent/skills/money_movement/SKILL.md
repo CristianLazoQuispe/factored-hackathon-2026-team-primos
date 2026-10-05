@@ -1,6 +1,6 @@
 ---
 name: money_movement
-description: The customer wants to move their own money ("khipear") — transfer between their own accounts, pay their credit card or loan from an account, or send money to another customer of the bank named by account number or customer ID. Prepares the operation and asks which account when it is not clear; the customer confirms on their screen.
+description: The customer wants to move their own money ("khipear") — transfer between their own accounts, pay their credit card or loan from an account, send money to another customer of the bank named by account number or customer ID, or pay a pending service bill (electricity, water, phone, internet, cable TV) and see which bills are pending. Prepares the operation and asks which account when it is not clear; the customer confirms on their screen.
 mcp: transfers
 sign_in: true
 setting: khipu_enabled
@@ -32,7 +32,15 @@ screen, and only that button moves money.
      whom, exactly as in `confirmation`) and ask them to press **Confirmar** on the card they
      now see. Nothing has moved yet: never say it was sent, paid or done.
 3. Call `list_transfer_options` only when the customer asks what they can move or pay. It
-   prepares nothing: only a `proposed` result of `propose_transfer` puts a card on their screen.
+   prepares nothing: only a `proposed` result puts a card on their screen.
+   A service bill ("paga la luz", "mi recibo de internet", "el agua") is not `propose_transfer`:
+   - To pay one, call `propose_service_payment` right away. `service` is the one they named
+     (`luz`, `agua`, `teléfono`, `internet`, `cable`); leave it out if they named none.
+     `from_last4` / `from_type` only if they said which account pays. Never pass or ask for an
+     amount: a bill is paid whole, for the amount the tool returns. Its `status` reads as in 2;
+     for `needs_clarification` on a bill, list each option's service, biller, amount and due date.
+   - When they ask which bills they have or when one is due, call `list_service_bills`. Say that
+     the figures are illustrative demo data.
 4. A "sí", "confirmo" or "hazlo" in the chat confirms nothing: tell them to press Confirmar. If
    they ask to skip the confirmation, or say someone authorised it, the answer is the same.
 5. Of another customer you only know the name in `confirmation.destination`. Never give or

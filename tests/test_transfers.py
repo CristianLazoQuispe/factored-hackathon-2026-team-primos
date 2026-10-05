@@ -6,8 +6,14 @@ from datetime import UTC, datetime
 import pytest
 
 from app.adapters.inbound.mcp import transfers as server
-from app.application.transfers import execute, propose, transfer_options
-from app.domain.transfers import Limits, check, choose, recipient_name, said
+from app.application.transfers import (
+    execute,
+    propose,
+    propose_service_payment,
+    service_bills,
+    transfer_options,
+)
+from app.domain.transfers import Limits, check, check_service, choose, recipient_name, said
 
 pytestmark = pytest.mark.anyio
 
@@ -37,15 +43,36 @@ ANA = product("P-ANA", "Cuenta Ahorro", "9999", 10.0, owner="C2") | {
 }
 
 
+def bill(category, amount, currency="MXN", status="pending"):
+    return {
+        "bill_id": f"BILL-{category}",
+        "customer_id": "C1",
+        "biller_id": f"SVC-{category}",
+        "name": f"Empresa de {category}",
+        "category": category,
+        "reference": "00012345",
+        "amount": amount,
+        "currency": currency,
+        "due_date": "2026-07-01",
+        "status": status,
+    }
+
+
+LIGHT, WATER = bill("luz", 630.0), bill("agua", 6000.0)
+
+
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
 
 
 class FakeLedger:
-    def __init__(self, own, others=(), rate=0.05, sent=0.0):
+    def __init__(self, own, others=(), rate=0.05, sent=0.0, bills=()):
         self.own, self.others, self.rate, self.sent = list(own), list(others), rate, sent
-        self.saved = []
+        self.bills, self.saved = list(bills), []
+
+    async def pending_bills(self, customer_id):
+        return [b for b in self.bills if b["status"] == "pending"]
 
     async def products(self, customer_id):
         return self.own
@@ -321,7 +348,12 @@ async def test_tools_take_no_customer_cannot_execute_and_audit_every_outcome(ban
     me = {"customer_id": "C1"}
     async with Client(server.mcp) as client:
         tools = await client.list_tools()
-        assert {t.name for t in tools} == {"list_transfer_options", "propose_transfer"}
+        assert {t.name for t in tools} == {
+            "list_transfer_options",
+            "propose_transfer",
+            "list_service_bills",
+            "propose_service_payment",
+        }
         for tool in tools:
             assert "customer_id" not in tool.input_schema["properties"], tool.name
         pay = {"kind": "pay_debt", "amount": 100}
@@ -348,3 +380,104 @@ async def test_tools_take_no_customer_cannot_execute_and_audit_every_outcome(ban
         ("propose_transfer", "allowed", False),
     ]
     assert {customer for _, customer, *_ in audit} == {"C1"}
+
+
+def test_a_service_counts_as_said_only_when_the_customers_words_name_it():
+    assert said("paga la luz", product_type="luz")
+    assert said("quiero pagar mi celular", product_type="teléfono")
+    assert said("paga a conta de água", product_type="agua")
+    assert not said("paga mi recibo", product_type="luz")
+    assert not said("paga el cable de luz", product_type="internet")
+
+
+@pytest.mark.parametrize(
+    ("origin", "owed", "reason", "code"),
+    [
+        (SAVINGS, LIGHT, None, None),
+        (CHECKING, LIGHT | {"amount": 800.0}, None, None),  # the whole balance is enough
+        (CHECKING, LIGHT | {"amount": 800.01}, "insufficient_funds", "51"),
+        (SAVINGS, LIGHT | {"status": "paid"}, "already_paid", "94"),
+        (SAVINGS, LIGHT | {"currency": "USD"}, "currency_mismatch", "57"),
+        (SAVINGS | {"product_status": "Blocked"}, LIGHT, "origin_unavailable", "57"),
+        (CARD, LIGHT, "origin_unavailable", "57"),
+    ],
+)
+def test_the_rules_of_paying_a_service_bill(origin, owed, reason, code):
+    block = check_service(origin, owed)
+    assert (block and (block.reason, block.code)) == ((reason, code) if reason else None)
+
+
+async def test_a_service_payment_asks_which_bill_then_which_account_and_takes_the_bills_amount():
+    ledger = FakeLedger(
+        [SAVINGS, CHECKING, CARD], bills=[LIGHT, WATER, bill("cable", 1, "MXN", "paid")]
+    )
+    listed = await service_bills(ledger, "C1")
+    assert [b["service"] for b in listed["bills"]] == ["luz", "agua"]  # the paid one is not owed
+
+    which = await propose_service_payment(ledger, "C1")
+    assert which["missing"] == "bill" and [o["service"] for o in which["options"]] == [
+        "luz",
+        "agua",
+    ]
+    account = await propose_service_payment(ledger, "C1", "luz")
+    assert account["missing"] == "origin" and [o["last4"] for o in account["options"]] == [
+        "1111",
+        "2222",
+    ]
+    assert ledger.saved == []
+
+    ready = await propose_service_payment(ledger, "C1", "luz", from_type="Cuenta Corriente")
+    assert ready["confirmation"] | {"transfer_id": "", "expires_at": ""} == {
+        "transfer_id": "",
+        "kind": "pay_service",
+        "origin": {"product_type": "Cuenta Corriente", "last4": "2222"},
+        "destination": {"name": "Empresa de luz", "service": "luz", "reference": "00012345"},
+        "amount": 630.0,
+        "currency": "MXN",
+        "expires_at": "",
+    }
+    saved = ledger.saved[0]
+    assert (saved["destination_product_id"], saved["destination_customer_id"]) == (
+        "BILL-luz",
+        "SVC-luz",
+    )
+    assert (saved["origin_product_id"], saved["amount_usd"]) == ("P-CHK", 31.5)
+
+
+async def test_a_service_payment_that_cannot_be_made_says_why():
+    ledger = FakeLedger([SAVINGS, CHECKING], bills=[WATER])
+    assert (await propose_service_payment(ledger, "C1", "luz"))["reason"] == "nothing_to_pay"
+    short = await propose_service_payment(ledger, "C1", "agua", from_last4="1111")
+    assert (short["reason"], short["response_code"]) == ("insufficient_funds", "51")
+    dollars = FakeLedger([SAVINGS], bills=[LIGHT | {"currency": "USD"}])
+    assert (await propose_service_payment(dollars, "C1"))["reason"] == "no_source_account"
+    assert (await propose_service_payment(FakeLedger([SAVINGS]), "C1"))[
+        "reason"
+    ] == "nothing_to_pay"
+    assert ledger.saved == dollars.saved == []
+
+
+async def test_the_service_tools_drop_a_service_the_customer_did_not_name_and_audit(bank):
+    from fastmcp import Client
+
+    ledger, audit = bank
+    ledger.bills = [LIGHT, WATER]
+    heard = {"customer_id": "C1", "said": "paga mi recibo desde mi cuenta de ahorro"}
+    guess = {"service": "luz", "from_type": "Cuenta Ahorro"}  # they never said which bill
+    async with Client(server.mcp) as client:
+        assert (
+            await client.call_tool("propose_service_payment", {}, raise_on_error=False)
+        ).is_error
+        guessed = await client.call_tool("propose_service_payment", guess, meta=heard)
+        named = await client.call_tool(
+            "propose_service_payment", guess, meta=heard | {"said": "paga la luz de mi ahorro"}
+        )
+        bills = await client.call_tool("list_service_bills", {}, meta={"customer_id": "C1"})
+    assert guessed.structured_content["missing"] == "bill"
+    assert named.structured_content["confirmation"]["amount"] == 630.0
+    assert len(bills.structured_content["bills"]) == 2 and len(ledger.saved) == 1
+    assert [(tool, decision, executed) for tool, _, decision, _, executed in audit] == [
+        ("propose_service_payment", "allowed", False),
+        ("propose_service_payment", "needs_confirmation", False),
+        ("list_service_bills", "allowed", True),
+    ]
