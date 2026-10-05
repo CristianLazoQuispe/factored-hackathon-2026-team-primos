@@ -5,6 +5,7 @@ touched. Skipped unless Postgres is up with the ops tables (`make demo-data`, or
 `psql -f app/adapters/outbound/postgres/migrations/001_actions.sql`)."""
 
 import asyncio
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -24,7 +25,7 @@ from app.application.actions import (
 )
 from app.config import get_settings
 from app.domain.actions import AWAITING, CONFIRMED, ActionRecord
-from tests.actions_support import MemoryStore
+from tests.actions_support import TEST_CUSTOMER_ID, MemoryStore, purge_leftovers
 
 pytestmark = pytest.mark.anyio
 ROOT = Path(__file__).resolve().parents[1] / "app/adapters/outbound/postgres"
@@ -104,6 +105,34 @@ class Bank:
                     self.as_of,
                     self.as_of - timedelta(days=26),
                     self.as_of + timedelta(days=4),
+                ),
+            )
+            # Every open card has a billing row that agrees with its days past due (another test
+            # of the project checks it over the whole table, mine included while they exist).
+            for key, late, minimum, owed in (("pastdue", 12, 100, 100), ("zero", 0, 0, 0)):
+                due = self.as_of - timedelta(days=late) if late else self.as_of + timedelta(days=10)
+                conn.execute(
+                    "INSERT INTO core.billing (product_id, customer_id, as_of, statement_date, due_date, "
+                    "minimum_payment, past_due_amount) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    (
+                        self.p[key],
+                        self.id,
+                        self.as_of,
+                        self.as_of - timedelta(days=30),
+                        due,
+                        minimum,
+                        owed,
+                    ),
+                )
+            conn.execute(
+                "INSERT INTO core.billing (product_id, customer_id, as_of, statement_date, due_date, "
+                "minimum_payment, past_due_amount) VALUES (%s,%s,%s,%s,%s,5,0)",
+                (
+                    self.other_card,
+                    self.other,
+                    self.as_of,
+                    self.as_of - timedelta(days=20),
+                    self.as_of + timedelta(days=10),
                 ),
             )
             txs = [
@@ -231,8 +260,9 @@ async def test_contact_products_and_billing(bank: Bank):
     assert await facts.email_masked("nobody") is None
     kinds = {p["last4"]: p["product_type"] for p in await facts.products(bank.id)}
     assert kinds["2951"] == "Tarjeta Crédito" and "0001" not in kinds, "closed cards are not listed"
-    (due,) = await facts.billing(bank.id)
-    assert due["last4"] == "2951" and due["minimum_payment"] == 450.0
+    billed = {row["last4"]: row for row in await facts.billing(bank.id)}
+    assert set(billed) == {"2951", "0003", "0004"}, "the closed card has no row to list"
+    assert billed["2951"]["minimum_payment"] == 450.0
 
 
 # ---------------------------------------------------------------- effects
@@ -647,3 +677,83 @@ def test_the_migration_is_exactly_the_block_in_schema_sql():
     )
     migration = (ROOT / "migrations/001_actions.sql").read_text()
     assert migration.endswith(block + "\n"), "migrations/001_actions.sql drifted from schema.sql"
+
+
+# ---------------------------------------------------------------- the tests leave nothing behind
+
+
+def count(sql: str, *params) -> int:
+    with psycopg.connect(get_settings().database_url) as conn:
+        return conn.execute(sql, params or None).fetchone()[0]  # no params: a % is just a %
+
+
+def test_what_a_stopped_run_left_behind_is_removed(bank: Bank):
+    # `bank` stands for a run that was interrupted: its customer is in core and in ops.
+    with psycopg.connect(get_settings().database_url) as conn:
+        conn.execute(
+            "INSERT INTO ops.preferences (customer_id, key, value) VALUES (%s, 'alert.payment_due', 'true')",
+            (bank.id,),
+        )
+    found = "SELECT count(*) FROM core.customers WHERE customer_id LIKE 'TEST-%'"
+    assert (
+        count(found) == 2
+        and count("SELECT count(*) FROM ops.preferences WHERE customer_id = %s", bank.id) == 1
+    )
+    purge_leftovers()
+    assert count(found) == 0
+    assert count("SELECT count(*) FROM core.products WHERE customer_id LIKE 'TEST-%'") == 0
+    assert count("SELECT count(*) FROM ops.preferences WHERE customer_id = %s", bank.id) == 0
+
+
+def test_a_real_customer_is_never_touched_by_the_cleanup(bank: Bank):
+    real = "SELECT count(*) FROM core.customers WHERE customer_id NOT LIKE 'TEST-%'"
+    before = count(real)
+    purge_leftovers()
+    assert count(real) == before > 0
+
+
+def test_the_data_of_these_tests_respects_the_billing_rule_other_tests_check(bank: Bank):
+    """Every open card has a billing row that agrees with its days past due and does not ask for
+    more than the balance. If a run is stopped and the rows stay, this keeps them harmless."""
+    row = """SELECT count(*), count(b.product_id),
+                    count(*) FILTER (WHERE p.days_past_due > 0 AND b.as_of - b.due_date <> p.days_past_due),
+                    count(*) FILTER (WHERE b.minimum_payment > p.current_balance + 0.01)
+             FROM core.products p LEFT JOIN core.billing b USING (product_id)
+             WHERE p.customer_id LIKE 'TEST-%%' AND p.product_type = ANY(%s) AND p.product_status <> 'Closed'"""
+    with psycopg.connect(get_settings().database_url) as conn:
+        debts, billed, disagree, over = conn.execute(
+            row, (["Tarjeta Crédito", "Préstamo Personal", "Préstamo Hipotecario"],)
+        ).fetchone()
+    assert debts == billed == 4 and disagree == 0 and over == 0
+
+
+@pytest.mark.parametrize("customer", ["TEST-ACT-0a1b2c3d", "TEST-OTH-ffffffff"])
+def test_the_cleanup_pattern_matches_the_customers_these_tests_build(customer: str):
+    assert re.fullmatch(TEST_CUSTOMER_ID, customer)
+    assert re.fullmatch(TEST_CUSTOMER_ID, Bank().id) and re.fullmatch(
+        TEST_CUSTOMER_ID, Bank().other
+    )
+
+
+@pytest.mark.parametrize(
+    "customer",
+    [
+        "DEMO-MX-DUPLICATE", "CLI-NRO6HF74BFQD", "TEST-ACT-keepme", "TEST-ACT-0a1b2c3d4", "TEST-ACT-0A1B2C3D",
+        "TEST-", "", "XTEST-ACT-0a1b2c3d", "TEST-ACT-0a1b2c3d ", "TEST-OTHER-0a1b2c3d",
+    ],
+)  # fmt: skip
+def test_the_cleanup_pattern_can_never_match_anyone_else(customer: str):
+    assert not re.search(TEST_CUSTOMER_ID, customer)
+
+
+def test_the_database_agrees_with_the_pattern_on_every_real_customer(bank: Bank):
+    """The pattern runs in Postgres, not here: it must pick out the test customers and no other."""
+    with psycopg.connect(get_settings().database_url) as conn:
+        mine = conn.execute(
+            "SELECT count(*) FROM core.customers WHERE customer_id ~ %s", (TEST_CUSTOMER_ID,)
+        ).fetchone()[0]
+        others = conn.execute(
+            "SELECT count(*) FROM core.customers WHERE customer_id !~ %s", (TEST_CUSTOMER_ID,)
+        ).fetchone()[0]
+        total = conn.execute("SELECT count(*) FROM core.customers").fetchone()[0]
+    assert mine == 2 and mine + others == total and others > 0

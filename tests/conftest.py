@@ -3,12 +3,22 @@ import pytest
 from app.adapters.inbound.agent import skills
 from app.adapters.outbound import speech
 from app.config import get_settings
+from tests.actions_support import purge_leftovers
 
 
 @pytest.fixture(autouse=True)
 def no_speech_models(monkeypatch, tmp_path):
     """Tests never load the real speech models, even on a machine that has them (`make models`)."""
     monkeypatch.setattr(speech, "MODELS", tmp_path / "models")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def no_leftovers_of_the_action_tests():
+    """What an interrupted run left in the developer's database is removed before this one starts
+    and after it ends (see `purge_leftovers`)."""
+    purge_leftovers()
+    yield
+    purge_leftovers()
 
 
 @pytest.fixture(autouse=True)
