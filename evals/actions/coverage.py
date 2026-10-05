@@ -26,6 +26,7 @@ WORDS = {
     Verdict.ESCALATE: "person",
 }
 RECENT_CHARGES = 25
+CONCURRENCY = 8
 
 
 def say(decision: Decision) -> str:
@@ -132,9 +133,33 @@ def table(rows: list[dict[str, str]]) -> list[str]:
     return lines + ([""] + notes if notes else [])
 
 
+async def rows(ids: list[str], progress=None) -> list[dict[str, str]]:
+    """Every customer, several at a time: each query opens its own connection, and through the Cloud SQL
+    proxy a connection costs a fraction of a second, so one customer after another takes many minutes.
+    The rows come back in the order of `ids`."""
+    gate = asyncio.Semaphore(CONCURRENCY)
+    finished = 0
+
+    async def one(customer_id: str) -> dict[str, str]:
+        nonlocal finished
+        async with gate:
+            result = await row(customer_id)
+        finished += 1
+        if progress:
+            progress(finished, len(ids), customer_id)
+        return result
+
+    return list(await asyncio.gather(*(one(c) for c in ids)))
+
+
 async def main() -> None:
-    asked = sys.argv[1:]
-    print("\n".join(table([await row(c) for c in await customers(asked)])))
+    ids = await customers(sys.argv[1:])
+    print(f"{len(ids)} customers", file=sys.stderr)
+
+    def show(done: int, total: int, customer_id: str) -> None:
+        print(f"[{done}/{total}] {customer_id}", file=sys.stderr, flush=True)
+
+    print("\n".join(table(await rows(ids, show))))
 
 
 if __name__ == "__main__":

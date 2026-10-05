@@ -132,3 +132,39 @@ async def test_the_table_has_a_row_per_customer_and_says_what_cannot_be_done():
     )
     assert any("charges not eligible: " in line for line in lines)
     assert any("cards not possible: cancel: outstanding_balance x1" in line for line in lines)
+
+
+# ---------------------------------------------------------------- several customers at a time
+
+
+async def test_customers_are_checked_several_at_a_time_and_come_back_in_order(monkeypatch):
+    import asyncio
+
+    running = peak = 0
+
+    async def slow_row(customer_id: str) -> dict[str, str]:
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        await asyncio.sleep(0.05 * (10 - int(customer_id[1:])))  # the first ones take the longest
+        running -= 1
+        return {"customer": customer_id}
+
+    monkeypatch.setattr(coverage, "row", slow_row)
+    ids = [f"C{i}" for i in range(10)]
+    got = await coverage.rows(ids)
+    assert [r["customer"] for r in got] == ids, "the order of the ids, not of who finished first"
+    assert 2 <= peak <= coverage.CONCURRENCY, f"{peak} at a time"
+
+
+async def test_progress_is_reported_once_per_customer(monkeypatch):
+    async def quick(customer_id: str) -> dict[str, str]:
+        return {"customer": customer_id}
+
+    monkeypatch.setattr(coverage, "row", quick)
+    seen = []
+    await coverage.rows(
+        ["A", "B", "C"], progress=lambda done, total, who: seen.append((done, total, who))
+    )
+    assert sorted(seen) == [(1, 3, seen[0][2]), (2, 3, seen[1][2]), (3, 3, seen[2][2])]
+    assert {who for _, _, who in seen} == {"A", "B", "C"} and [d for d, _, _ in seen] == [1, 2, 3]
