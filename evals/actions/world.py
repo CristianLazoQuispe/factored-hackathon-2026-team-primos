@@ -216,6 +216,15 @@ def build(
 AUDIT_OF_A_TEST_CUSTOMER = r"(TEST-(ACT|OTH)-[0-9a-f]{8}|DEMO-EVL-[0-9A-F]{8})"
 
 
+def _chat_memory_ready(conn) -> bool:
+    """Has 003_chat_memory.sql been applied here? Without it there is nothing of the chat to clean."""
+    found = conn.execute(
+        "SELECT 1 FROM information_schema.columns "
+        "WHERE table_schema = 'ops' AND table_name = 'conversations' AND column_name = 'customer_id'"
+    ).fetchone()
+    return found is not None
+
+
 def drop(customer: Customer) -> None:
     ids = [customer.id] + ([customer.neighbor.id] if customer.neighbor else [])
     with _connect() as conn:
@@ -224,6 +233,13 @@ def drop(customer: Customer) -> None:
                 conn.execute(f"DELETE FROM {schema}.{table} WHERE customer_id = ANY(%s)", (ids,))
         for one in ids:
             conn.execute("DELETE FROM ops.decision_log WHERE proposed::text LIKE %s", (f"%{one}%",))
+        if _chat_memory_ready(conn):
+            conn.execute(
+                "DELETE FROM ops.messages WHERE conversation_id IN "
+                "(SELECT conversation_id FROM ops.conversations WHERE customer_id = ANY(%s))",
+                (ids,),
+            )
+            conn.execute("DELETE FROM ops.conversations WHERE customer_id = ANY(%s)", (ids,))
 
 
 def purge() -> None:
@@ -243,4 +259,13 @@ def purge() -> None:
             conn.execute(
                 "DELETE FROM ops.decision_log WHERE proposed::text ~ %s",
                 (AUDIT_OF_A_TEST_CUSTOMER,),
+            )
+        if has_ops and _chat_memory_ready(conn):
+            conn.execute(
+                "DELETE FROM ops.messages WHERE conversation_id IN "
+                "(SELECT conversation_id FROM ops.conversations WHERE customer_id ~ %s)",
+                (TEST_CUSTOMER_ID,),
+            )
+            conn.execute(
+                "DELETE FROM ops.conversations WHERE customer_id ~ %s", (TEST_CUSTOMER_ID,)
             )

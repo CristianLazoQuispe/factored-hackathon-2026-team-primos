@@ -71,6 +71,10 @@ class Settings(BaseSettings):
     mail_from: str = ""
     demo_inboxes: str = ""  # comma-separated: the only addresses a demo message may reach
 
+    # The chat remembers each customer's earlier conversations (app/domain/chat_memory.py): they are
+    # shown when the customer comes back, and the agent is told of the last eight. Off unless asked.
+    chat_memory_enabled: bool = False
+
     @model_validator(mode="after")
     def database_matches_environment(self) -> "Settings":
         """Fail closed: local never touches a remote database, and cloud never falls back to a
