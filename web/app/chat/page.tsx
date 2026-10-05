@@ -5,6 +5,7 @@ import Markdown from "react-markdown";
 
 import { AppHeader } from "@/components/app-header";
 import { Corona, type CoronaHandle } from "@/components/corona";
+import { type Confirmation, KhipuCard } from "@/components/khipu-card";
 import { AgentIcon, Logo } from "@/components/logo";
 import { revealed, visible } from "@/components/spoken";
 import { type MicrophoneAccess, useRecorder } from "@/components/use-recorder";
@@ -26,6 +27,7 @@ type Message = {
   skill?: string | null;
   tools?: string[];
   handoff?: boolean;
+  confirmation?: Confirmation | null; // a money movement Quipu prepared: the card has the button
   chart?: Category[];
   reading?: number;
   shown?: number;
@@ -39,6 +41,7 @@ type ChatResponse = {
   skill: string | null;
   tools_used: string[];
   handoff: object | null;
+  confirmation: Confirmation | null;
 };
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -119,7 +122,12 @@ function newThread() {
 }
 
 function trace(response: ChatResponse) {
-  return { skill: response.skill, tools: response.tools_used, handoff: response.handoff !== null };
+  return {
+    skill: response.skill,
+    tools: response.tools_used,
+    handoff: response.handoff !== null,
+    confirmation: response.confirmation,
+  };
 }
 
 function SpendingChart({ categories }: { categories: Category[] }) {
@@ -681,6 +689,7 @@ export default function Chat() {
                     <div className="reply">
                       <Markdown>{message.shown === undefined ? message.text : visible(message.text, message.shown)}</Markdown>
                     </div>
+                    {message.confirmation && <KhipuCard confirmation={message.confirmation} authHeader={authHeader} />}
                     {message.chart && <SpendingChart categories={message.chart} />}
                     {message.chart && (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
