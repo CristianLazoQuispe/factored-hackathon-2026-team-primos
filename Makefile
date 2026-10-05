@@ -92,8 +92,8 @@ web:              ## Next.js dev server on :3000
 test:
 	uv run pytest -q
 
-eval-latency:     ## Time the frequent questions and khipear requests against a running API (URL=, CUSTOMER=, REPEATS=)
-	uv run python -m evals.latency.run --url $(URL) --customer $(or $(CUSTOMER),DEMO-MX-KHIPU) --repeats $(or $(REPEATS),3)
+eval-latency:     ## Time the frequent questions and khipear requests against a running API (URL=, CUSTOMER=, REPEATS=, PAUSE=)
+	uv run python -m evals.latency.run --url $(URL) --customer $(or $(CUSTOMER),DEMO-MX-KHIPU) --repeats $(or $(REPEATS),3) --pause $(or $(PAUSE),0)
 
 lint:
 	.githooks/pre-commit
