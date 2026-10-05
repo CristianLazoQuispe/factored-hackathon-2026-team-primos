@@ -92,6 +92,20 @@ Example, Lucía's duplicate Uber charge:
 
 The assistant should name the two Uber Trip charges of 312.40 MXN on 11 Jun 2026, at 09:00:00 and 09:00:04, and say they are 4 seconds apart. The same question works for the other seven images. For Ana, write `não reconheço estas transações`.
 
+### Customers to try
+
+The deployed demo has `*` in `DEMO_CUSTOMER_IDS`: the ID of any customer in the database signs in, with that same ID as the password. Many of the organizer's 150,000 customers are thin (no account with a balance, no recent purchase, or closed), and with those a screen comes back empty. These 25 were checked against the full dataset in Cloud SQL on 2026-10-05, and the chat field offers them:
+
+| Customer ID (also the password) | Who | What to try |
+|---|---|---|
+| `DEMO-MX-KHIPU` | Valeria: two accounts, a credit card, a loan, three service bills | Khipear: `khipea 300 a mi tarjeta`, `pasa 500 de mi cuenta de ahorro a mi cuenta corriente`, `khipéale 200 a la cuenta 4000000033`, `paga la luz`. No purchases, so Mis finanzas is empty |
+| `DEMO-MX-RECIBE` | Renata: one account in MXN (`4000000033`) and one in USD | The customer who receives. No card and no purchases |
+| `DEMO-MX-DUPLICATE`, `DEMO-MX-FX`, `DEMO-CO-PENDING`, `DEMO-BR-PORTUGUESE`, `DEMO-AR-FRAUD`, `DEMO-CO-AMBIGUOUS`, `DEMO-MX-OWN-PURCHASE`, `DEMO-AR-REVERSED` | The eight customers of the table above (they also sign in by email): a credit card with about 30 purchases, a savings account, three service bills | Everything: the dispute of each case, Mis finanzas, paying the card or a bill |
+| `CLI-35DQ8W3F31GF`, `CLI-T317OM6FPX6Q`, `CLI-VJ9MZ55A1TNX` | Organizer customers with the most to show: Carolina (Colombia, 5 accounts, 4 cards), Guadalupe Adriana (México, 2 accounts, 3 cards), Rosa (Argentina, 4 accounts, 1 card); 6 or 7 purchases in the last 90 days, in 4 or 5 categories | Everything, on the organizer's own data |
+| `CLI-2HCAV5E4NFLH`, `CLI-714PN0OOE0WX`, `CLI-7LCAX6I6DX5F`, `CLI-9S264QYHP5E1`, `CLI-G3JO7K2GEVIF`, `CLI-MG4JR9V0OWYH`, `CLI-O4HNT6A74L3G`, `CLI-OHC9GVNM29TN`, `CLI-QAWTGLT3BESD`, `CLI-T2ZP6QXLFRLL`, `CLI-UJOW50WUBO63`, `CLI-XL20OA8V7GSM` | Organizer customers with an active account with a balance, a credit card with debt, 7 to 12 purchases in the last 90 days and three service bills | Everything |
+
+Any other `CLI-...` ID signs in too, and money can be sent to any customer who has an active account in the same currency. What that customer sees depends on their data: without purchases in the last 90 days Mis finanzas says there is no spending, and without an account khipear answers that there is nothing to send from.
+
 ### If something fails
 
 `make up` / `make smoke` print which piece failed:
