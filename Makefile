@@ -12,7 +12,7 @@ WEB_URL := http://localhost:3000
 OLLAMA_PID := /tmp/factored-ollama.pid
 KOKORO_FILES := https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0
 
-build:            ## Build the images (db, seed, app)
+build:            ## Build the images (seed, app, web)
 	docker compose build
 
 up: $(if $(filter ollama,$(LLM_PROVIDER_RESOLVED)),llm)  ## Build and start everything (local LLM + db + seed + API + web), then smoke-test it
@@ -63,7 +63,7 @@ bronze:           ## Raw CSV -> Parquet per table
 sample:           ## Rebuild the committed mini-set data/sample/ from bronze (needs S3 data)
 	uv run python -m data_pipeline.sample
 
-fixtures:         ## Regenerate the team-made dispute demo scenarios (data/sample/fixtures/)
+fixtures:         ## Regenerate the team-made demo customers: 8 dispute scenarios + 2 for khipear (data/sample/fixtures/)
 	uv run python -m data_pipeline.fixtures
 
 silver:           ## Clean + contracts: data/sample -> data/silver (SOURCE=full reads data/bronze)
