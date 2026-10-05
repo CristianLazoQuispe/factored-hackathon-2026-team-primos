@@ -418,3 +418,14 @@ $$;
 GRANT dwh_reader TO CURRENT_USER;  -- lets a non-superuser (Cloud SQL) run SET ROLE dwh_reader
 GRANT USAGE ON SCHEMA core TO dwh_reader;
 GRANT SELECT ON ALL TABLES IN SCHEMA core TO dwh_reader;
+
+-- BEGIN chat memory migration
+ALTER TABLE ops.conversations ADD COLUMN IF NOT EXISTS customer_id text;
+ALTER TABLE ops.conversations ADD COLUMN IF NOT EXISTS title text;
+ALTER TABLE ops.conversations ADD COLUMN IF NOT EXISTS skill text;
+ALTER TABLE ops.conversations ADD COLUMN IF NOT EXISTS outcome text;
+ALTER TABLE ops.conversations ADD COLUMN IF NOT EXISTS last_message_at timestamptz;
+ALTER TABLE ops.messages ADD COLUMN IF NOT EXISTS skill text;
+CREATE INDEX IF NOT EXISTS conversations_by_customer ON ops.conversations (customer_id, last_message_at DESC);
+CREATE INDEX IF NOT EXISTS messages_by_conversation ON ops.messages (conversation_id, message_id);
+-- END chat memory migration
