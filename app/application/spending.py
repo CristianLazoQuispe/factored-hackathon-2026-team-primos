@@ -19,7 +19,7 @@ LOOKUPS = ("totals", "by_category", "top_merchants", "monthly", "foreign")
 
 class SpendingStore(Protocol):
     """Reviewed, read-only lookups over Approved purchases, scoped to `customer_id` in the query.
-    `days` counts back from the customer's latest transaction."""
+    `days` counts back from the dataset's last transaction."""
 
     async def totals(self, customer_id: str, days: int) -> list[dict]: ...
 

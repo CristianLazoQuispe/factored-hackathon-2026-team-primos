@@ -1,7 +1,8 @@
 # Deploy: GitHub Actions → Cloud Run
 
-Every push to `main` runs lint and tests, then deploys the two Cloud Run services that the team
-already uses, with the same steps as `make deploy-api` and `make deploy-web`:
+Every push to `main` runs lint and tests, then the [eval gate](#the-eval-gate), then deploys the two
+Cloud Run services that the team already uses, with the same steps as `make deploy-api` and
+`make deploy-web`:
 
 | Service | Image | What it is |
 |---|---|---|
@@ -60,11 +61,14 @@ done
 gcloud iam service-accounts create gh-deployer --display-name="GitHub deployer"
 gcloud projects add-iam-policy-binding $PROJECT_ID --member=serviceAccount:$DEPLOYER_SA --role=roles/run.admin
 gcloud projects add-iam-policy-binding $PROJECT_ID --member=serviceAccount:$DEPLOYER_SA --role=roles/artifactregistry.writer
+gcloud projects add-iam-policy-binding $PROJECT_ID --member=serviceAccount:$DEPLOYER_SA --role=roles/aiplatform.user
 for sa in $API_SA $WEB_SA; do
   gcloud iam service-accounts add-iam-policy-binding $sa \
     --member=serviceAccount:$DEPLOYER_SA --role=roles/iam.serviceAccountUser
 done
 ```
+
+The `aiplatform.user` binding is for the eval gate, which calls Gemini as this account.
 
 **3. Let GitHub (only this repository) become that account.**
 
@@ -101,15 +105,15 @@ gh variable set DEMO_CUSTOMER_IDS  --repo $R --body "DEMO-MX-DUPLICATE,DEMO-CO-P
 gh variable list --repo $R
 ```
 
-`DEMO_CUSTOMER_IDS` is the allowlist for `POST /api/auth/token`: empty means nobody can log in to the
-deployed UI. Use only synthetic customers that exist in the Cloud SQL data.
+`DEMO_CUSTOMER_IDS` is the list `GET /api/demo-customers` returns. Login is the eight demo emails in the root README, not this list.
 
 ## Day to day
 
 1. Work on your `dev-<name>` branch (only its owner can push to it), open a PR to `dev` (lint + tests
    run), then a PR from `dev` to `main`. Repository rulesets reject direct pushes to `dev` and `main`
    and require a green `test`.
-2. Merging into `main` deploys: `test` → `deploy-api` → `deploy-web`, about 5 minutes. Follow it with
+2. Merging into `main` deploys: `test` → `eval-gate` → `deploy-api` → `deploy-web`, about 13 minutes (the
+   gate adds about 8). Follow it with
    `gh run watch --repo CristianLazoQuispe/factored-hackathon-2026-team-primos`; re-run it without a commit with
    `gh workflow run "CI and deploy to Cloud Run" --ref main`.
 3. Do not run `make deploy`, `deploy-api` or `deploy-web` by hand: the last deploy wins and can bring
@@ -141,7 +145,40 @@ Still to do (not applied yet):
   `gcloud iam workload-identity-pools providers update-oidc github-provider --location=global
   --workload-identity-pool=github --attribute-condition="assertion.repository=='<repo>' &&
   assertion.ref=='refs/heads/main'"`.
+- **Trying the gate from a branch stops working** once only `main` can authenticate: that run uses the
+  same provider. Tick `skip_eval_gate` or try it from `main`.
 - **A budget alert** in Billing: the public endpoints can call Gemini on Vertex AI.
+
+## The eval gate
+
+Between `test` and `deploy-api`, the `eval-gate` job asks Gemini the regression questions of
+`evals/text_to_sql/` and compares the answers with the floor in `evals/text_to_sql/baseline.json`. If
+the agent got worse, nothing is deployed: `deploy-web` waits for `deploy-api`, which waits for the gate.
+What it measures, and what it does not, is in [evaluation.md](evaluation.md).
+
+- **It does not run on pull requests**, only on a push to `main` and on a manual run.
+- **It needs Gemini capacity.** It runs the 31 regression questions three times on the `global` Vertex endpoint
+  (93 to 125 calls; the job takes about 8 minutes with its setup) and judges them together. A run that proves nothing because the provider refused too many
+  calls is tried once more after 90 seconds; if it still proves nothing, the deploy stops. Run the
+  workflow again a few minutes later.
+- **It authenticates as `gh-deployer`**, which therefore needs `roles/aiplatform.user` (see the setup).
+
+Try the gate from a branch (Actions, *Run workflow*, or the command below). Only the gate runs: a
+branch never deploys.
+
+```bash
+gh workflow run deploy.yml --ref <branch>
+```
+
+Emergency: deploy `main` without the gate, to ship a fix. The run shows a warning; afterwards, find out
+why the gate failed.
+
+```bash
+gh workflow run deploy.yml --ref main -f skip_eval_gate=true
+```
+
+The summary of the job shows the table of the floor and, when the provider refused calls, its first
+error. The `eval-report` artifact has every query the model wrote.
 
 ## First deploy, by hand, with a canary (how it was done the first time)
 
@@ -184,13 +221,12 @@ Every protected call needs `Authorization: Bearer <jwt>`. The token lives 15 min
 ```bash
 API=$(gcloud run services describe factored-api --region us-central1 --format='value(status.url)')
 TOKEN=$(curl -s $API/api/auth/token -H 'content-type: application/json' \
-  -d '{"customer_id":"DEMO-MX-DUPLICATE"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
+  -d '{"email":"demo-mx-duplicate@demo.bank","password":"demo-mx-duplicate@demo.bank"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
 curl -s $API/api/chat -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
   -d '{"message":"no reconozco un cargo de Uber"}'
 ```
 
-Without a token `/api/chat` answers `401`; a customer outside `DEMO_CUSTOMER_IDS` gets `403` when
-asking for a token. In Swagger (`$API/docs`) paste the token in **Authorize**.
+Without a token `/api/chat` answers `401`; a wrong email or password gets `401` from `/api/auth/token`, and the ninth try in a minute gets `429`. In Swagger (`$API/docs`) paste the token in **Authorize**.
 
 ## Known limits (state them in the submission)
 
@@ -209,13 +245,14 @@ asking for a token. In Swagger (`$API/docs`) paste the token in **Authorize**.
   container starts (5-10 s), so that no spoken message waits for them.
 - **One shared operator key.** Whoever has `OPERATOR_KEY` reads every chat; there are no operator
   accounts. Telegram chats do not reach the console.
-- **The token endpoint is a test identity service.** It is public and password-less by design, but
-  only for customers in `DEMO_CUSTOMER_IDS`. No rate limit. In production it is replaced by the
-  bank's identity provider; the rest stays. The Telegram webhook has its own secret.
+- **The token endpoint checks a demo password.** Five synthetic emails; the password is that same email. Three wrong passwords lock that account for 15 minutes. Eight tries per minute per client, then `429`. The lock lives in the API process, not in the database. In production the bank's identity provider replaces it; the rest stays. The Telegram webhook has its own secret.
 - **Conversations are keyed by customer**, so nobody can continue another customer's thread.
 - **`/docs` (Swagger) is public.**
 - **Cloud SQL has a public IP** (`ipv4Enabled`); the app reaches it through the Cloud SQL socket.
 - **Cold start.** With no minimum instances, the first request after idle is slow.
+- **A deploy now waits for Gemini.** The eval gate needs the model to answer: if Vertex AI is saturated for
+  a while the gate proves nothing and the deploy stops. The emergency switch is in
+  [The eval gate](#the-eval-gate).
 
 ## Troubleshooting
 
@@ -230,3 +267,10 @@ asking for a token. In Swagger (`$API/docs`) paste the token in **Authorize**.
   `factored-web` (the workflow updates it after deploying the web), and the API must allow the
   `Authorization` header.
 - *`/health/ready` says `db: error`*: the Cloud SQL instance is not attached to the service.
+- *`eval-gate` says `INCONCLUSIVE`*: the provider refused too many calls. Read `the first refusal was:`
+  in the summary: `403` means `gh-deployer` lacks `roles/aiplatform.user`; `429` is shared Gemini
+  capacity, so run the workflow again in a few minutes.
+- *`eval-gate` fails with `gold SQL of <case> fails`*: the data model changed under a case of the eval; fix
+  the gold query in `evals/text_to_sql/cases.py`.
+- *`eval-gate` fails while loading the data*: it downloads a DuckDB extension, so a network hiccup of the
+  runner can fail it; run it again.

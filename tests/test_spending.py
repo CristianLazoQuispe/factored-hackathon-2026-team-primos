@@ -97,7 +97,25 @@ def test_complaints_are_counted_by_status_and_open_means_still_being_handled():
     assert summary["count"] == 15 and summary["open"] == 3
     assert {"status": "Resolved", "count": 2} in summary["by_status"]
     assert len(summary["latest"]) == 10
-    assert complaints_summary([]) == {"count": 0, "open": 0, "by_status": [], "latest": []}
+    assert complaints_summary([]) == {
+        "count": 0,
+        "open": 0,
+        "stale_open": 0,
+        "by_status": [],
+        "latest": [],
+    }
+
+
+def test_an_open_case_without_news_for_months_is_stale_not_being_handled():
+    rows = [
+        {"status": "Open", "stale": False},
+        {"status": "In Process", "stale": True},
+        {"status": "Escalated", "stale": True},
+        {"status": "Resolved", "stale": False},
+    ]
+    summary = complaints_summary(rows)
+    assert summary["open"] == 1 and summary["stale_open"] == 2
+    assert {"status": "In Process", "count": 1} in summary["by_status"]  # the source status stays
 
 
 async def test_summary_runs_every_lookup_as_the_customer_it_was_given():

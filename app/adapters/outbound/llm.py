@@ -13,14 +13,15 @@ REQUEST_TIMEOUT_S = 30
 
 
 @lru_cache
-def chat_model(role: Role = "fast") -> BaseChatModel:
+def chat_model(role: Role = "fast", max_retries: int = MAX_RETRIES) -> BaseChatModel:
+    """`max_retries` counts the client's attempts per request, the first included (1: none)."""
     settings = get_settings()
     kwargs = {}
     if settings.provider == "ollama":
         # Thinking mode adds latency with little gain for NLU; 8k context keeps RAM under ~8 GB.
         kwargs = {"base_url": settings.ollama_base_url, "reasoning": False, "num_ctx": 8192}
     else:  # bounded retries: the library default (6 tries, no timeout) can hang a customer turn
-        kwargs = {"max_retries": MAX_RETRIES, "timeout": REQUEST_TIMEOUT_S}
+        kwargs = {"max_retries": max_retries, "timeout": REQUEST_TIMEOUT_S}
     return init_chat_model(settings.model(role), model_provider=settings.provider, **kwargs)
 
 

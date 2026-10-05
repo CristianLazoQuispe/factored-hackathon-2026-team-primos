@@ -1,5 +1,6 @@
 """Bearer-token authentication: the token, the endpoints that use it, and what must be refused."""
 
+import base64
 from datetime import UTC, datetime, timedelta
 
 import jwt
@@ -14,6 +15,7 @@ from app.adapters.inbound.auth import (
     AuthError,
     customer_from_token,
     issue_token,
+    reset_login_attempts,
 )
 from app.config import get_settings
 
@@ -35,8 +37,8 @@ def seen(monkeypatch):
     """Replace the agent: records what the API passes to it."""
     calls = []
 
-    async def fake_reply(message, thread_key, customer_id):
-        calls.append({"thread": thread_key, "customer": customer_id})
+    async def fake_reply(message, thread_key, customer_id, image=None):
+        calls.append({"thread": thread_key, "customer": customer_id, "image": image})
         return {
             "reply": "ok",
             "customer_id": customer_id,
@@ -111,22 +113,73 @@ def test_a_token_without_expiry_or_subject_is_refused(cloud):
         customer_from_token(no_exp)
 
 
-# ---- POST /api/auth/token: the test identity service ----
+# ---- POST /api/auth/token: email, password, then the same bearer token ----
+
+LUCIA_EMAIL = "demo-mx-duplicate@demo.bank"
+LUCIA = {"email": LUCIA_EMAIL, "password": LUCIA_EMAIL}
 
 
-def test_only_listed_demo_customers_can_start_a_session_in_the_cloud(cloud):
+@pytest.fixture(autouse=True)
+def fresh_login_window():
+    reset_login_attempts()
+
+
+def test_the_right_password_issues_a_token_for_that_customer(cloud):
     with TestClient(http.app) as client:
-        ok = client.post("/api/auth/token", json={"customer_id": "CLI-A"})
-        assert ok.status_code == 200 and ok.json()["token_type"] == "bearer"
-        assert customer_from_token(ok.json()["access_token"]) == "CLI-A"
-        refused = client.post("/api/auth/token", json={"customer_id": "CLI-SOMEONE-ELSE"})
-        assert refused.status_code == 403
+        ok = client.post("/api/auth/token", json=LUCIA)
+    assert ok.status_code == 200 and ok.json()["token_type"] == "bearer"
+    assert ok.json()["customer_id"] == "DEMO-MX-DUPLICATE"
+    assert customer_from_token(ok.json()["access_token"]) == "DEMO-MX-DUPLICATE"
 
 
-def test_locally_any_customer_can_start_a_session(monkeypatch):
-    monkeypatch.setattr(get_settings(), "app_env", "local")
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"email": LUCIA_EMAIL, "password": "no"},
+        {"email": "nadie@demo.bank", "password": "nadie@demo.bank"},
+    ],
+    ids=["wrong-password", "unknown-email"],
+)
+def test_a_wrong_email_or_password_is_refused_the_same_way(cloud, seen, body):
     with TestClient(http.app) as client:
-        assert client.post("/api/auth/token", json={"customer_id": "DEMO-MX-FX"}).status_code == 200
+        refused = client.post("/api/auth/token", json=body)
+        chat = client.post("/api/chat", json={"message": "hola"})
+    assert refused.status_code == 401
+    assert refused.json()["detail"] == "ID o contraseña incorrectos."
+    assert chat.status_code == 401 and seen == []
+
+
+def test_the_ninth_login_attempt_in_a_minute_is_refused(cloud):
+    wrong = {"email": "nadie@demo.bank", "password": "no"}
+    with TestClient(http.app) as client:
+        for _ in range(8):
+            assert client.post("/api/auth/token", json=wrong).status_code == 401
+        blocked = client.post("/api/auth/token", json=wrong)
+    assert blocked.status_code == 429
+
+
+def test_three_wrong_passwords_lock_that_account_and_leave_the_others_open(cloud):
+    wrong = {"email": LUCIA_EMAIL, "password": "no"}
+    other = {"email": "demo-mx-fx@demo.bank", "password": "demo-mx-fx@demo.bank"}
+    with TestClient(http.app) as client:
+        for _ in range(2):
+            assert client.post("/api/auth/token", json=wrong).status_code == 401
+        locked = client.post("/api/auth/token", json=wrong)
+        still = client.post("/api/auth/token", json=LUCIA)
+        sibling = client.post("/api/auth/token", json=other)
+    assert locked.status_code == 423 and still.status_code == 423
+    assert sibling.status_code == 200
+
+
+def test_a_successful_login_clears_the_failures_before_the_lock(cloud):
+    wrong = {"email": LUCIA_EMAIL, "password": "no"}
+    with TestClient(http.app) as client:
+        for _ in range(2):
+            assert client.post("/api/auth/token", json=wrong).status_code == 401
+        assert client.post("/api/auth/token", json=LUCIA).status_code == 200
+        # The next miss is the first again. A success that did not
+        # clear the count would lock the account here.
+        assert client.post("/api/auth/token", json=wrong).status_code == 401
 
 
 # ---- POST /api/chat ----
@@ -178,6 +231,51 @@ def test_locally_chat_still_works_without_a_token_using_the_body(monkeypatch, se
     with TestClient(http.app) as client:
         response = client.post("/api/chat", json={"message": "hola", "customer_id": "DEMO-MX-FX"})
     assert response.status_code == 200 and seen[0]["customer"] == "DEMO-MX-FX"
+
+
+@pytest.mark.parametrize(
+    ("email", "customer"),
+    [
+        ("demo-co-ambiguous@demo.bank", "DEMO-CO-AMBIGUOUS"),
+        ("demo-mx-own-purchase@demo.bank", "DEMO-MX-OWN-PURCHASE"),
+        ("demo-ar-reversed@demo.bank", "DEMO-AR-REVERSED"),
+    ],
+)
+def test_the_other_demo_cases_can_sign_in(cloud, email, customer):
+    with TestClient(http.app) as client:
+        ok = client.post("/api/auth/token", json={"email": email, "password": email})
+    assert ok.status_code == 200 and ok.json()["customer_id"] == customer
+
+
+def test_a_photo_reaches_the_agent(cloud, seen):
+    token, _ = issue_token("CLI-A")
+    png = base64.b64encode(b"\x89PNG\r\n").decode()
+    with TestClient(http.app) as client:
+        ok = client.post(
+            "/api/chat",
+            json={"message": "no reconozco", "image": png, "image_type": "image/png"},
+            headers=bearer(token),
+        )
+    assert ok.status_code == 200 and seen[0]["image"] == (png, "image/png")
+
+
+def test_a_photo_of_the_wrong_type_or_over_4mb_is_refused(cloud, seen):
+    token, _ = issue_token("CLI-A")
+    png = base64.b64encode(b"\x89PNG\r\n").decode()
+    huge = base64.b64encode(b"x" * 4_000_001).decode()
+    with TestClient(http.app) as client:
+        kind = client.post(
+            "/api/chat",
+            json={"message": "no reconozco", "image": png, "image_type": "image/gif"},
+            headers=bearer(token),
+        )
+        size = client.post(
+            "/api/chat",
+            json={"message": "no reconozco", "image": huge, "image_type": "image/png"},
+            headers=bearer(token),
+        )
+    assert kind.status_code == 400 and size.status_code == 400
+    assert seen == []
 
 
 # ---- the web is another origin: its browser must be allowed to send the token ----

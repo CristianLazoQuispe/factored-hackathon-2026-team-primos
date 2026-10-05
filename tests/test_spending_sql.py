@@ -108,14 +108,14 @@ async def test_complaints_and_exchange_rate_match_the_reference_answers():
     assert await store.exchange_rate("USD", "MXN", date(2020, 1, 1)) is None
 
 
-async def test_every_credit_card_and_loan_has_a_billing_row_that_agrees_with_its_days_past_due():
+async def test_every_open_card_and_loan_has_a_billing_row_that_agrees_with_its_days_past_due():
     rows = await postgres.query(
         """SELECT count(*) AS debts, count(b.product_id) AS billed,
                   count(*) FILTER (WHERE p.days_past_due > 0
                                    AND b.as_of - b.due_date <> p.days_past_due) AS disagree,
                   count(*) FILTER (WHERE b.minimum_payment > p.current_balance + 0.01) AS over
            FROM core.products p LEFT JOIN core.billing b USING (product_id)
-           WHERE p.product_type = ANY(%(types)s)""",
+           WHERE p.product_type = ANY(%(types)s) AND p.product_status <> 'Closed'""",
         {"types": list(DEBT_TYPES)},
     )
     assert rows[0]["debts"] == rows[0]["billed"] > 0

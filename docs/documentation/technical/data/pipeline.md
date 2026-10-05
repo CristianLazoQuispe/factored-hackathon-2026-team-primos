@@ -15,7 +15,7 @@ Local needs no S3 credentials: the mini-set is committed under `data/sample/`. T
 | Environment | Data | Command |
 |---|---|---|
 | Local Postgres (tests, development) | mini-set of 1,500 customers + 8 team demo customers | `make demo-data` (or `make up`) |
-| Cloud SQL (the deployed agent) | everything in `data/raw`: 150,000 customers, 400,000 products, 1,057,918 transactions (2025-10-01 to 2026-06-18) + the same 8 demo customers | `make etl-cloud CONFIRM=yes` |
+| Cloud SQL (the deployed agent) | the full dataset with a 12-month history: 150,000 customers, 400,000 products, 1,481,223 transactions and 5,273,548 digital events (2025-06-18 to 2026-06-18) + the same 8 demo customers | `make etl-cloud CONFIRM=yes` |
 
 ## Layers
 
@@ -37,7 +37,7 @@ flowchart LR
 | bronze | `python -m data_pipeline.bronze` | CSV → one Parquet per table. `union_by_name` absorbs schema evolution; the source `filename` is kept for lineage |
 | sample | `python -m data_pipeline.sample` | Deterministic, referentially closed mini-set (see [11_data_model.md](../../../strategy_analysis_01/11_data_model.md)) |
 | fixtures | `python -m data_pipeline.fixtures` | 8 team-made demo customers, labeled `is_synthetic_fixture` |
-| silver | `python -m data_pipeline.silver --source sample\|full` | Deduplicates by primary key (latest `last_updated`), normalizes country names, completes `transaction_category` from the merchant, drops rows whose customer doesn't exist, counts soft-FK orphans and source anomalies, validates pandera contracts, and writes `_quality_report.json` |
+| silver | `python -m data_pipeline.silver --source sample\|full` | Deduplicates by primary key (latest `last_updated`), keeps the last 365 days of transactions and digital events (`HISTORY_DAYS`, counted back from the last transaction, so the load does not depend on how much was downloaded), normalizes country names, completes `transaction_category` from the merchant, drops rows whose customer doesn't exist, counts soft-FK orphans and source anomalies, validates pandera contracts, and writes `_quality_report.json` |
 | serving | `python -m data_pipeline.load --source sample\|full` | Builds `core` from `schema.sql` as `core_staging`, bulk-loads silver + fixtures, generates `core.billing`, checks that every row arrived, then swaps it in for `core` in one transaction. `ops` is never touched. Idempotent |
 
 `--source` in the load must match what silver was built from, so a stale `data/silver/` never puts the mini-set where the full dataset was meant. A load that fails halfway leaves the `core` the agent is reading untouched.
@@ -58,6 +58,8 @@ What ends up in `core`, table by table, and where each one comes from: [model.md
   - no MXN products: Mexican customers hold USD;
   - amounts are always positive (the type gives the direction) and balances do not reconcile with movements;
   - text fields are templates;
+  - most "open" complaints are never closed: two thirds of them are over a year old. The tools and `customer_service_summary.open_complaints` count an open case older than 90 days (`STALE_AFTER_DAYS`) as stale, not open;
+  - every "last N days" (spending, movements, charge search, stale complaints) counts back from the dataset's last transaction, the same day for every customer. The data is thin: only 17% of customers bought anything in the last 30 days, 37% in the last 90;
   - row counts are below the data dictionary, and the duplicates it announces are not in the files.
 
 ## Freshness and late arrivals (full ETL)

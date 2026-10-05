@@ -8,5 +8,5 @@ grep -qxF "$email" .github/allowed-emails || {
   echo "git user.email '$email' is not a team email (.github/allowed-emails)" >&2
   exit 1
 }
-uv run ruff check app tests data_pipeline
-uv run ruff format --check app tests data_pipeline
+uv run ruff check app tests data_pipeline evals
+uv run ruff format --check app tests data_pipeline evals

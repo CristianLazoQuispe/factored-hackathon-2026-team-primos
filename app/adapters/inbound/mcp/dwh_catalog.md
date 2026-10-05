@@ -52,7 +52,8 @@ session_id, started_at, ended_at, channel, platform, ip_country, ip_city, had_lo
 
 ## customer_service_summary  (one row, precomputed: the customer's contacts with the bank)
 contacts_in_window, escalated_contacts, last_contact_at, last_contact_reason, open_complaints,
-unrecognized_charge_complaints, is_repeat_complainer, last_csat.
+unrecognized_charge_complaints, is_repeat_complainer, last_csat (1-4).
+- open_complaints leaves out open cases older than 90 days: the records never closed them.
 
 ## fx_rates  (public reference, not customer data)
 date, source_currency, target_currency (MXN|COP|ARS|USD), exchange_rate (1 source = rate target),

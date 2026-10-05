@@ -2,27 +2,44 @@
 Telegram webhook. The web is a separate service."""
 
 import asyncio
+import base64
 import logging
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import Annotated
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, Field
 from telegram import Update
 
 from app.adapters.inbound.agent import reply
-from app.adapters.inbound.auth import issue_token, operator, token_customer
+from app.adapters.inbound.auth import (
+    account_locked,
+    allow_login,
+    clear_failures,
+    customer_from_login,
+    issue_token,
+    operator,
+    register_failure,
+    token_customer,
+)
 from app.adapters.inbound.conversations import Conversation, conversations
+from app.adapters.inbound.finances_schema import OwnFinances
 from app.adapters.inbound.telegram import build_application
 from app.adapters.outbound import llm, postgres, speech
 from app.adapters.outbound.postgres.accounts import list_customers
+from app.adapters.outbound.postgres.actions import build_gateway, recent_messages
+from app.adapters.outbound.postgres.finances import PostgresFinances
 from app.adapters.outbound.postgres.readonly import ReadOnlyPostgres
+from app.adapters.outbound.postgres.spending import PostgresSpending
+from app.application.actions import ActionGateway, NotFound
+from app.application.finances import FinancesUnavailable, own_finances
 from app.application.run_sql import run_scoped_sql
 from app.config import get_settings
+from app.domain.finances import NoSpending, UnknownCustomer
 
 # Our own loggers at LOG_LEVEL; libraries stay at the default (warnings and errors).
 logging.basicConfig(format="%(levelname)s:     %(name)s: %(message)s")
@@ -55,10 +72,31 @@ app.add_middleware(
 )
 
 
+IMAGE_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
+MAX_IMAGE_BYTES = 4_000_000  # decoded; a phone photo of a statement fits, a base64 dump does not
+
+
 class ChatRequest(BaseModel):
     message: str
+    image: str | None = None  # base64, no data-url prefix; kept for this turn only
+    image_type: str | None = None  # image/jpeg, image/png or image/webp
     customer_id: str | None = None  # optional: the token decides; only local may use this alone
     thread_id: str | None = None  # one per conversation; a new one is created when missing
+
+
+def attached_image(image: str | None, image_type: str | None) -> tuple[str, str] | None:
+    """The photo on this turn, or None. Both fields together, a known type, and at most 4 MB."""
+    if image is None and image_type is None:
+        return None
+    if not image or image_type not in IMAGE_TYPES:
+        raise HTTPException(400, "La imagen tiene que ser jpeg, png o webp.")
+    try:
+        raw = base64.b64decode(image, validate=True)
+    except ValueError:
+        raise HTTPException(400, "La imagen no se pudo leer.") from None
+    if len(raw) > MAX_IMAGE_BYTES:
+        raise HTTPException(400, "La imagen pasa de 4 MB.")
+    return image, image_type
 
 
 class ChatResponse(BaseModel):
@@ -68,6 +106,7 @@ class ChatResponse(BaseModel):
     skill: str | None
     tools_used: list[str]
     handoff: dict | None
+    actions: dict | None = None  # what the agent proposes; nothing runs until the customer confirms
 
 
 @app.get("/health")
@@ -95,33 +134,48 @@ def demo_ids() -> list[str]:
 
 @app.get("/api/demo-customers")
 async def demo_customers() -> list[dict]:
-    """The customers offered in the UI: only those listed in DEMO_CUSTOMER_IDS."""
+    """Customers listed in DEMO_CUSTOMER_IDS: the IDs that can sign in (password: the same ID)."""
     ids = demo_ids()
     return await list_customers(ids) if ids else []
 
 
 class TokenRequest(BaseModel):
-    customer_id: str
+    # The ID of a customer in DEMO_CUSTOMER_IDS, or one of the eight demo emails. `email` is the old
+    # name of the field and is still accepted.
+    user: str = Field(validation_alias=AliasChoices("user", "email"))
+    password: str
 
 
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int
+    customer_id: str
 
 
 @app.post("/api/auth/token")
-def demo_token(request: TokenRequest) -> TokenResponse:
-    """Test identity service: starts a session as a demo customer.
+def demo_token(body: TokenRequest, request: Request) -> TokenResponse:
+    """Demo login: a customer ID from DEMO_CUSTOMER_IDS (or one of eight emails) plus its password,
+    which is that same ID (or email), then the same short-lived bearer token.
 
-    Outside `local` it only serves customers listed in DEMO_CUSTOMER_IDS, so a visitor can act as
-    a demo customer and as nobody else. A real deployment swaps this for the bank's identity
-    provider; everything downstream only trusts the token.
+    A wrong login and a wrong password get the same 401. Three wrong passwords lock that account
+    for 15 minutes (423), even with the right password afterwards. Eight attempts per minute per
+    client; the ninth is 429. A real deployment swaps this for the bank's identity provider;
+    everything downstream only trusts the token.
     """
-    if get_settings().app_env != "local" and request.customer_id not in demo_ids():
-        raise HTTPException(403, "This customer cannot start a demo session.")
-    token, expires_in = issue_token(request.customer_id)
-    return TokenResponse(access_token=token, expires_in=expires_in)
+    origin = request.client.host if request.client else "unknown"
+    if not allow_login(origin):
+        raise HTTPException(429, "Demasiados intentos. Espera un minuto.")
+    if account_locked(body.user):
+        raise HTTPException(423, "Cuenta bloqueada. Espera 15 minutos.")
+    customer_id = customer_from_login(body.user, body.password)
+    if customer_id is None:
+        if register_failure(body.user):
+            raise HTTPException(423, "Cuenta bloqueada. Espera 15 minutos.")
+        raise HTTPException(401, "ID o contraseña incorrectos.")
+    clear_failures(body.user)
+    token, expires_in = issue_token(customer_id)
+    return TokenResponse(access_token=token, expires_in=expires_in, customer_id=customer_id)
 
 
 class SqlRequest(BaseModel):
@@ -159,9 +213,11 @@ async def chat(
     request: ChatRequest, token_customer_id: Annotated[str | None, Depends(token_customer)]
 ) -> ChatResponse:
     customer_id = resolve_customer(token_customer_id, request.customer_id)
+    picture = attached_image(request.image, request.image_type)
     thread_id = request.thread_id or uuid4().hex
     key = thread_key(customer_id, thread_id)
     conversation = conversations.setdefault(key, Conversation(key, customer_id))
+    # The photo stays on this turn. The conversation mirror only keeps the text.
     conversation.add("customer", request.message)
     if conversation.status != "bot":  # a person has this chat: the agent stays out of it
         return ChatResponse(
@@ -172,12 +228,121 @@ async def chat(
             tools_used=[],
             handoff=None,
         )
-    result = await reply(request.message, key, customer_id)
+    result = await reply(request.message, key, customer_id, image=picture)
     conversation.customer_id = result["customer_id"]
     conversation.add("assistant", result["reply"])
     if result["handoff"]:
         conversation.status, conversation.case_file = "waiting", result["handoff"]
     return ChatResponse(thread_id=thread_id, **result)
+
+
+@app.get("/api/me/finances")
+async def my_finances(
+    token_customer_id: Annotated[str | None, Depends(token_customer)],
+    days: Annotated[int, Query(ge=7, le=365)] = 90,
+    customer_id: str | None = None,  # local only, like the chat's: the token decides
+) -> OwnFinances:
+    """The "Mis finanzas" screen: the customer's own spending, and nothing internal to the bank.
+
+    The customer is the one the token proves; `days` counts back from the dataset's last day.
+    """
+    customer = resolve_customer(token_customer_id, customer_id)
+    if customer is None:
+        raise HTTPException(400, "customer_id is required without a token (local only).")
+    try:
+        return await own_finances(PostgresSpending(), PostgresFinances(), customer, days)
+    except UnknownCustomer:
+        raise HTTPException(404, "unknown_customer") from None
+    except NoSpending:
+        raise HTTPException(404, "no_spending_in_period") from None
+    except FinancesUnavailable:
+        raise HTTPException(503, "finances_unavailable") from None
+
+
+def gateway() -> ActionGateway:
+    """The action gateway. While actions are off its routes answer 404, as if they did not exist."""
+    if not get_settings().actions_enabled:
+        raise HTTPException(404, "actions_disabled")
+    return build_gateway()
+
+
+class ActionDecision(BaseModel):
+    thread_id: str | None = None  # the chat the card came from: a person who picks it up sees this
+    customer_id: str | None = None  # local only, like the chat's: the token decides
+    inbox: str | None = None  # one of the demo inboxes the card offered
+
+
+def action_customer(proven: str | None, claimed: str | None) -> str:
+    customer = resolve_customer(proven, claimed)
+    if customer is None:
+        raise HTTPException(400, "customer_id is required without a token (local only).")
+    return customer
+
+
+def note_outcome(customer_id: str, thread_id: str | None, view: dict) -> None:
+    """Put what happened in the chat the operator console mirrors, and give the chat to a person
+    when the policy or a failed check says an action needs one."""
+    conversation = conversations.get(thread_key(customer_id, thread_id)) if thread_id else None
+    if conversation is None:
+        return
+    text = " · ".join(item["text"] for item in view["items"])
+    if not conversation.messages or conversation.messages[-1]["text"] != text:
+        conversation.add("assistant", text)
+    if view["escalate"] and conversation.status == "bot":
+        conversation.status = "waiting"
+        conversation.case_file = {
+            "customer_id": customer_id,
+            "request": "action_outcome",
+            "actions": [
+                {"action": i["action"], "status": i["status"], "text": i["text"]}
+                for i in view["items"]
+            ],
+            "unresolved": view["escalate"],
+        }
+
+
+@app.post("/api/actions/{batch_id}/confirm")
+async def confirm_actions(
+    batch_id: str,
+    body: ActionDecision,
+    token_customer_id: Annotated[str | None, Depends(token_customer)],
+) -> dict:
+    """The customer confirms what the agent proposed. Only this route runs it, never the chat, and
+    only for the customer the token proves. Asking again returns the same result."""
+    customer = action_customer(token_customer_id, body.customer_id)
+    try:
+        view = await gateway().confirm(customer, batch_id, inbox=body.inbox)
+    except NotFound:
+        raise HTTPException(404, "unknown_batch") from None
+    note_outcome(customer, body.thread_id, view)
+    return view
+
+
+@app.post("/api/actions/{batch_id}/cancel")
+async def cancel_actions(
+    batch_id: str,
+    body: ActionDecision,
+    token_customer_id: Annotated[str | None, Depends(token_customer)],
+) -> dict:
+    customer = action_customer(token_customer_id, body.customer_id)
+    try:
+        view = await gateway().cancel(customer, batch_id)
+    except NotFound:
+        raise HTTPException(404, "unknown_batch") from None
+    note_outcome(customer, body.thread_id, view)
+    return view
+
+
+@app.get("/api/me/outbox")
+async def my_outbox(
+    token_customer_id: Annotated[str | None, Depends(token_customer)],
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    customer_id: str | None = None,  # local only, like the chat's: the token decides
+) -> list[dict]:
+    """What the system sent this customer, newest first: the simulated phone of the demo."""
+    customer = action_customer(token_customer_id, customer_id)
+    gateway()  # 404 while actions are off
+    return await recent_messages(customer, limit)
 
 
 class Transcript(BaseModel):
