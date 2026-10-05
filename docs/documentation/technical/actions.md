@@ -116,6 +116,22 @@ path, for example) is never offered the skill: the router's catalog leaves it ou
 skill both refuse it in code, and every tool of the MCP server refuses it a third time. A customer
 number alone does not prove identity.
 
+## What a model's turn is not trusted with
+
+The first runs against Gemini showed three things a model does that a bank cannot accept. Each is
+now handled by code, and each has a test that reproduces it.
+
+| What the model did | What the code does now |
+|---|---|
+| Told the customer to "review and confirm below" when its proposal had failed: it had sent `actions` as one object instead of a list, and the error was invisible | The tool forgives that shape (one action, or the list as JSON text). Every tool error is logged by the server. A turn of this skill that ends with **no proposal, no question and no person** is not repeated: the customer reads "I could not prepare that action" instead |
+| Said it could "propose a transfer, confirm below" and called **no tool**, without consulting the policy | A request to move money, pay, refund, change phone, email or address, raise a limit or reissue a card is recognised by code before the model (narrow patterns: it has to be asked for, "quiero…", "necesito…", "hazme…"). The policy answers, through the same tool and the same audit. A question about the same things ("¿cuánto me cobran por transferir?") still goes to the model |
+| Proposed twice in one chat | The newest proposal replaces any still waiting in that chat, so only one confirmation button is live |
+
+A request for something the bank never does is also answered with no model turn at all, so it is
+cheaper and the answer does not vary from one run to the next. Where a model is trusted is
+understanding what the customer wants and finding the card or the charge; what is allowed, what is
+said about it and what happened is never its to decide.
+
 ## The routes
 
 | Route | What it does |
