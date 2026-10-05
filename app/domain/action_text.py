@@ -108,13 +108,13 @@ WINDOWS = {
 TOPICS = {
     "es": {
         "balances": "resumen de saldos",
-        "payment_status": "estado de tus pagos",
-        "case_receipt": "comprobante de tu consulta",
+        "payment_status": "estado de pagos",
+        "case_receipt": "comprobante de la consulta",
     },
     "pt": {
         "balances": "resumo de saldos",
-        "payment_status": "situação dos seus pagamentos",
-        "case_receipt": "comprovante da sua consulta",
+        "payment_status": "extrato de pagamentos",
+        "case_receipt": "comprovante da consulta",
     },
 }
 ALERTS = {
@@ -163,7 +163,11 @@ DONE: dict[str, dict[str, str]] = {
         "request_callback": "Pedí que te llamen por la {window}. Referencia {case_ref}.",
         "set_alert": "Listo. {alert}",
         "send_summary_email": (
-            "El servicio de correo aceptó tu mensaje para {to}. Puede tardar unos minutos en llegar."
+            "El servicio de correo aceptó tu mensaje y lo entregó al buzón de demostración "
+            "{delivered}. Puede tardar unos minutos en llegar."
+        ),
+        "send_summary_email_simulated": (
+            "Guardé tu mensaje en la bandeja de demostración. No se envió a ningún correo real."
         ),
     },
     "pt": {
@@ -175,7 +179,11 @@ DONE: dict[str, dict[str, str]] = {
         "request_callback": "Pedi que liguem para você no período da {window}. Referência {case_ref}.",
         "set_alert": "Pronto. {alert}",
         "send_summary_email": (
-            "O serviço de e-mail aceitou a sua mensagem para {to}. Pode levar alguns minutos."
+            "O serviço de e-mail aceitou a sua mensagem e a entregou à caixa de demonstração "
+            "{delivered}. Pode levar alguns minutos."
+        ),
+        "send_summary_email_simulated": (
+            "Guardei a sua mensagem na caixa de demonstração. Ela não foi enviada a nenhum e-mail real."
         ),
     },
 }
@@ -292,6 +300,7 @@ def _fill(record: ActionRecord, lang: str) -> dict[str, str]:
         "case_ref": str(result.get("case_ref") or "—"),
         "window": _t(WINDOWS, lang).get(params.get("window", ""), "—"),
         "to": str(view.get("to") or "—"),
+        "delivered": str(result.get("delivered_to") or "—"),
         "topic": _t(TOPICS, lang).get(params.get("topic", ""), "—"),
         "alert": _t(ALERTS, lang).get((params.get("kind"), params.get("enabled", True)), ""),
     }
@@ -311,7 +320,10 @@ def outcome(record: ActionRecord, lang: str) -> tuple[str, str]:
     if status == AWAITING:
         return describe(record, lang), "info"
     if status == VERIFIED:
-        return _t(DONE, lang)[record.action].format(**_fill(record, lang)), "ok"
+        key = record.action
+        if key == "send_summary_email" and (record.result or {}).get("mode") == "simulated":
+            key = "send_summary_email_simulated"  # nothing left the process: say so
+        return _t(DONE, lang)[key].format(**_fill(record, lang)), "ok"
     if status == FAILED:
         return state["failed"].format(reason=reason_text(record.reason, lang)), "error"
     if status == SKIPPED:

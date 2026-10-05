@@ -85,7 +85,9 @@ async def test_an_email_that_needs_no_confirmation_runs_at_once(w: World):
         "C1", [{"action": "send_summary_email", "params": {"topic": "balances"}}], language="es"
     )
     assert statuses(view) == ["verified"] and not view["needs_confirmation"]
-    assert "aceptó tu mensaje para c***@demo.bank" in view["items"][0]["text"]
+    text = view["items"][0]["text"]
+    assert "Guardé tu mensaje en la bandeja de demostración" in text
+    assert "No se envió a ningún correo real" in text, "a simulated mail must not claim it was sent"
 
 
 async def test_portuguese_gets_portuguese_text(w: World):
@@ -414,3 +416,23 @@ async def test_a_proposal_nobody_has_to_confirm_replaces_nothing(w: World):
     )
     assert statuses(refused) == ["refused"]
     assert statuses(await w.gateway.view("C1", first["batch_id"])) == ["awaiting_confirmation"]
+
+
+async def test_a_real_server_names_the_demo_inbox_not_the_synthetic_address(w: World):
+    w.effects.mode = "smtp"
+    batch = await w.gateway.propose("C1", [INQUIRY, RECEIPT], language="es")
+    done = await w.gateway.confirm("C1", batch["batch_id"], inbox="b@demo.test")
+    text = done["items"][1]["text"]
+    assert "aceptó tu mensaje" in text and "buzón de demostración b@demo.test" in text
+    assert "c***@demo.bank" not in text, "the registered address never received it"
+
+
+async def test_the_same_in_portuguese(w: World):
+    w.effects.mode = "smtp"
+    batch = await w.gateway.propose("C1", [INQUIRY, RECEIPT], language="pt")
+    done = await w.gateway.confirm("C1", batch["batch_id"], inbox="a@demo.test")
+    assert "caixa de demonstração a@demo.test" in done["items"][1]["text"]
+    w.effects.mode = "simulated"
+    again = await w.gateway.propose("C1", [INQUIRY, RECEIPT], language="pt")
+    simulated = await w.gateway.confirm("C1", again["batch_id"])
+    assert "não foi enviada a nenhum e-mail real" in simulated["items"][1]["text"]

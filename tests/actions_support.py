@@ -193,6 +193,7 @@ class FakeEffects:
         self.silent_card = False  # card_control returns but changes nothing
         self.silent_case = False
         self.forget_messages = False  # the mail is accepted but cannot be found afterwards
+        self.mode = "simulated"  # what the mailer reports: simulated or smtp
 
     def inboxes(self) -> list[str]:
         return ["a@demo.test", "b@demo.test"]
@@ -244,7 +245,7 @@ class FakeEffects:
             self.send_transient_failures -= 1
             raise TransientError("mail server busy")
         self.sent.append(draft)
-        return SendReceipt(str(len(self.sent)), "accepted", "simulated", inbox)
+        return SendReceipt(str(len(self.sent)), "accepted", self.mode, inbox)
 
     async def message_status(self, customer_id: str, message_id: str) -> str | None:
         if self.forget_messages:
