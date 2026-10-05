@@ -16,7 +16,7 @@ MAX_STORED = 2000  # characters kept of one message
 MAX_TITLE = 80
 MAX_QUOTED = 160  # characters of a question quoted to the agent
 
-OUTCOMES = ("answered", "proposed", "done", "refused", "handed_off")
+OUTCOMES = ("answered", "proposed", "done", "refused", "cancelled", "handed_off")
 
 CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f\u2028\u2029\u200b-\u200f\u202a-\u202e\u2066-\u2069]")
 # 13 to 19 digits, in groups or not: a card number typed into the chat keeps only its last four
@@ -66,12 +66,25 @@ def outcome_of(*, handed_off: bool = False, actions: dict | None = None) -> str:
     if handed_off:
         return "handed_off"
     if actions:
-        return (
-            "proposed"
-            if actions.get("needs_confirmation") or actions.get("confirmation")
-            else "refused"
-        )
+        if actions.get("needs_confirmation") or actions.get("confirmation"):
+            return "proposed"
+        # nothing waits for a button: an e-mail that went out, or an action the policy refused
+        return outcome_after([i.get("status") for i in actions.get("items", [])])
     return "answered"
+
+
+def outcome_after(statuses: list[str], *, escalated: bool = False) -> str:
+    """How a proposal ended once the customer pressed Confirmar or Cancelar, from the status of each
+    action in it (the ones the action gateway uses). Something verified counts as done; a card the
+    customer cancelled, or that expired, is cancelled; anything else was refused."""
+    if escalated:
+        return "handed_off"
+    wanted = set(statuses)
+    if "verified" in wanted:
+        return "done"
+    if wanted and wanted <= {"cancelled", "expired"}:
+        return "cancelled"
+    return "refused"
 
 
 def quote(text: str, limit: int = MAX_QUOTED) -> str:

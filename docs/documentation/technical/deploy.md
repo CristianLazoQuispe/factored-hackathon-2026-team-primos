@@ -94,8 +94,8 @@ to another repository, repeat the last `add-iam-policy-binding` with the new `GH
 provider condition with `gcloud iam workload-identity-pools providers update-oidc github-provider
 --location=global --workload-identity-pool=github --attribute-condition="assertion.repository=='NEW/REPO'"`.
 
-**4. GitHub variables.** Six are required; six more are optional (`ACTIONS_ENABLED`, `KHIPU_ENABLED`,
-`MAIL_MODE`, `MAIL_FROM`, `SMTP_USER`, `DEMO_INBOXES`), each off or empty when unset. With the GitHub CLI (needs `brew install gh` and `gh auth login`;
+**4. GitHub variables.** Six are required; seven more are optional (`ACTIONS_ENABLED`, `KHIPU_ENABLED`,
+`CHAT_MEMORY_ENABLED`, `MAIL_MODE`, `MAIL_FROM`, `SMTP_USER`, `DEMO_INBOXES`), each off or empty when unset. With the GitHub CLI (needs `brew install gh` and `gh auth login`;
 repository admin rights):
 
 ```bash

@@ -9,7 +9,16 @@ from dataclasses import asdict
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+)
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import AliasChoices, BaseModel, Field
@@ -32,6 +41,7 @@ from app.adapters.inbound.finances_schema import OwnFinances
 from app.adapters.inbound.mcp import transfers as khipu
 from app.adapters.inbound.telegram import build_application
 from app.adapters.outbound import llm, postgres, speech
+from app.adapters.outbound.postgres import chat_memory as memory_store
 from app.adapters.outbound.postgres.accounts import find_customer, list_customers
 from app.adapters.outbound.postgres.actions import build_gateway, recent_messages
 from app.adapters.outbound.postgres.audit import record_decision
@@ -44,6 +54,7 @@ from app.application.run_sql import run_scoped_sql
 from app.application.transfers import cancel as cancel_transfer
 from app.application.transfers import execute as execute_transfer
 from app.config import get_settings
+from app.domain import chat_memory as memory_rules
 from app.domain.finances import NoSpending, UnknownCustomer
 
 # Our own loggers at LOG_LEVEL; libraries stay at the default (warnings and errors).
@@ -220,9 +231,20 @@ def thread_key(customer_id: str | None, thread_id: str) -> str:
     return f"{customer_id}:{thread_id}" if customer_id else thread_id
 
 
+def memory_on() -> bool:
+    return get_settings().chat_memory_enabled
+
+
+def remembered(message: str, picture: object) -> str:
+    """What the memory keeps of the customer's turn: the text, or a note that a photo came."""
+    return message if message.strip() or not picture else "[foto]"
+
+
 @app.post("/api/chat")
 async def chat(
-    request: ChatRequest, token_customer_id: Annotated[str | None, Depends(token_customer)]
+    request: ChatRequest,
+    background: BackgroundTasks,
+    token_customer_id: Annotated[str | None, Depends(token_customer)],
 ) -> ChatResponse:
     customer_id = resolve_customer(token_customer_id, request.customer_id)
     picture = attached_image(request.image, request.image_type)
@@ -231,7 +253,12 @@ async def chat(
     conversation = conversations.setdefault(key, Conversation(key, customer_id))
     # The photo stays on this turn. The conversation mirror only keeps the text.
     conversation.add("customer", request.message)
+    # The memory is per customer: there is none without one.
+    keeping = memory_on() and customer_id is not None
+    text = remembered(request.message, picture)
     if conversation.status != "bot":  # a person has this chat: the agent stays out of it
+        if keeping:
+            background.add_task(memory_store.record_turn, customer_id, thread_id, text, "")
         return ChatResponse(
             reply=None,
             thread_id=thread_id,
@@ -240,11 +267,32 @@ async def chat(
             tools_used=[],
             handoff=None,
         )
-    result = await reply(request.message, key, customer_id, image=picture)
+    extra = {}
+    if keeping:  # only when there is something to tell: with it off, the call is what it always was
+        past = await memory_store.past_for_agent(customer_id, thread_id)
+        if summary := memory_rules.summary_for_agent(past):
+            extra["memory"] = summary
+    result = await reply(request.message, key, customer_id, image=picture, **extra)
     conversation.customer_id = result["customer_id"]
     conversation.add("assistant", result["reply"])
     if result["handoff"]:
         conversation.status, conversation.case_file = "waiting", result["handoff"]
+    if keeping:
+        actions = result.get("actions")
+        confirmation = result.get("confirmation")
+        waiting = actions or ({"confirmation": confirmation} if confirmation else None)
+        outcome = memory_rules.outcome_of(handed_off=bool(result["handoff"]), actions=waiting)
+        language = (actions or {}).get("language")
+        background.add_task(
+            memory_store.record_turn,
+            customer_id,
+            thread_id,
+            text,
+            result["reply"] or "",
+            skill=result["skill"],
+            outcome=outcome,
+            language=language,
+        )
     return ChatResponse(thread_id=thread_id, **result)
 
 
@@ -368,6 +416,17 @@ def note_outcome(customer_id: str, thread_id: str | None, view: dict) -> None:
         }
 
 
+async def remember_decision(customer_id: str, thread_id: str | None, view: dict) -> None:
+    """Keep in the history what came of the card the customer pressed. Never breaks the answer."""
+    if not (memory_on() and thread_id):
+        return
+    text = " · ".join(item["text"] for item in view["items"])
+    outcome = memory_rules.outcome_after(
+        [item["status"] for item in view["items"]], escalated=bool(view["escalate"])
+    )
+    await memory_store.append_message(customer_id, thread_id, "assistant", text, outcome=outcome)
+
+
 @app.post("/api/actions/{batch_id}/confirm")
 async def confirm_actions(
     batch_id: str,
@@ -382,6 +441,7 @@ async def confirm_actions(
     except NotFound:
         raise HTTPException(404, "unknown_batch") from None
     note_outcome(customer, body.thread_id, view)
+    await remember_decision(customer, body.thread_id, view)
     return view
 
 
@@ -397,6 +457,7 @@ async def cancel_actions(
     except NotFound:
         raise HTTPException(404, "unknown_batch") from None
     note_outcome(customer, body.thread_id, view)
+    await remember_decision(customer, body.thread_id, view)
     return view
 
 
@@ -410,6 +471,51 @@ async def my_outbox(
     customer = action_customer(token_customer_id, customer_id)
     gateway()  # 404 while actions are off
     return await recent_messages(customer, limit)
+
+
+def memory_customer(proven: str | None, claimed: str | None) -> str:
+    """The customer whose history it is: the one the token proves. 404 while the memory is off."""
+    customer = resolve_customer(proven, claimed)
+    if customer is None:
+        raise HTTPException(400, "customer_id is required without a token (local only).")
+    if not memory_on():
+        raise HTTPException(404, "chat_memory_disabled")
+    return customer
+
+
+@app.get("/api/me/conversations")
+async def my_conversations(
+    token_customer_id: Annotated[str | None, Depends(token_customer)],
+    customer_id: str | None = None,  # local only, like the chat's: the token decides
+) -> list[dict]:
+    """The customer's earlier conversations, the most recent first. Only theirs."""
+    customer = memory_customer(token_customer_id, customer_id)
+    return await memory_store.list_conversations(customer)
+
+
+@app.get("/api/me/conversations/{conversation_id}")
+async def my_conversation(
+    conversation_id: str,
+    token_customer_id: Annotated[str | None, Depends(token_customer)],
+    customer_id: str | None = None,
+) -> dict:
+    """One earlier conversation with its messages. Not found if it is not the customer's."""
+    customer = memory_customer(token_customer_id, customer_id)
+    found = await memory_store.read_conversation(customer, conversation_id)
+    if found is None:
+        raise HTTPException(404, "unknown_conversation")
+    return found
+
+
+@app.delete("/api/me/conversations")
+async def forget_my_conversations(
+    token_customer_id: Annotated[str | None, Depends(token_customer)],
+    customer_id: str | None = None,
+) -> dict:
+    """Forget everything kept of this customer's conversations. The chat open on their screen is
+    not touched; the next message starts it again."""
+    customer = memory_customer(token_customer_id, customer_id)
+    return {"deleted": await memory_store.delete_history(customer)}
 
 
 class Transcript(BaseModel):
@@ -481,11 +587,16 @@ def known_conversation(key: str) -> Conversation:
 
 
 @app.post("/api/crm/reply", dependencies=[Depends(operator)])
-def crm_reply(request: OperatorReply) -> dict:
+async def crm_reply(request: OperatorReply) -> dict:
     """The operator answers the customer and, by doing so, takes the chat from the agent."""
     conversation = known_conversation(request.thread_key)
     conversation.add("operator", request.text)
     conversation.status = "human"
+    customer = conversation.customer_id
+    prefix = f"{customer}:" if customer else None
+    if memory_on() and prefix and request.thread_key.startswith(prefix):
+        thread_id = request.thread_key[len(prefix) :]
+        await memory_store.append_message(customer, thread_id, "operator", request.text)
     return asdict(conversation)
 
 

@@ -92,6 +92,17 @@ def test_the_title_is_the_first_message_cut_and_redacted():
         ({"actions": {"needs_confirmation": True}}, "proposed"),
         ({"actions": {"confirmation": {"transfer_id": "x"}}}, "proposed"),
         ({"actions": {"needs_confirmation": False}}, "refused"),
+        ({"actions": {"needs_confirmation": False, "items": [{"status": "verified"}]}}, "done"),
+        ({"actions": {"needs_confirmation": False, "items": [{"status": "refused"}]}}, "refused"),
+        (
+            {
+                "actions": {
+                    "needs_confirmation": True,
+                    "items": [{"status": "awaiting_confirmation"}],
+                }
+            },
+            "proposed",
+        ),
     ],
 )
 def test_how_a_turn_ended(kw, expected):
@@ -190,3 +201,34 @@ def test_a_card_number_in_an_old_question_does_not_reach_the_agent():
 def test_a_long_question_is_cut_before_it_reaches_the_agent():
     text = m.summary_for_agent([past(title="a" * 1000)])
     assert len(text.splitlines()[1]) < 300
+
+
+# ------------------------------------------------------------------ how a proposal ended
+
+
+@pytest.mark.parametrize(
+    "statuses, kw, expected",
+    [
+        (["verified"], {}, "done"),
+        (["verified", "verified"], {}, "done"),
+        (["verified", "failed"], {}, "done"),
+        (["verified", "escalated"], {"escalated": True}, "handed_off"),
+        (["cancelled"], {}, "cancelled"),
+        (["cancelled", "cancelled"], {}, "cancelled"),
+        (["expired"], {}, "cancelled"),
+        (["refused"], {}, "refused"),
+        (["failed"], {}, "refused"),
+        (["skipped", "failed"], {}, "refused"),
+        (["cancelled", "refused"], {}, "refused"),
+        ([], {}, "refused"),
+    ],
+)
+def test_how_a_proposal_ended_once_the_customer_decided(statuses, kw, expected):
+    assert m.outcome_after(statuses, **kw) == expected
+
+
+def test_every_word_it_can_give_is_one_the_store_accepts():
+    for statuses in (["verified"], ["cancelled"], ["failed"], []):
+        assert m.outcome_after(statuses) in m.OUTCOMES
+    assert m.outcome_after(["x"], escalated=True) in m.OUTCOMES
+    assert "cancelled" in m.OUTCOMES

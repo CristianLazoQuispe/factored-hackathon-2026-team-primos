@@ -18,6 +18,7 @@ Every LLM call, skill choice and tool call is a LangChain run, so Langfuse trace
 import json
 import logging
 import re
+from contextvars import ContextVar
 from typing import Literal
 
 from langchain.agents import create_agent
@@ -37,6 +38,19 @@ from app.domain.claims import claimed_actions, points_to_a_card, promises_what_t
 from app.domain.routing import guess_refused_action, guess_skill
 
 log = logging.getLogger(__name__)
+
+# What the code summarised of the customer's earlier conversations (app/domain/chat_memory.py), for
+# the turn being answered. A context variable and not part of the state or of the call's
+# configuration: LangGraph keeps both with the thread, and this must neither be saved nor reach the
+# next turn. Each customer's call sees its own value, however many are answered at once.
+earlier_conversations: ContextVar[str] = ContextVar("earlier_conversations", default="")
+
+
+def with_memory(prompt: str) -> str:
+    """The prompt, and after it what the customer said in earlier conversations, as history."""
+    memory = earlier_conversations.get()
+    return f"{prompt}\n\n## Earlier conversations\n{memory}" if memory else prompt
+
 
 MAX_SKILL_STEPS = 12  # LangGraph steps inside the skill loop (~6 tool calls)
 ASKS_FOR_HUMAN = re.compile(
@@ -163,7 +177,7 @@ async def route(state: State) -> dict:
         return {"route": "refuse", "refused": refused}
     if refused and "account_actions" in load_skills():  # asked, but only typed an ID
         return needs_sign_in()
-    system = f"{agent_prompt()}\n\n## Skills\n{catalog(signed_in)}"
+    system = with_memory(f"{agent_prompt()}\n\n## Skills\n{catalog(signed_in)}")
     model = chat_model("fast").bind_tools([use_skill, request_human])
     response = await model.ainvoke([SystemMessage(system), *state["messages"]])
     for call in response.tool_calls:
@@ -270,7 +284,9 @@ async def skill_agent(state: State, config: RunnableConfig) -> dict:
         agent = create_agent(
             chat_model("fast"),
             tools,
-            system_prompt=f"{agent_prompt(routing=False)}\n\n## Active skill\n{skill.instructions}",
+            system_prompt=with_memory(
+                f"{agent_prompt(routing=False)}\n\n## Active skill\n{skill.instructions}"
+            ),
         )
         limits = config | {"recursion_limit": MAX_SKILL_STEPS}
         result = await agent.ainvoke({"messages": state["messages"]}, limits)
@@ -377,6 +393,7 @@ async def reply(
     thread_id: str,
     customer_id: str | None = None,
     image: tuple[str, str] | None = None,
+    memory: str = "",
 ) -> dict:
     turn: dict = {"messages": [customer_message(message, image)], "signed_in": bool(customer_id)}
     if customer_id:
@@ -386,6 +403,7 @@ async def reply(
         "callbacks": callbacks(),
         "metadata": {"langfuse_session_id": thread_id, "langfuse_user_id": customer_id},
     }
+    token = earlier_conversations.set(memory)
     try:
         state = await agent.ainvoke(turn, config)
     except Exception:  # the model or a tool is down: never a bare 500, always a safe hand-off
@@ -400,6 +418,8 @@ async def reply(
             "actions": None,
             "confirmation": None,
         }
+    finally:
+        earlier_conversations.reset(token)
     return {
         "reply": state["messages"][-1].text,
         "customer_id": state.get("customer_id"),

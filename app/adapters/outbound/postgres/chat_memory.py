@@ -129,6 +129,33 @@ async def record_turn(
         return False
 
 
+async def append_message(
+    customer_id: str, thread_id: str, role: str, text: str, *, outcome: str | None = None
+) -> bool:
+    """Add a message to a conversation that already exists and is the customer's: what came of a
+    card the customer pressed, or what a person of the team answered from the console. Nothing is
+    created and nothing of anyone else's is touched. False if it was not saved."""
+    if role not in ("assistant", "operator") or (
+        outcome is not None and outcome not in rules.OUTCOMES
+    ):
+        return False
+    try:
+        cid = conversation_id(customer_id, thread_id)
+        async with await psycopg.AsyncConnection.connect(get_settings().database_url) as conn:
+            if text and text.strip():
+                params = {"id": cid, "customer": customer_id, "role": role, "skill": None}
+                await conn.execute(INSERT_MESSAGE, params | {"content": rules.stored(text)})
+            await conn.execute(
+                "UPDATE ops.conversations SET last_message_at = now(), "
+                "outcome = COALESCE(%s, outcome) WHERE conversation_id = %s AND customer_id = %s",
+                (outcome, cid, customer_id),
+            )
+        return True
+    except Exception:
+        log.exception("chat memory: could not add a message")
+        return False
+
+
 async def set_outcome(customer_id: str, thread_id: str, outcome: str) -> bool:
     """How the conversation ended, once the customer has confirmed or cancelled a card."""
     if outcome not in rules.OUTCOMES:
