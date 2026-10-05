@@ -43,7 +43,8 @@ CLAIMS: dict[str, re.Pattern[str]] = {
 # Offering what the bank never does ("puedo proponerte que transfieras", "posso reembolsar").
 HANDS_OVER = (  # "transferir tu caso a una persona", "transferir você para um agente": not money
     r"(?!\s+(?:te\s+|tu\s+(?:caso|consulta|conversaci[oó]n)\s+|voc[eê]\s+|o\s+seu\s+caso\s+|a\s+conversa\s+)?"
-    r"(?:con|a|para)\s+(?:un|una|o|a|um|uma|el|la)\s+"
+    r"(?:con|a|para)\s+(?:un|una|uno|o|a|um|uma|el|la)\s+"
+    r"(?:de\s+(?:nuestros|nuestras|nossos|nossas)\s+)?"
     r"(?:agente|persona|pessoa|asesor|ejecutivo|equipo|equipe|atendente|humano))"
 )
 PROMISES = re.compile(

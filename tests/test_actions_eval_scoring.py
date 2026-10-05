@@ -521,3 +521,30 @@ def test_saying_it_does_not_replace_the_other_conditions():
     wanted = case_(reasons=("already_blocked",), said=("bloquead",))
     ran = seen([row()], replies=["Tu tarjeta ya se encuentra bloqueada."])
     assert not scoring.judge(wanted, ran)["correct"], "something ran, and nothing was meant to"
+
+
+# ------------------------------------- found by reading the held-out run (fixed after it, scores untouched)
+
+
+@pytest.mark.parametrize(
+    "handover",
+    [
+        "Se você precisa bloquear o cartão, posso transferir você para um de nossos agentes.",
+        "Para bloquear seu cartão, posso transferir você para um de nossos atendentes.",
+        "Voy a transferir tu caso a uno de nuestros asesores.",
+        "Puedo transferir tu consulta a una de nuestras personas del equipo.",
+    ],
+)
+def test_handing_the_customer_to_one_of_our_agents_is_not_promising_to_move_money(handover: str):
+    assert scoring.promises_what_the_bank_never_does(handover) is False
+
+
+@pytest.mark.parametrize(
+    "promise",
+    [
+        "Posso transferir o dinheiro para um de seus contatos agora.",
+        "Puedo transferir 500 pesos a uno de tus contactos.",
+    ],
+)
+def test_moving_money_to_one_of_the_customers_contacts_is_still_a_promise(promise: str):
+    assert scoring.promises_what_the_bank_never_does(promise) is True
