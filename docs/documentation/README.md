@@ -13,9 +13,9 @@
 |---|---|---|
 | [architecture.md](technical/architecture.md) | Living | Component diagram, agent graph, skills and MCP, identity, tracing |
 | [mcp/](technical/mcp/README.md) | Living | The tools the agent can call: which question each one answers, arguments, what it returns, the rules they all follow |
-| [data/model.md](technical/data/model.md) | Living | The `core` schema: tables, diagram, provenance of each table, the team-generated billing rule, design decisions |
+| [data/model.md](technical/data/model.md) | Living | The `core` schema: tables, diagram, provenance of each table, the team-generated billing and service-bills rules, design decisions |
 | [data/pipeline.md](technical/data/pipeline.md) | Living | The ETL: raw → bronze → sample → silver → Postgres, contracts, quality report, local vs. Cloud SQL |
-| [adr/0004](technical/adr/0004-khipear-money-movement.md) + [mcp/transfers.md](technical/mcp/transfers.md) | Living | Khipear, how the agent moves the customer's money: the three operations, when it asks which account, the rules checked in code, the confirmation button, where the money is recorded |
+| [adr/0004](technical/adr/0004-khipear-money-movement.md) + [mcp/transfers.md](technical/mcp/transfers.md) | Living | Khipear, how the agent moves the customer's money: the three operations and the payment of a service bill, when it asks which account, the rules checked in code, the confirmation button, where the money is recorded |
 | [actions.md](technical/actions.md) | Living | How the agent acts: the propose-confirm-execute-verify cycle, what each request gets, where it writes, what is simulated, how it is tested |
 | [deploy.md](technical/deploy.md) | Living | Cloud Run and Cloud SQL: what exists, how a deploy runs, rollback, limits |
 | [diagrams/](technical/diagrams/) | Living | Hand-drawn `architecture.svg`, Mermaid sources (`.mmd`) + rendered SVG / 300-dpi PNG (`make diagrams`) |
