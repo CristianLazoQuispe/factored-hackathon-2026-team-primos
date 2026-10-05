@@ -38,26 +38,36 @@ async def cells(fixture: str) -> dict[str, str]:
 
 async def test_a_credit_card_with_a_balance_can_be_blocked_but_not_cancelled():
     got = await cells("single")
-    assert got["cards"] == "1" and got["block_card"] == "confirm"
-    assert got["cancel_card"] == "person: outstanding_balance"
+    assert got["cards"] == "1" and got["block_card"] == "1 of 1" and got["cancel_card"] == "0 of 1"
+    assert got["card_refusals"] == "cancel: outstanding_balance x1"
 
 
 async def test_a_debit_card_without_a_balance_can_be_cancelled_with_confirmation():
     got = await cells("cancelable")
-    assert got["cancel_card"] == "confirm" and got["block_card"] == "confirm"
+    assert (
+        got["cancel_card"] == "1 of 1"
+        and got["block_card"] == "1 of 1"
+        and got["card_refusals"] == ""
+    )
+
+
+async def test_every_card_counts_not_only_the_first_one():
+    """A customer who owes on the credit card may hold a debit card that can be cancelled."""
+    got = await cells("two_cards")
+    assert got["cards"] == "2" and got["block_card"] == "2 of 2" and got["cancel_card"] == "1 of 2"
+    assert got["card_refusals"] == "cancel: outstanding_balance x1"
 
 
 async def test_a_card_the_bank_blocked_cannot_be_blocked_again():
-    assert (await cells("bank_blocked"))["block_card"] == "refused: already_blocked"
+    got = await cells("bank_blocked")
+    assert got["block_card"] == "0 of 1" and "block: already_blocked x1" in got["card_refusals"]
 
 
 async def test_without_an_email_on_file_the_summary_is_refused_and_the_rest_still_works():
     got = await cells("no_email")
     assert got["email"] == "refused: no_contact_on_file"
     assert (
-        got["callback"] == "confirm"
-        and got["alert"] == "confirm"
-        and got["block_card"] == "confirm"
+        got["callback"] == "confirm" and got["alert"] == "confirm" and got["block_card"] == "1 of 1"
     )
 
 
@@ -77,8 +87,22 @@ async def test_a_summary_with_an_email_goes_out_directly_and_a_call_or_alert_ask
 
 async def test_a_customer_that_does_not_exist_has_nothing_to_act_on():
     got = await coverage.row("DEMO-NO-SUCH-CUSTOMER")
-    assert got["cards"] == "0" and got["block_card"] == "refused: no card"
+    assert got["cards"] == "0" and got["block_card"] == "0 of 0" and got["cancel_card"] == "0 of 0"
     assert got["inquiry"] == "0 of 0 charges" and got["email"] == "refused: no_contact_on_file"
+
+
+async def test_a_closed_card_is_not_something_to_block():
+    customer = world.build("single", "Plus", "México", "es")
+    try:
+        with psycopg.connect(get_settings().database_url) as conn:
+            conn.execute(
+                "UPDATE core.products SET product_status = 'Closed' WHERE customer_id = %s",
+                (customer.id,),
+            )
+        got = await coverage.row(customer.id)
+    finally:
+        world.drop(customer)
+    assert got["cards"] == "0" and got["block_card"] == "0 of 0"
 
 
 async def test_the_default_list_is_the_demo_customers_and_the_offered_ones_without_the_eval_ones(
@@ -100,24 +124,11 @@ async def test_the_default_list_is_the_demo_customers_and_the_offered_ones_witho
     assert await coverage.customers(["CLI-X"]) == ["CLI-X"]
 
 
-async def test_the_table_has_a_row_per_customer_and_lists_what_cannot_be_asked():
-    lines = coverage.table([await cells("charges"), await cells("single")])
+async def test_the_table_has_a_row_per_customer_and_says_what_cannot_be_done():
+    lines = coverage.table([await cells("charges"), await cells("two_cards")])
     assert (
         lines[0].startswith("| customer | cards |")
         and sum(1 for line in lines if line.startswith("| DEMO-EVL-")) == 2
     )
     assert any("charges not eligible: " in line for line in lines)
-
-
-async def test_a_closed_card_is_not_something_to_block():
-    customer = world.build("single", "Plus", "México", "es")
-    try:
-        with psycopg.connect(get_settings().database_url) as conn:
-            conn.execute(
-                "UPDATE core.products SET product_status = 'Closed' WHERE customer_id = %s",
-                (customer.id,),
-            )
-        got = await coverage.row(customer.id)
-    finally:
-        world.drop(customer)
-    assert got["cards"] == "0" and got["block_card"] == "refused: no card"
+    assert any("cards not possible: cancel: outstanding_balance x1" in line for line in lines)

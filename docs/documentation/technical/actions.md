@@ -183,9 +183,11 @@ Measured on the eight `DEMO-*` customers of the sample data:
 | Ask for a call, set an alert | Proposed, with confirmation |
 | **Cancel a card** | **Sent to a person** (`outstanding_balance`): their only card is a credit card with a balance |
 
-So cancelling a card can only be shown with a customer whose card has no balance. Among the sample's
-`CLI-*` customers, `CLI-NRO6HF74BFQD`, `CLI-B1E9XR629AA8` and `CLI-Q8PA9Y954XOF` can. The tool tells which
-of the offered customers can in the deployed data.
+So cancelling a card can only be shown with a customer who holds a card with no balance. The tool counts
+every card of each customer ("1 of 2" is one card that can be cancelled out of two) and says why the
+others cannot, so it tells which of the offered customers can in the deployed data. Run on the
+deployed data it showed block, inquiry, email, call and alert working for every customer checked (32),
+and only a few able to cancel.
 
 ## Not done yet, and things to know
 

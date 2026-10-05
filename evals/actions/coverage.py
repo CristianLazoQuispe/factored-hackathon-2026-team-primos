@@ -57,16 +57,21 @@ async def row(customer_id: str) -> dict[str, str]:
         {"c": customer_id, "types": sorted(policy.CARD_TYPES)},
     )
     out = {"customer": customer_id, "cards": str(len(cards))}
-    if cards:
-        card = await facts.card(customer_id, cards[0]["product_id"])
-        for action in ("block_card", "cancel_card"):
-            out[action] = say(
-                policy.decide(
-                    action, params(action, product_id=cards[0]["product_id"]), Facts(card=card)
-                )
-            )
-    else:
-        out["block_card"] = out["cancel_card"] = "refused: no card"
+    # Every card, not the first: a customer who owes on one card may hold another that can be cancelled.
+    possible = {"block_card": 0, "cancel_card": 0}
+    refused: Counter[str] = Counter()
+    for found in cards:
+        card = await facts.card(customer_id, found["product_id"])
+        for action in possible:
+            wanted = params(action, product_id=found["product_id"])
+            decision = policy.decide(action, wanted, Facts(card=card))
+            if decision.verdict in (Verdict.CONFIRM, Verdict.ALLOW):
+                possible[action] += 1
+            else:
+                refused[f"{action.split('_')[0]}: {decision.reason}"] += 1
+    for action, count in possible.items():
+        out[action] = f"{count} of {len(cards)}"
+    out["card_refusals"] = "; ".join(f"{k} x{n}" for k, n in sorted(refused.items()))
     charges = await query(
         "SELECT transaction_id FROM core.transactions WHERE customer_id = %(c)s "
         "ORDER BY transaction_date DESC LIMIT %(n)s",
@@ -115,11 +120,15 @@ def table(rows: list[dict[str, str]]) -> list[str]:
     lines = ["| " + " | ".join(columns) + " |", "|" + "---|" * len(columns)]
     for r in rows:
         lines.append("| " + " | ".join(r[c] for c in columns) + " |")
-    notes = [
-        f"- {r['customer']}: charges not eligible: {r['inquiry_refusals']}"
-        for r in rows
-        if r["inquiry_refusals"]
-    ]
+    notes = []
+    for r in rows:
+        parts = []
+        if r["card_refusals"]:
+            parts.append(f"cards not possible: {r['card_refusals']}")
+        if r["inquiry_refusals"]:
+            parts.append(f"charges not eligible: {r['inquiry_refusals']}")
+        if parts:
+            notes.append(f"- {r['customer']}: " + " | ".join(parts))
     return lines + ([""] + notes if notes else [])
 
 
