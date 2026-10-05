@@ -144,7 +144,7 @@ Three skills read the bank's data, `account_actions` proposes actions the custom
 | `charge_investigation` | Calls `investigate_charges` once: code finds the matching charges and investigates each | Reviewed SQL (duplicate, pending/reversed, FX). A failed lookup is `unavailable`, never "no" |
 | `data_lookup` | Calls the tool that fits (`get_movements`, `get_spending_summary`, `get_complaints`, `get_exchange_rate`). Only when none fits, writes one `SELECT` and calls `run_sql` | Reviewed SQL for the tools. For `run_sql`: `app/domain/sql_scope.py` parses it, refuses anything but a read-only SELECT over the allowlisted `core` tables, and rewrites every customer table into a subquery filtered to the session customer. The database is a second wall: role `dwh_reader` (SELECT on `core` only), read-only transaction, 3 s timeout, 100 rows |
 | `account_actions` | Calls `my_cards` or `recent_charges`, then `propose_actions` | The gateway checks facts and policy; nothing runs until `POST /api/actions/{batch}/confirm`. Sign-in is checked by the router, the skill and every tool |
-| `money_movement` | Calls `propose_transfer` with what the customer said, and asks which account when the tool says several fit | Accounts, limits and amounts are resolved in code. The tool only stores a proposal; `POST /api/khipu/confirm` rechecks every rule with the rows locked and executes once |
+| `money_movement` | Calls `propose_transfer` with what the customer said, or `propose_service_payment` for a service bill (`list_service_bills` shows the pending ones), and asks which account or bill when the tool says several fit | Accounts, limits and amounts are resolved in code; a bill is paid whole, for the amount on record. The tool only stores a proposal; `POST /api/khipu/confirm` rechecks every rule with the rows locked and executes once |
 
 - The customer comes from the session (`session_customer(ctx)`), never from a tool argument, and
   never from the model. Tool calls are written to `ops.decision_log` (all but `search_transactions`,
@@ -163,7 +163,7 @@ Three skills read the bank's data, `account_actions` proposes actions the custom
 Outside `APP_ENV=local`, `POST /api/chat` needs `Authorization: Bearer <jwt>`. The customer is the
 token's `sub`, never the request body: no token gets 401 and a body `customer_id` that differs from the
 token gets 403. Tokens are HS256, last 15 minutes and are signed with `JWT_SECRET` (the app refuses a
-weak secret outside local). `POST /api/auth/token` takes `{user, password}` for an ID in `DEMO_CUSTOMER_IDS` (the password is the same ID) or one of eight demo emails, checks a scrypt hash, and signs the JWT. A wrong login and a wrong password get the same 401. Three wrong passwords lock that account for 15 minutes (423). Eight attempts per minute per client; the ninth is 429. In
+weak secret outside local). `POST /api/auth/token` takes `{user, password}` for an ID in `DEMO_CUSTOMER_IDS` (the password is the same ID) or one of eight demo emails, checks a scrypt hash (with `*` in that list, the ID of any customer in `core.customers` signs in the same way; the lock after three wrong passwords only covers the listed IDs and the emails), and signs the JWT. A wrong login and a wrong password get the same 401. Three wrong passwords lock that account for 15 minutes (423). Eight attempts per minute per client; the ninth is 429. In
 production the bank's identity provider replaces it; `customer_from_token` is what stays. Conversations
 are keyed `customer:thread`, so nobody can continue another customer's thread.
 Code: `app/adapters/inbound/auth.py`, `http.py`. Tests: `tests/test_auth.py`, `tests/test_auth_by_id.py`.
@@ -188,7 +188,8 @@ The web keeps one session for the customer app (`web/lib/session.ts`): the chat 
 - **No comparison without history.** `totals.prevChangePct` is `null` when there was no spending in
   the period before, and the screen then leaves the comparison out. The eight dispute demo customers are in
   that case: the demo data is shorter than two windows of 90 days. The two khipear customers have no
-  purchases and get `404 no_spending_in_period`.
+  purchases and get `404 no_spending_in_period` (until one of them pays a service bill, which is a
+  purchase-like movement in category `Services`).
 - **All or nothing.** If any lookup fails the answer is `503 finances_unavailable`: a missing
   duplicate check would read as "no duplicate charges". A customer with no purchases in the period
   gets `404 no_spending_in_period`, and one who is not in the warehouse `404 unknown_customer`.
