@@ -27,14 +27,18 @@ docs/
 │   ├── 08_forced_divergence_ideas.md ← 3 forced lenses → RASTRO: "the bank investigates itself first"
 │   ├── 09_adversarial_direction.md ← red-team/evals/monitoring market + RASTRO with earned autonomy as proof
 │   ├── 10_proposal.md            ← ★ CURRENT PROPOSAL: RASTRO (after stakeholder / delivery / judge debate)
-│   └── 11_data_model.md          ← Postgres schema for the agent, mini-set, fixtures, tool → table map
+│   ├── 11_data_model.md          ← Postgres schema for the agent, mini-set, fixtures, tool → table map
+│   ├── 12_full_data_findings.md  ← what the full dataset holds and what it cannot support
+│   └── 13_transactions_campaigns_findings.md ← EDA of transactions and campaign sends (the case for khipear)
 ├── documentation/                ← solution docs (filled in as we build)
 │   ├── README.md                 ← index: technical vs user documentation
 │   ├── technical/                ← for engineers
 │   │   ├── architecture.md       ← component diagram, agent graph, skills + MCP, identity
 │   │   ├── mcp/                  ← the agent's tools: one page per MCP server
 │   │   ├── data/                 ← model.md (core schema), pipeline.md (ETL), quality report of the full load
+│   │   ├── actions.md            ← how the agent acts: propose, confirm, execute, verify
 │   │   ├── deploy.md             ← Cloud Run + Cloud SQL
+│   │   ├── evaluation.md, evaluation_actions.md, evaluation_results/ ← the evals and their raw reports
 │   │   ├── diagrams/             ← hand-drawn architecture SVG, Mermaid sources + SVG / 300-dpi PNG (`make diagrams`)
 │   │   └── adr/                  ← architecture decision records
 │   └── user/                     ← for testers and judges

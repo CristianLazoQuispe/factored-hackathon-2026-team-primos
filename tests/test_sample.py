@@ -105,6 +105,15 @@ def test_fixtures_cover_every_demo_scenario() -> None:
         WHERE customer_id = 'DEMO-MX-KHIPU' AND account_number IS NOT NULL""",
     )
     assert accounts == 2  # more than one, so the agent has to ask "from which account?"
+    without_account = scalar(
+        con,
+        f"""
+        SELECT count(*) FROM '{SAMPLE / "fixtures" / "customers.parquet"}' c
+        WHERE NOT EXISTS (
+            SELECT 1 FROM '{SAMPLE / "fixtures" / "products.parquet"}' p
+            WHERE p.customer_id = c.customer_id AND p.account_number IS NOT NULL)""",
+    )
+    assert without_account == 0  # every demo customer has an account to khipear from
     duplicates = scalar(
         con,
         f"""

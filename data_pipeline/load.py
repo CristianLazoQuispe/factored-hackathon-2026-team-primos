@@ -11,6 +11,7 @@ every table are appended to `data/silver/_quality_report.json`.
 
 `core.billing` is generated here (the organizer's data has no due dates or statements): one row
 per credit card and loan, by a fixed rule over the product's balance, rate and days past due.
+`core.service_bills` too: three pending bills for every customer with an active account.
 
     python -m data_pipeline.load --source sample
 """
@@ -107,6 +108,30 @@ BILLING = f"""
            installments AS remaining_installments
     FROM b
 """
+# Three of the five billers in schema.sql per customer with an active account, in the currency of
+# their largest one. `h` is a stable hash of the customer: the same bills on every load.
+#   amount     60% to 140% of a typical bill in that currency.
+#   due_date   1 to 25 days after as_of.
+#   reference  8 digits, the customer's contract with that biller.
+SERVICE_BILLS = f"""
+    WITH a AS (
+        SELECT customer_id, arg_max(currency, current_balance) AS currency,
+               md5_number_lower(customer_id) AS h
+        FROM core_products
+        WHERE product_type IN ('Cuenta Ahorro', 'Cuenta Corriente')
+          AND product_status = 'Active' AND current_balance IS NOT NULL
+        GROUP BY customer_id),
+    s(n, biller_id, suffix) AS (
+        VALUES (0, 'SVC-LUZ', 'LUZ'), (1, 'SVC-AGUA', 'AGUA'), (2, 'SVC-TEL', 'TEL'),
+               (3, 'SVC-NET', 'NET'), (4, 'SVC-TV', 'TV'))
+    SELECT 'BILL-' || customer_id || '-' || suffix AS bill_id, customer_id, biller_id,
+           lpad(((h // 1000 + n * 7919) % 100000000)::VARCHAR, 8, '0') AS reference,
+           round(CASE currency WHEN 'MXN' THEN 450 WHEN 'COP' THEN 95000 WHEN 'ARS' THEN 28000
+                               ELSE 30 END * (60 + (h // (n + 2)) % 81) / 100.0, 2) AS amount,
+           currency, DATE '{AS_OF}' + 1 + ((h // 7 + n * 5) % 25)::INT AS due_date
+    FROM a, s
+    WHERE (h + n) % 5 < 3
+"""
 FX_RATES = """
     SELECT date, source_currency, target_currency, exchange_rate, buy_rate, sell_rate
     FROM silver.daily_exchange_rates
@@ -164,6 +189,7 @@ TARGETS = [  # dependency order
     ("products", "SELECT * FROM core_products"),
     ("transactions", TRANSACTIONS),
     ("billing", BILLING),
+    ("service_bills", SERVICE_BILLS),
     ("fx_rates", FX_RATES),
     ("app_sessions", APP_SESSIONS),
     ("customer_service_summary", SERVICE_SUMMARY),

@@ -7,7 +7,13 @@ import pytest
 
 from app.adapters.outbound import postgres
 from app.adapters.outbound.postgres.transfers import PostgresLedger
-from app.application.transfers import cancel, execute, propose
+from app.application.transfers import (
+    cancel,
+    execute,
+    propose,
+    propose_service_payment,
+    service_bills,
+)
 from app.config import get_settings
 from app.domain.transfers import Limits
 from data_pipeline.fixtures import KHIPU_PRODUCTS
@@ -41,9 +47,17 @@ def db():
         set_balance = "UPDATE core.products SET current_balance = %s WHERE product_id = %s"
         for customer, suffix, *_, initial, _limit, _rate in KHIPU_PRODUCTS:
             pg.execute(set_balance, (initial, f"{customer}-{suffix}"))
+        bills = "UPDATE core.service_bills SET status = %s, paid_at = %s WHERE bill_id = %s"
+        paid = pg.execute(
+            f"SELECT status, paid_at, bill_id FROM core.service_bills WHERE {mine}", (ME, OTHER)
+        ).fetchall()
+        for _status, _paid_at, bill_id in paid:
+            pg.execute(bills, ("pending", None, bill_id))
         yield pg
         for product_id, balance in before:
             pg.execute(set_balance, (balance, product_id))
+        for row in paid:
+            pg.execute(bills, row)
         made = f"FROM ops.transfers WHERE created_at >= %s AND {mine}"
         pg.execute(
             "DELETE FROM core.transactions WHERE left(transaction_id, 20) IN (SELECT 'KHP-' ||"
@@ -183,3 +197,61 @@ async def test_expired_cancelled_and_someone_elses_proposals_never_execute(db):
     mine = await proposed("own_accounts", 10, from_last4="0011")
     assert await execute(ledger, LIMITS, OTHER, mine) == {"status": "not_found"}
     assert balance(db, SAVINGS) == 25_000
+
+
+async def test_a_dispute_scenario_customer_can_pay_their_card_without_being_asked_which(db):
+    scenario = "DEMO-MX-DUPLICATE"  # one savings account and one card: nothing to ask
+    result = await propose(ledger, LIMITS, scenario, "pay_debt", 100)
+    try:
+        assert result["status"] == "proposed", result
+        assert result["confirmation"]["origin"] == {
+            "product_type": "Cuenta Ahorro",
+            "last4": "0001",
+        }
+        assert result["confirmation"]["currency"] == "MXN"
+    finally:
+        db.execute("DELETE FROM ops.transfers WHERE customer_id = %s", (scenario,))
+
+
+async def test_paying_a_service_bill_once_lowers_the_balance_and_marks_it_paid(db):
+    listed = (await service_bills(ledger, ME))["bills"]
+    assert [b["service"] for b in listed] == ["internet", "cable", "luz"]  # the one due first
+    asked = await propose_service_payment(ledger, ME, "luz")
+    assert asked["missing"] == "origin"
+    ready = await propose_service_payment(ledger, ME, "luz", from_last4="0022")
+    confirmation = ready["confirmation"]
+    assert (confirmation["amount"], confirmation["destination"]["name"]) == (
+        630.0,
+        "Servicios Públicos Luz",
+    )
+    transfer_id = confirmation["transfer_id"]
+    assert balance(db, CHECKING) == 8_000  # a proposal pays nothing
+
+    first = await execute(ledger, LIMITS, ME, transfer_id)
+    again = await execute(ledger, LIMITS, ME, transfer_id)
+    assert first == again and first["receipt"]["origin"]["new_balance"] == 7_370.0
+    assert balance(db, CHECKING) == 7_370
+    assert [b["service"] for b in (await service_bills(ledger, ME))["bills"]] == [
+        "internet",
+        "cable",
+    ]
+    movements = db.execute(
+        "SELECT product_id, transaction_type, transaction_category, merchant_name, amount"
+        " FROM core.transactions WHERE transaction_id LIKE %s",
+        (f"KHP-{transfer_id.replace('-', '')[:16].upper()}-%",),
+    ).fetchall()
+    assert [(*m[:4], float(m[4])) for m in movements] == [
+        (CHECKING, "Payment", "Services", "Servicios Públicos Luz", 630.0)
+    ]
+    assert (await propose_service_payment(ledger, ME, "luz"))["reason"] == "nothing_to_pay"
+
+
+async def test_a_bill_paid_since_the_proposal_blocks_the_second_confirmation(db):
+    pay = {"service": "cable", "from_last4": "0011"}
+    one = (await propose_service_payment(ledger, ME, **pay))["confirmation"]["transfer_id"]
+    two = (await propose_service_payment(ledger, ME, **pay))["confirmation"]["transfer_id"]
+    assert (await execute(ledger, LIMITS, ME, one))["status"] == "executed"
+    late = await execute(ledger, LIMITS, ME, two)
+    assert (late["status"], late["reason"]) == ("blocked", "already_paid")
+    assert balance(db, SAVINGS) == 25_000 - 387
+    assert (await execute(ledger, LIMITS, OTHER, one))["status"] == "not_found"

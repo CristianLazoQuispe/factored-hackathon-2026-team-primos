@@ -101,6 +101,42 @@ def test_invented_ids_do_not_fill_the_table_of_failures(cloud):
     assert auth._account_failures == {}
 
 
+@pytest.fixture
+def open_to_all(cloud, monkeypatch):
+    """`*` in the list, and a database where only CLI-REAL exists besides the listed IDs."""
+    monkeypatch.setattr(cloud, "demo_customer_ids", "CLI-A, *")
+    looked_up = []
+
+    async def find_customer(customer_id):
+        looked_up.append(customer_id)
+        return {"customer_id": customer_id} if customer_id == "CLI-REAL" else None
+
+    monkeypatch.setattr(http, "find_customer", find_customer)
+    return looked_up
+
+
+def test_with_a_star_in_the_list_any_customer_in_the_database_signs_in_with_their_id(open_to_all):
+    with TestClient(http.app) as client:
+        ok = login(client, " cli-real ", "cli-real")
+        listed = login(client, "CLI-A", "CLI-A")
+    assert ok.status_code == 200 and ok.json()["customer_id"] == "CLI-REAL"
+    assert customer_from_token(ok.json()["access_token"]) == "CLI-REAL"
+    assert listed.status_code == 200 and open_to_all == ["CLI-REAL"]  # a listed ID needs no lookup
+
+
+def test_with_a_star_an_id_that_is_not_in_the_database_or_a_wrong_password_is_still_refused(
+    open_to_all,
+):
+    with TestClient(http.app) as client:
+        unknown = login(client, "CLI-GHOST", "CLI-GHOST")
+        wrong = login(client, "CLI-REAL", "no")
+        star = login(client, "*", "*")
+        not_an_id = login(client, "admin", "admin")
+    assert [r.status_code for r in (unknown, wrong, star, not_an_id)] == [401] * 4
+    assert unknown.json()["detail"] == wrong.json()["detail"]
+    assert open_to_all == ["CLI-GHOST"]  # only a login that proved its password reaches the table
+
+
 def test_an_id_added_to_the_list_can_sign_in_without_restarting(cloud, monkeypatch):
     with TestClient(http.app) as client:
         assert login(client, "CLI-C", "CLI-C").status_code == 401
