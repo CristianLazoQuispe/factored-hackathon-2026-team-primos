@@ -60,10 +60,12 @@ def no_leftovers_of_the_action_tests(tests_only_touch_the_development_database):
 
 @pytest.fixture(autouse=True)
 def actions_start_off(monkeypatch):
-    """Actions are off and mail is simulated at the start of every test, whatever the developer's
-    `.env` says (it may turn actions on to try them, or send real mail). A test that needs them
-    on says so itself. The caches that depend on the setting are cleared on both sides."""
+    """Actions are off, the chat memory is off and mail is simulated at the start of every test,
+    whatever the developer's `.env` says (it may turn actions or the memory on to try them, or send
+    real mail). A test that needs them on says so itself. The caches that depend on the setting are
+    cleared on both sides."""
     monkeypatch.setenv("ACTIONS_ENABLED", "false")
+    monkeypatch.setenv("CHAT_MEMORY_ENABLED", "false")
     monkeypatch.setenv("MAIL_MODE", "simulated")
 
     def forget() -> None:

@@ -1,10 +1,14 @@
 """The memory of the chat is off unless it is asked for, and the places that name it agree."""
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
-from app.config import Settings
+from app.config import Settings, get_settings
 
 ROOT = Path(__file__).resolve().parents[1]
 DEPLOY = ROOT / ".github/workflows/deploy.yml"
@@ -53,3 +57,26 @@ def test_without_a_repository_variable_the_deploy_leaves_it_off():
 def test_the_deploy_guide_lists_it_among_the_optional_variables():
     guide = (ROOT / "docs/documentation/technical/deploy.md").read_text()
     assert "`CHAT_MEMORY_ENABLED`" in guide
+
+
+# ------------------------------------------------ a developer's .env does not change the tests
+
+
+def test_every_test_starts_with_the_memory_off_whatever_the_environment_says():
+    """A developer trying the memory has it on in the shell or the `.env`; the tests do not."""
+    probe = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-W", "ignore",
+         "tests/test_chat_memory_config.py::test_probe_the_memory_a_test_starts_with"],
+        cwd=ROOT, env={**os.environ, "CHAT_MEMORY_ENABLED": "true", "PROBE": "1"},
+        capture_output=True, text=True, timeout=120,
+    )  # fmt: skip
+    assert probe.returncode == 0, probe.stdout[-1200:] + probe.stderr[-400:]
+    assert "1 passed" in probe.stdout
+
+
+def test_probe_the_memory_a_test_starts_with():
+    if os.environ.get("PROBE") != "1":
+        pytest.skip("only runs inside the session the test above starts")
+    assert (
+        os.environ["CHAT_MEMORY_ENABLED"] == "false" and get_settings().chat_memory_enabled is False
+    )
