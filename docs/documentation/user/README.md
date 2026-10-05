@@ -21,6 +21,7 @@ A customer-service assistant for a Latin American bank. You chat with it in **Sp
 | *¿A cuánto está el dólar?* | Gives the bank's reference exchange rate |
 | *No reconozco un cargo de Uber* | Finds the charge and checks the bank's records: charged twice, still pending, already reversed, or bought abroad |
 | Attach a photo of the charge and write *No reconozco estas transacciones* | Reads the merchant, amount and date from the photo and checks that charge. Sample photos for each demo customer are in `web/public/casos/` |
+| *Khipea 300 a mi tarjeta* / *Transfiere 500 a mi otra cuenta* / *Khipéale 200 a CLI-...* | Prepares the payment or transfer and shows a card with **Confirmar** and **Cancelar**. If you have several accounts it asks which one. Nothing moves until you press Confirmar |
 | *¿Desde cuándo soy cliente?* | Shows your own data on record |
 | *Quiero hablar con una persona* | Transfers you to a human agent at once, with your case summarized |
 | Anything else (advice, other topics) | Answers briefly, says what it can help with, and offers a person |
@@ -37,7 +38,8 @@ Under each answer, small labels show what the assistant used (for example `balan
 
 ## Current limits
 
-- **Read-only.** The assistant looks things up; it cannot pay, transfer, block a card or open a dispute. Those requests get a short answer and the offer of a person.
+- **Moving money (khipear)** works in the web chat only, between accounts in the same currency, and always needs your click on Confirmar within 5 minutes. To another customer you give their account number or customer ID; there is a limit of USD 1,000 per operation and USD 3,000 per day (values chosen by the team). Writing or saying "sí" confirms nothing.
+- The assistant cannot block a card or open a dispute. Those requests get a short answer and the offer of a person.
 - **A snapshot, not live data.** The data ends on 18 June 2026, so "this month" means the last month in the data.
 - **Response time:** a few seconds with the local model (Ollama), faster with Gemini.
 - **Portuguese:** understood and answered, but the underlying dataset is Spanish-only (Mexico, Colombia, Argentina).

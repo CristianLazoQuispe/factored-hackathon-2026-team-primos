@@ -46,6 +46,7 @@ The sample pages show the idea with fixed figures until the API serves them. In 
 | Attach `web/public/casos/lucia-uber.png` and write `no reconozco estas transacciones` | The same skill reads Uber, 312.40 MXN and the date from the photo, then reports the duplicate |
 | `dime mis últimos movimientos` / `¿en qué gasto más?` / `¿cuántas quejas tengo?` / `¿a cuánto está el dólar?` | Skill `data_lookup` → a tool with reviewed SQL (`get_movements`, `get_spending_summary`, `get_complaints`, `get_exchange_rate`) |
 | A question about their data that no tool covers | Skill `data_lookup` → the model writes one SQL `SELECT`; code checks it and only lets it see this customer's rows |
+| `khipea 300 a mi tarjeta` / `transfiere 500 a mi otra cuenta` / `khipéale 200 a CLI-...` | Skill `money_movement` → `propose_transfer`: asks which account when there are several, then shows a card. Only the customer's **Confirmar** button moves the money ([ADR 0004](docs/documentation/technical/adr/0004-khipear-money-movement.md)) |
 | `¿y la de débito?` | Follows up in the same conversation |
 | `quiero hablar con una persona` | Handoff to a human, decided by code with no LLM call |
 | `¿me recomiendas una hipoteca?` | Short out-of-scope answer |
