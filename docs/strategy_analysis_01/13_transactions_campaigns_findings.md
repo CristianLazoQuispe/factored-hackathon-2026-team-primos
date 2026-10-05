@@ -11,16 +11,18 @@
 measurable change. What carries business weight is the volume of money that does not go through, the share of contacts
 that are about a transaction, and the weight of transfers in the money moved.
 
-Where everything is:
+Where everything is. The notebook and the `eda02/` folder are **not in the repository**
+(`notebooks/.gitignore` keeps them out): they are on the machine of whoever ran the analysis, and this
+page is the record of what they found.
 
 | What | Where |
 |---|---|
-| Notebook, executed, with all charts | [`notebooks/EDA/02.EDA_Transactions_campaign_sends.ipynb`](../../notebooks/EDA/02.EDA_Transactions_campaign_sends.ipynb) |
-| Exploratory scripts, metric tables (CSV) and figures | `notebooks/EDA/eda02/` (`out/`, `figures/`) |
-| Slide-ready charts (16:9 PNG) | `notebooks/EDA/eda02/slides/` |
-| Proposal to let the agent move money | [ADR 0004](../documentation/technical/adr/0004-khipear-money-movement.md) |
+| Notebook, executed, with all charts | `notebooks/EDA/02.EDA_Transactions_campaign_sends.ipynb` (local only) |
+| Exploratory scripts, metric tables (CSV) and figures | `notebooks/EDA/eda02/` (`out/`, `figures/`; local only) |
+| Slide-ready charts (16:9 PNG) | `notebooks/EDA/eda02/slides/` (local only) |
+| The decision to let the agent move money, now implemented | [ADR 0004](../documentation/technical/adr/0004-khipear-money-movement.md) |
 
-To reproduce: `uv run python notebooks/EDA/eda02/00_prepare.py` (builds a Parquet cache in `data/interim/eda02/`), then
+To reproduce, with those files at hand: `uv run python notebooks/EDA/eda02/00_prepare.py` (builds a Parquet cache in `data/interim/eda02/`), then
 run the notebook or any script in `eda02/`.
 
 ## 1. Headline KPIs
