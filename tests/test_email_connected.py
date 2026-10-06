@@ -1,6 +1,6 @@
 # ruff: noqa: E501, F811  (the sentences stay on one line; pytest fixtures are imported by name)
-"""The template connected: the balances summary and the receipt of a transfer, from the content to the
-button that confirms the money.
+"""The template connected: the balances summary, the receipt of a transfer and the receipt of an inquiry,
+from the content to the button that confirms the money.
 
 No mail server and no model. What the messages say, that the HTML and the text carry the same figures,
 that a hostile name cannot become markup, that the mailer builds what Gmail needs, that a transfer is
@@ -311,6 +311,12 @@ async def every_content() -> list[ec.EmailContent]:
         contents.append(
             ec.transfer_receipt_content("es", await real_receipt(kind), first_name="Ana")
         )
+    contents += [
+        ec.case_receipt_content("es", CASE_OPENED, CHARGE_OF, first_name="Ana"),
+        ec.case_receipt_content(
+            "pt", CASE_OPENED | {"priority": "High", "sla_hours": 4}, CHARGE_OF
+        ),
+    ]
     return contents
 
 
@@ -343,19 +349,19 @@ async def test_the_page_has_the_logo_by_cid_the_preheader_the_big_figure_and_the
     assert "datos sintéticos" in visible_text(page)
 
 
-@pytest.mark.parametrize(
-    "hostile",
-    [
-        "<script>alert(1)</script>",
-        "**bold** _italic_ `code`",
-        "[click](javascript:alert(1))",
-        "![x](http://evil.test/p.png)",
-        "<img src=x onerror=alert(1)>",
-        "&lt;b&gt; | a pipe | and # a hash",
-        "{{ title }} {{ items }}",
-        "Ana\n\n## injected heading\n\n- injected row",
-    ],
-)
+HOSTILE = [
+    "<script>alert(1)</script>",
+    "**bold** _italic_ `code`",
+    "[click](javascript:alert(1))",
+    "![x](http://evil.test/p.png)",
+    "<img src=x onerror=alert(1)>",
+    "&lt;b&gt; | a pipe | and # a hash",
+    "{{ title }} {{ items }}",
+    "Ana\n\n## injected heading\n\n- injected row",
+]
+
+
+@pytest.mark.parametrize("hostile", HOSTILE)
 async def test_a_hostile_name_or_label_is_only_ever_text(hostile):
     receipt = await real_receipt("third_party")
     receipt["destination"] = {"name": hostile, "last4": "4821"}
@@ -376,6 +382,132 @@ async def test_a_hostile_name_or_label_is_only_ever_text(hostile):
         "a template word in data is shown, not expanded"
     )
     assert content.title in visible_text(page), "and the message around it is intact"
+
+
+# ------------------------------------------------------------------ the receipt of an inquiry
+
+CASE_OPENED = {"case_ref": "Q-2B5E638B", "priority": "Medium", "sla_hours": 24}
+CHARGE_OF = {"merchant": "Uber Trip", "amount": 312.4, "currency": "MXN", "date": "2026-06-11"}
+
+
+def case_rows(content: ec.EmailContent) -> dict[str, str]:
+    return {row.label: row.value for row in rows_of(content)}
+
+
+def test_the_inquiry_receipt_tells_what_the_bank_opened_and_nothing_else():
+    content = ec.case_receipt_content("es", CASE_OPENED, CHARGE_OF)
+    assert (
+        content.kind == "case_receipt"
+        and content.subject == "Recibimos tu consulta Q-2B5E638B · quipu"
+    )
+    assert content.title == "Recibimos tu consulta" and content.eyebrow == "Consulta abierta"
+    assert (content.highlight_label, content.highlight_value) == (
+        "Número de consulta",
+        "Q-2B5E638B",
+    )
+    assert case_rows(content) == {
+        "Cargo": "Uber Trip · 312.40 MXN",
+        "Fecha del cargo": "11 jun 2026",
+        "Prioridad": "Media",
+        "Te responden": "en 24 horas",
+    }
+    assert "24 horas" in content.preheader and content.notice
+
+
+def test_the_priority_is_told_in_words_and_one_that_is_unknown_is_left_as_it_came():
+    for given, shown in (
+        ("High", "Alta"),
+        ("Medium", "Media"),
+        ("Low", "Baja"),
+        ("Urgent", "Urgent"),
+    ):
+        assert (
+            case_rows(ec.case_receipt_content("es", CASE_OPENED | {"priority": given}, CHARGE_OF))[
+                "Prioridad"
+            ]
+            == shown
+        )
+    assert case_rows(ec.case_receipt_content("pt", CASE_OPENED, CHARGE_OF))["Prioridade"] == "Média"
+
+
+def test_the_inquiry_receipt_in_portuguese_with_the_months_of_portuguese():
+    content = ec.case_receipt_content(
+        "pt", CASE_OPENED, CHARGE_OF | {"date": "2026-09-03"}, first_name="Ana"
+    )
+    assert (
+        content.subject == "Recebemos a sua consulta Q-2B5E638B · quipu"
+        and content.greeting_name == "Ana"
+    )
+    assert case_rows(content) == {
+        "Cobrança": "Uber Trip · 312.40 MXN",
+        "Data da cobrança": "3 set 2026",
+        "Prioridade": "Média",
+        "Respondemos": "em 24 horas",
+    }
+    assert (
+        case_rows(ec.case_receipt_content("es", CASE_OPENED, CHARGE_OF | {"date": "2026-09-03"}))[
+            "Fecha del cargo"
+        ]
+        == "3 sep 2026"
+    )
+    assert ec.case_receipt_content("fr", CASE_OPENED, CHARGE_OF).language == "es", (
+        "anything but Portuguese is Spanish"
+    )
+
+
+def test_a_date_that_is_not_a_date_is_shown_as_it_came_and_a_missing_one_is_not_shown():
+    assert (
+        case_rows(ec.case_receipt_content("es", CASE_OPENED, CHARGE_OF | {"date": "ayer"}))[
+            "Fecha del cargo"
+        ]
+        == "ayer"
+    )
+    assert (
+        case_rows(
+            ec.case_receipt_content(
+                "es", CASE_OPENED, CHARGE_OF | {"date": "2026-06-11T21:30:00+00:00"}
+            )
+        )["Fecha del cargo"]
+        == "11 jun 2026"
+    )
+    for missing in (None, ""):
+        assert "Fecha del cargo" not in case_rows(
+            ec.case_receipt_content("es", CASE_OPENED, CHARGE_OF | {"date": missing})
+        )
+    assert (
+        case_rows(ec.case_receipt_content("es", CASE_OPENED, CHARGE_OF | {"merchant": None}))[
+            "Cargo"
+        ]
+        == "312.40 MXN"
+    )
+
+
+async def test_the_inquiry_page_has_the_number_the_logo_and_the_words_of_the_case():
+    page = compose.html_for(ec.case_receipt_content("es", CASE_OPENED, CHARGE_OF, first_name="Ana"))
+    text = visible_text(page)
+    assert 'src="cid:quipu-logo"' in page and "Q-2B5E638B" in text and "Número de consulta" in text
+    assert (
+        "Uber Trip · 312.40 MXN" in text
+        and "Media" in text
+        and "en 24 horas" in text
+        and "Hola Ana" in text
+    )
+    assert "datos sintéticos" in text
+
+
+@pytest.mark.parametrize("hostile", HOSTILE)
+async def test_a_hostile_merchant_in_the_inquiry_receipt_is_only_ever_text(hostile):
+    content = ec.case_receipt_content(
+        "es", CASE_OPENED, CHARGE_OF | {"merchant": hostile}, first_name=hostile
+    )
+    page = compose.html_for(content)
+    lowered = page.lower()
+    assert "<script" not in lowered and "<img src=x" not in lowered
+    assert 'href="javascript' not in lowered and 'src="http://evil' not in lowered
+    assert "injected heading</h" not in lowered and "<li>injected row" not in lowered
+    assert content.title in visible_text(page) and "Q-2B5E638B" in visible_text(page), (
+        "and the message around it is intact"
+    )
 
 
 # ------------------------------------------------------------------ the message the mailer builds
@@ -471,6 +603,36 @@ async def test_the_balances_summary_sent_by_the_action_carries_the_content(w: Wo
         "2,693.23 USD" in sent.body
         and "Límite 35,160.64 USD" in sent.body
         and sent.body.endswith("sintéticos.")
+    )
+
+
+INQUIRY = {"action": "open_payment_inquiry", "params": {"transaction_id": "T1"}}
+CASE_RECEIPT = {"action": "send_summary_email", "params": {"topic": "case_receipt"}}
+
+
+@pytest.mark.parametrize(
+    ("language", "subject"),
+    [("es", "Recibimos tu consulta Q-"), ("pt", "Recebemos a sua consulta Q-")],
+)
+async def test_the_receipt_of_an_inquiry_sent_by_the_action_carries_the_content(
+    w: World, language, subject
+):
+    view = await w.gateway.propose("C1", [INQUIRY, CASE_RECEIPT], language=language)
+    await w.gateway.confirm("C1", view["batch_id"], inbox="a@demo.test")
+    sent = w.effects.sent[0]
+    assert (
+        sent.template == "case_receipt"
+        and sent.content is not None
+        and sent.content.kind == "case_receipt"
+    )
+    assert sent.subject.startswith(subject) and sent.subject.endswith(" · quipu")
+    assert (
+        "Uber Trip" in sent.body
+        and "312.40" in sent.body
+        and sent.body == ec.content_text(sent.content)
+    )
+    assert sent.content.highlight_value in sent.subject, (
+        "the number in the subject is the number in the message"
     )
 
 

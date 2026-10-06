@@ -90,10 +90,11 @@ twice; a test keeps it identical to the block in `schema.sql`). **A deploy does 
   `DEMO_INBOXES` (the customers' own addresses are synthetic and never receive anything). The
   agent says the server **accepted** the message, never that it was delivered: the code cannot
   verify delivery.
-  The summary of balances is made with the template of `app/adapters/outbound/email_template`: the
+  The summary of balances and the case receipt are made with the template of `app/adapters/outbound/email_template`: the
   message has a plain-text part (what the outbox keeps) and an HTML part with the logo attached to the
   message, built from the same content (`app/domain/email_content.py`), so both carry the same figures.
-  The payment status and the case receipt are still plain text. If the HTML cannot be made, the
+  The case receipt tells the number of the inquiry, the charge, the priority and the hours of answer the code
+  decided. The payment status is still plain text. If the HTML cannot be made, the
   message goes as plain text. The receipt of a transfer goes by the same mail: see `mcp/transfers.md`.
 - **SMS** is not implemented.
 - **Identity.** In the demo the password of a customer ID is the ID itself, so these actions are

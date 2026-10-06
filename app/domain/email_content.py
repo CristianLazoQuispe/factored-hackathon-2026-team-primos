@@ -1,6 +1,6 @@
 # ruff: noqa: E501  (each sentence the customer reads stays on one line, so a person can review it)
-"""What an e-mail says, before it is a page: the content of the balances summary and of the receipt of a
-transfer, built from verified data only.
+"""What an e-mail says, before it is a page: the content of the balances summary, of the receipt of a
+transfer and of the receipt of an inquiry, built from verified data only.
 
 Pure rules: no database, no template, no mail server. The same content gives the plain-text part of the
 message here (`content_text`, which is also what the outbox keeps) and the HTML part in
@@ -8,7 +8,7 @@ message here (`content_text`, which is also what the outbox keeps) and the HTML 
 """
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 from app.domain.action_text import money
@@ -31,7 +31,7 @@ class Section:
 
 @dataclass(frozen=True)
 class EmailContent:
-    kind: str  # "balances" | "transfer_receipt": also the name of the template in the outbox
+    kind: str  # "balances" | "transfer_receipt" | "case_receipt": also the name of the template in the outbox
     language: str  # "es" | "pt"
     subject: str
     preheader: str  # the line the inbox shows beside the subject
@@ -259,6 +259,117 @@ def transfer_receipt_content(
         intro=words["intro"],
         highlight_label=words["paid"] if kind in PAYMENTS else words["sent"],
         highlight_value=amount,
+        sections=(Section(words["section"], tuple(rows)),),
+        notice=words["notice"],
+        greeting_name=first_name,
+    )
+
+
+# ------------------------------------------------------------------ the receipt of an inquiry
+
+CASE = {
+    "es": {
+        "eyebrow": "Consulta abierta",
+        "title": "Recibimos tu consulta",
+        "subject": "Recibimos tu consulta {ref} · quipu",
+        "intro": "Abrimos una consulta por el cargo que no reconoces. Una persona del equipo la revisará y ya tiene todo lo que nos contaste.",
+        "preheader": "Una persona del equipo te responde en {hours} horas.",
+        "number": "Número de consulta",
+        "section": "Lo que abrimos",
+        "charge": "Cargo",
+        "charge_date": "Fecha del cargo",
+        "priority": "Prioridad",
+        "reply": "Te responden",
+        "within": "en {hours} horas",
+        "priorities": {"High": "Alta", "Medium": "Media", "Low": "Baja"},
+        "months": (
+            "ene",
+            "feb",
+            "mar",
+            "abr",
+            "may",
+            "jun",
+            "jul",
+            "ago",
+            "sep",
+            "oct",
+            "nov",
+            "dic",
+        ),
+        "notice": "Guarda este número. Si necesitas algo mientras tanto, escríbele a quipu y menciónalo.",
+    },
+    "pt": {
+        "eyebrow": "Consulta aberta",
+        "title": "Recebemos a sua consulta",
+        "subject": "Recebemos a sua consulta {ref} · quipu",
+        "intro": "Abrimos uma consulta sobre a cobrança que você não reconhece. Uma pessoa da equipe vai revisá-la e já tem tudo o que você nos contou.",
+        "preheader": "Uma pessoa da equipe responde em {hours} horas.",
+        "number": "Número da consulta",
+        "section": "O que abrimos",
+        "charge": "Cobrança",
+        "charge_date": "Data da cobrança",
+        "priority": "Prioridade",
+        "reply": "Respondemos",
+        "within": "em {hours} horas",
+        "priorities": {"High": "Alta", "Medium": "Média", "Low": "Baixa"},
+        "months": (
+            "jan",
+            "fev",
+            "mar",
+            "abr",
+            "mai",
+            "jun",
+            "jul",
+            "ago",
+            "set",
+            "out",
+            "nov",
+            "dez",
+        ),
+        "notice": "Guarde este número. Se precisar de algo enquanto isso, escreva para a quipu e mencione-o.",
+    },
+}
+
+
+def charge_date(value: object, lang: str) -> str:
+    """The date of the charge as `11 jun 2026`. What is not a date is shown as it came, and nothing is shown for nothing."""
+    text = str(value or "").strip()
+    try:
+        day = date.fromisoformat(text[:10])
+    except ValueError:
+        return text
+    return f"{day.day} {CASE[lang]['months'][day.month - 1]} {day.year}"
+
+
+def case_receipt_content(
+    language: str, case: dict[str, Any], tx: dict[str, Any], first_name: str = ""
+) -> EmailContent:
+    """The receipt of the inquiry the bank just opened: the `case` it opened and the charge it is about, and nothing else.
+    The priority and the hours come from the case (the code decided them), never from the model."""
+    lang = language_of(language)
+    words = CASE[lang]
+    ref, hours = str(case["case_ref"]), case["sla_hours"]
+    priority = words["priorities"].get(str(case.get("priority")), str(case.get("priority") or ""))
+    amount = money(tx["amount"], tx["currency"])
+    merchant = str(tx.get("merchant") or "").strip()
+    rows = [Row(words["charge"], f"{merchant} · {amount}" if merchant else amount)]
+    when = charge_date(tx.get("date"), lang)
+    if when:
+        rows.append(Row(words["charge_date"], when))
+    rows += [
+        Row(words["priority"], priority),
+        Row(words["reply"], words["within"].format(hours=hours)),
+    ]
+    return EmailContent(
+        kind="case_receipt",
+        language=lang,
+        subject=words["subject"].format(ref=ref),
+        preheader=words["preheader"].format(hours=hours),
+        eyebrow=words["eyebrow"],
+        title=words["title"],
+        intro=words["intro"],
+        highlight_label=words["number"],
+        highlight_value=ref,
         sections=(Section(words["section"], tuple(rows)),),
         notice=words["notice"],
         greeting_name=first_name,
