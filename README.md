@@ -17,7 +17,7 @@ deployment allows it, it acts: blocks a card, opens a dispute, prepares a transf
 
 ![Component architecture](docs/documentation/technical/diagrams/architecture.svg)
 
-- **Channels.** Next.js web app (chat, my finances, operator console) and a Telegram bot.
+- **Channels.** Next.js web app: chat, my finances and the operator console.
 - **Backend.** FastAPI with a LangGraph agent: guard, router, one skill per intent, human handoff. Hexagonal layout.
 - **Tools.** FastMCP servers, one per skill. They read the customer from the session and never take it as an argument.
 - **Models.** Gemini on Vertex AI in the cloud, Ollama locally. Whisper for speech-to-text, Kokoro for text-to-speech.
@@ -66,7 +66,6 @@ the [demo guide](docs/documentation/user/demo_guide.md).
 | `CHAT_MEMORY_ENABLED` | `false` | Keeps conversations per customer |
 | `DEMO_CUSTOMER_IDS` | demo list | IDs that can sign in; `*` allows any customer in the database |
 | `OPERATOR_KEY` | | Opens the operator console at `/consola` |
-| `TELEGRAM_BOT_TOKEN` | | Telegram bot; then `make telegram-local` |
 
 **Without Docker** (needs [uv](https://docs.astral.sh/uv/) and Node 24+): `make setup`, `make demo-data`, then `make dev` and `make web` in two terminals.
 
