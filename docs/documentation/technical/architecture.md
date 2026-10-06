@@ -6,7 +6,7 @@
 
 ![Component architecture](diagrams/architecture.svg)
 
-Solid boxes are **built**; dashed boxes are **planned**. The SVG is drawn by hand on a grid: edit [`diagrams/architecture.svg`](diagrams/architecture.svg), then regenerate the 300-dpi PNG with `make diagrams`.
+Every box is built. The SVG is drawn by hand on a grid: edit [`diagrams/architecture.svg`](diagrams/architecture.svg), then regenerate the 300-dpi PNG with `make diagrams`.
 
 ## Guiding principle
 
@@ -239,3 +239,18 @@ Two Cloud Run services, `factored-api` (FastAPI + agent, root `Dockerfile`) and 
 Next.js on nginx, `web/Dockerfile`), Cloud SQL (Postgres 16) through the Cloud SQL connector, and Gemini on
 Vertex AI. GitHub Actions tests and deploys on every push to `main`, authenticating with Workload
 Identity Federation (no stored key). Runbook, rollback and limits: [deploy.md](deploy.md).
+
+## Extending the agent
+
+### Add a skill
+
+1. Create `app/adapters/inbound/agent/skills/<name>/SKILL.md` with frontmatter `name`, `description` (the router picks skills by it) and `mcp` (the server name), followed by the instructions. Optional: `sign_in: true` (only for a customer the token proved), `requires: actions` (only with `ACTIONS_ENABLED`; also needs sign-in) and `setting: <flag>` (the skill is left out when that setting is false).
+2. Add the tools as a FastMCP server in `app/adapters/inbound/mcp/<server>.py`. Read the customer with `session_customer(ctx)` and **never take `customer_id` as a tool argument**.
+3. Register the server in `SERVERS` (`app/adapters/inbound/agent/mcp_bridge.py`).
+4. Add a route test in `tests/test_agent_graph.py`.
+
+The graph doesn't change for a skill that only reads. Persona and scope live in `app/adapters/inbound/agent/AGENT.md`. Every tool that exists today is described in [mcp/](mcp/README.md).
+
+### Let the SQL agent read a new table
+
+`data_lookup` only sees the tables allowlisted in `app/domain/sql_scope.py`. To add one: create it in `schema.sql` (with `customer_id` if it holds customer data), list it in `OWNED` (has `customer_id`) or `REFERENCE`, load it in `data_pipeline/load.py`, and describe it in `app/adapters/inbound/mcp/dwh_catalog.md`. `tests/test_dwh.py` fails if a table in `schema.sql` is not classified.

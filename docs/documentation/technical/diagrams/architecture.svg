@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1480 820" width="1480" height="820" role="img" aria-label="Component architecture">
-  <!-- Component view of the system (not a flow). Solid = built, dashed = planned.
+  <!-- Component view of the system as deployed from main (not a flow). Every box is built.
        Hand-drawn on a grid: edit this file, then run `make diagrams` to regenerate architecture.png. -->
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -10,19 +10,16 @@
       .group { fill: #f7f7f5; stroke: #d0cfc9; }
       .group-title { font-size: 12px; font-weight: 600; fill: #52514e; letter-spacing: 0.6px; text-anchor: start; }
       .built { fill: #eef4fc; stroke: #2a78d6; stroke-width: 1.5; }
-      .planned { fill: #ffffff; stroke: #898781; stroke-width: 1.5; stroke-dasharray: 5 4; }
       .name { font-size: 14px; font-weight: 600; fill: #0b0b0b; }
-      .name.soon { font-weight: 500; fill: #52514e; }
       .note { font-size: 11.5px; fill: #52514e; }
       .edge { fill: none; stroke: #3d3d3a; stroke-width: 1.3; }
-      .edge.soon { stroke-dasharray: 4 4; }
     </style>
   </defs>
   <rect width="1480" height="820" fill="#ffffff"/>
 
   <!-- Groups -->
-  <rect class="group" x="310" y="30" width="480" height="120" rx="6"/>
-  <text class="group-title" x="326" y="54">OBSERVABILITY</text>
+  <rect class="group" x="590" y="30" width="200" height="120" rx="6"/>
+  <text class="group-title" x="606" y="54">OBSERVABILITY</text>
   <rect class="group" x="30" y="190" width="220" height="416" rx="6"/>
   <text class="group-title" x="46" y="214">CHANNELS</text>
   <rect class="group" x="310" y="190" width="480" height="416" rx="6"/>
@@ -31,75 +28,74 @@
   <text class="group-title" x="866" y="214">TOOLS · MCP SERVERS</text>
   <rect class="group" x="1170" y="190" width="280" height="416" rx="6"/>
   <text class="group-title" x="1186" y="214">DATA</text>
-  <rect class="group" x="310" y="660" width="800" height="130" rx="6"/>
+  <rect class="group" x="310" y="660" width="870" height="130" rx="6"/>
   <text class="group-title" x="326" y="684">AI MODELS</text>
-  <rect x="30" y="660" width="220" height="130" rx="6" fill="#ffffff" stroke="#d0cfc9" stroke-dasharray="2 3"/>
-  <text class="group-title" x="46" y="684">LEGEND</text>
 
-  <!-- Edges -->
+  <!-- Edges: channels → backend -->
   <path class="edge" d="M230,281 H329" marker-end="url(#arrow)"/>
-  <path class="edge" d="M230,390 H329" marker-end="url(#arrow)"/>
-  <path class="edge" d="M230,500 H280 V408 H329" marker-end="url(#arrow)"/>
-  <path class="edge" d="M230,526 H329" marker-end="url(#arrow)"/>
-  <path class="edge" d="M510,398 H589" marker-end="url(#arrow)"/>
-  <path class="edge" d="M650,350 V281 H511" marker-end="url(#arrow)"/>
-  <path class="edge" d="M705,350 V137" marker-end="url(#arrow)"/>
+  <path class="edge" d="M230,415 H280 V359 H329" marker-end="url(#arrow)"/>
+  <path class="edge" d="M280,415 V515"/>
+  <path class="edge" d="M280,437 H329" marker-end="url(#arrow)"/>
+  <path class="edge" d="M280,515 H329" marker-end="url(#arrow)"/>
+  <!-- backend internals -->
+  <path class="edge" d="M510,359 H589" marker-end="url(#arrow)"/>
+  <path class="edge" d="M650,328 V281 H511" marker-end="url(#arrow)"/>
+  <path class="edge" d="M690,328 V137" marker-end="url(#arrow)"/>
+  <path class="edge" d="M680,424 V499" marker-end="url(#arrow)"/>
   <!-- agent → tools -->
-  <path class="edge" d="M770,398 H820"/>
-  <path class="edge" d="M820,409 V261 H869" marker-end="url(#arrow)"/>
+  <path class="edge" d="M770,376 H820"/>
+  <path class="edge" d="M820,376 V261 H869" marker-end="url(#arrow)"/>
   <path class="edge" d="M820,335 H869" marker-end="url(#arrow)"/>
-  <path class="edge" d="M820,409 H869" marker-end="url(#arrow)"/>
-  <path class="edge" d="M820,409 V483 H869" marker-end="url(#arrow)"/>
-  <path class="edge soon" d="M820,483 V557 H869" marker-end="url(#arrow)"/>
+  <path class="edge" d="M820,376 H869" marker-end="url(#arrow)"/>
+  <path class="edge" d="M820,376 V483 H869" marker-end="url(#arrow)"/>
   <!-- tools → Postgres -->
   <path class="edge" d="M1090,261 H1140 V335"/>
   <path class="edge" d="M1090,335 H1189" marker-end="url(#arrow)"/>
   <path class="edge" d="M1090,409 H1140 V335"/>
   <path class="edge" d="M1090,483 H1140 V409"/>
-  <path class="edge" d="M1310,500 V422" marker-end="url(#arrow)"/>
+  <path class="edge" d="M1310,500 V440" marker-end="url(#arrow)"/>
   <!-- backend → models -->
   <path class="edge" d="M420,546 V704" marker-end="url(#arrow)"/>
   <path class="edge" d="M420,640 H585 V704" marker-end="url(#arrow)"/>
-  <path class="edge" d="M680,446 V640 H855 V704" marker-end="url(#arrow)"/>
-  <path class="edge" d="M740,640 V704" marker-end="url(#arrow)"/>
-  <path class="edge soon" d="M980,588 V704" marker-end="url(#arrow)"/>
+  <path class="edge" d="M589,400 H570 V625 H1070 V704" marker-end="url(#arrow)"/>
+  <path class="edge" d="M760,625 V704" marker-end="url(#arrow)"/>
+  <path class="edge" d="M915,625 V704" marker-end="url(#arrow)"/>
 
   <!-- Observability -->
-  <rect class="planned" x="325" y="74" width="140" height="62" rx="4"/>
-  <text class="name soon" x="395" y="101">Arize Phoenix</text>
-  <text class="note" x="395" y="119">traces · evals</text>
-  <rect class="planned" x="480" y="74" width="140" height="62" rx="4"/>
-  <text class="name soon" x="550" y="101">Grafana</text>
-  <text class="note" x="550" y="119">logs · metrics</text>
-  <rect class="built" x="635" y="74" width="140" height="62" rx="4"/>
-  <text class="name" x="705" y="101">Langfuse</text>
-  <text class="note" x="705" y="119">masked LLM traces</text>
+  <rect class="built" x="620" y="74" width="140" height="62" rx="4"/>
+  <text class="name" x="690" y="101">Langfuse</text>
+  <text class="note" x="690" y="119">masked LLM traces</text>
 
   <!-- Channels -->
   <rect class="built" x="50" y="250" width="180" height="62" rx="4"/>
   <text class="name" x="140" y="277">Operator console</text>
-  <text class="note" x="140" y="295">/consola</text>
-  <rect class="built" x="50" y="367" width="180" height="62" rx="4"/>
-  <text class="name" x="140" y="394">Telegram</text>
-  <text class="note" x="140" y="412">text</text>
-  <rect class="built" x="50" y="484" width="180" height="62" rx="4"/>
-  <text class="name" x="140" y="511">Web chat</text>
-  <text class="note" x="140" y="529">Next.js · text and voice</text>
+  <text class="note" x="140" y="295">/consola · chats and case files</text>
+  <rect class="built" x="50" y="367" width="180" height="96" rx="4"/>
+  <text class="name" x="140" y="400">Web app · Next.js</text>
+  <text class="note" x="140" y="419">chat · text, voice, image</text>
+  <text class="note" x="140" y="435">my finances · sign-in</text>
 
   <!-- Backend -->
   <rect class="built" x="330" y="250" width="180" height="62" rx="4"/>
   <text class="name" x="420" y="277">Human handoff</text>
   <text class="note" x="420" y="295">case file · operator replies</text>
-  <rect class="built" x="330" y="367" width="180" height="62" rx="4"/>
-  <text class="name" x="420" y="394">Chat API</text>
-  <text class="note" x="420" y="412">JWT session</text>
+  <rect class="built" x="330" y="328" width="180" height="62" rx="4"/>
+  <text class="name" x="420" y="355">Chat API</text>
+  <text class="note" x="420" y="373">JWT session · memory</text>
+  <rect class="built" x="330" y="406" width="180" height="62" rx="4"/>
+  <text class="name" x="420" y="433">Finances API</text>
+  <text class="note" x="420" y="451">spending · duplicate charges</text>
   <rect class="built" x="330" y="484" width="180" height="62" rx="4"/>
   <text class="name" x="420" y="511">Speech API</text>
   <text class="note" x="420" y="529">transcribe · synthesize</text>
-  <rect class="built" x="590" y="350" width="180" height="96" rx="4"/>
-  <text class="name" x="680" y="386">Agent</text>
-  <text class="note" x="680" y="405">LangGraph · guard · router</text>
-  <text class="note" x="680" y="421">skills (SKILL.md)</text>
+  <rect class="built" x="590" y="328" width="180" height="96" rx="4"/>
+  <text class="name" x="680" y="364">Agent</text>
+  <text class="note" x="680" y="383">LangGraph · guard · router</text>
+  <text class="note" x="680" y="399">skills (SKILL.md)</text>
+  <rect class="built" x="590" y="500" width="180" height="62" rx="4"/>
+  <text class="name" x="680" y="522">E-mail</text>
+  <text class="note" x="680" y="539">receipts · balance summaries</text>
+  <text class="note" x="680" y="554">SMTP, or stored in ops.outbox</text>
 
   <!-- Tools -->
   <rect class="built" x="870" y="230" width="220" height="62" rx="4"/>
@@ -114,18 +110,16 @@
   <text class="note" x="980" y="423">unrecognized or duplicate charges</text>
   <rect class="built" x="870" y="452" width="220" height="62" rx="4"/>
   <text class="name" x="980" y="479">Actions · khipear</text>
-  <text class="note" x="980" y="497">cards · inquiries · transfers, confirmed</text>
-  <rect class="planned" x="870" y="526" width="220" height="62" rx="4"/>
-  <text class="name soon" x="980" y="553">Documents</text>
-  <text class="note" x="980" y="571">OCR</text>
+  <text class="note" x="980" y="497">cards · disputes · transfers · bills</text>
 
   <!-- Data -->
-  <path class="built" d="M1190,264 a120,14 0 0 1 240,0 v142 a120,14 0 0 1 -240,0 z"/>
+  <path class="built" d="M1190,264 a120,14 0 0 1 240,0 v160 a120,14 0 0 1 -240,0 z"/>
   <path class="built" d="M1190,264 a120,14 0 0 0 240,0" fill="none"/>
-  <text class="name" x="1310" y="310">Postgres</text>
-  <text class="note" x="1310" y="333">core: customers · products · transactions</text>
-  <text class="note" x="1310" y="349">billing · complaints · fx_rates</text>
-  <text class="note" x="1310" y="372">ops: audit · actions · transfers</text>
+  <text class="name" x="1310" y="308">Postgres</text>
+  <text class="note" x="1310" y="331">core: customers · products · transactions</text>
+  <text class="note" x="1310" y="347">billing · complaints · fx_rates</text>
+  <text class="note" x="1310" y="370">ops: audit · actions · transfers</text>
+  <text class="note" x="1310" y="386">conversations · outbox</text>
   <rect class="built" x="1190" y="500" width="240" height="70" rx="4"/>
   <text class="name" x="1310" y="524">Data pipeline</text>
   <text class="note" x="1310" y="542">S3 → bronze → silver</text>
@@ -134,23 +128,17 @@
   <!-- AI models -->
   <rect class="built" x="350" y="705" width="140" height="62" rx="4"/>
   <text class="name" x="420" y="732">Speech-to-text</text>
-  <text class="note" x="420" y="750">ES &amp; PT</text>
+  <text class="note" x="420" y="750">Whisper · ES &amp; PT</text>
   <rect class="built" x="505" y="705" width="160" height="62" rx="4"/>
   <text class="name" x="585" y="732">Text-to-speech</text>
-  <text class="note" x="585" y="750">ES &amp; PT</text>
-  <rect class="built" x="680" y="705" width="120" height="62" rx="4"/>
-  <text class="name" x="740" y="732">LLM</text>
-  <text class="note" x="740" y="750">cloud</text>
-  <rect class="built" x="815" y="705" width="80" height="62" rx="4"/>
-  <text class="name" x="855" y="732">LLM</text>
-  <text class="note" x="855" y="750">local</text>
-  <rect class="planned" x="910" y="705" width="140" height="62" rx="4"/>
-  <text class="name soon" x="980" y="732">Vision model</text>
-  <text class="note" x="980" y="750">OCR</text>
-
-  <!-- Legend -->
-  <rect class="built" x="50" y="712" width="84" height="40" rx="4"/>
-  <text class="name" x="92" y="737">Built</text>
-  <rect class="planned" x="146" y="712" width="84" height="40" rx="4"/>
-  <text class="name soon" x="188" y="737">Planned</text>
+  <text class="note" x="585" y="750">Kokoro · ES &amp; PT</text>
+  <rect class="built" x="680" y="705" width="160" height="62" rx="4"/>
+  <text class="name" x="760" y="732">LLM · Gemini</text>
+  <text class="note" x="760" y="750">cloud · text and image</text>
+  <rect class="built" x="855" y="705" width="120" height="62" rx="4"/>
+  <text class="name" x="915" y="732">LLM · Ollama</text>
+  <text class="note" x="915" y="750">local dev</text>
+  <rect class="built" x="990" y="705" width="160" height="62" rx="4"/>
+  <text class="name" x="1070" y="732">OCR · images</text>
+  <text class="note" x="1070" y="750">screenshots, via Gemini</text>
 </svg>
