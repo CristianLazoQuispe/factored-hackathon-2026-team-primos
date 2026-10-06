@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"></head><body>
+<template>
+<style>
+@font-face { font-family: "Geist"; font-weight: 500; src: url("public/fonts/geist-500.woff2") format("woff2"); }
+@font-face { font-family: "Geist"; font-weight: 600; src: url("public/fonts/geist-600.woff2") format("woff2"); }
+@font-face { font-family: "Geist Mono"; font-weight: 400; src: url("public/fonts/geistmono-400.woff2") format("woff2"); }
+#root{position:absolute;inset:0;overflow:hidden;background:#04141A;font-family:"Geist",sans-serif;color:#EAF4F0}
+.cut{position:absolute;inset:0;overflow:hidden}
+.cut video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.kb{position:absolute;inset:0;will-change:transform;transform-origin:50% 50%}
+.kb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.chip{position:absolute;left:60px;bottom:60px;display:flex;align-items:center;gap:18px;padding:16px 28px;border-radius:999px;background:rgba(7,19,22,.82);border:1.5px solid #1F3A3D;font-size:28px;font-weight:500;letter-spacing:-.01em;backdrop-filter:blur(10px);opacity:0;will-change:transform}
+.chip i{width:12px;height:12px;border-radius:50%;background:#5CC8B4;box-shadow:0 0 14px #5CC8B4;flex:0 0 auto}
+.chip small{font-family:"Geist Mono",monospace;font-size:18px;color:#9DB3AF;letter-spacing:.04em}
+.shade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(4,20,26,0) 70%,rgba(4,20,26,.55) 100%)}
+</style>
+<div data-hf-id="hf-du4i" id="root" data-composition-id="s06-tour" data-width="1920" data-height="1080" data-start="0" data-duration="29">
+  <video data-hf-id="hf-0bea" id="s06-v1" class="clip" src="public/screens/landing.mp4" muted playsinline data-start="0" data-duration="3.2" data-media-start="1.2" data-track-index="0"></video>
+  <video data-hf-id="hf-o9v8" id="s06-v2" class="clip" src="public/screens/corona.mp4" muted playsinline data-start="3" data-duration="3.2" data-media-start="4.2" data-track-index="0"></video>
+  <video data-hf-id="hf-kr4y" id="s06-v3" class="clip" src="public/screens/corona.mp4" muted playsinline data-start="6" data-duration="3.2" data-media-start="20.0" data-track-index="0"></video>
+  <div data-hf-id="hf-apua" id="s06-c4" class="clip cut" data-layout-allow-overflow="" data-start="9" data-duration="3.2" data-track-index="0"><div data-hf-id="hf-ctre" class="kb" id="s06-k4"><img data-hf-id="hf-tad9" src="public/screens/finanzas.png" alt=""></div></div>
+  <video data-hf-id="hf-5sz1" id="s06-v5" class="clip" src="public/screens/khipu.mp4" muted playsinline data-start="12" data-duration="5.2" data-media-start="16.2" data-playback-rate="2" data-track-index="0"></video>
+  <div data-hf-id="hf-580f" id="s06-c6" class="clip cut" data-layout-allow-overflow="" data-start="17" data-duration="3.2" data-track-index="0"><div data-hf-id="hf-5wds" class="kb" id="s06-k6"><img data-hf-id="hf-zr1i" src="public/screens/chat-pt.png" alt=""></div></div>
+  <div data-hf-id="hf-llhz" id="s06-c7" class="clip cut" data-layout-allow-overflow="" data-start="20" data-duration="3.7" data-track-index="0"><div data-hf-id="hf-6o1l" class="kb" id="s06-k7"><img data-hf-id="hf-39c6" src="public/screens/consola.png" alt=""></div></div>
+  <div data-hf-id="hf-8xne" id="s06-c8" class="clip cut" data-layout-allow-overflow="" data-start="23.5" data-duration="3.5" data-track-index="0"><div data-hf-id="hf-pfra" class="kb" id="s06-k8"><img data-hf-id="hf-brph" src="public/screens/gerencia.png" alt=""></div></div>
+  <div data-hf-id="hf-q0n7" class="shade"></div>
+  <div data-hf-id="hf-h96f" class="chip" id="s06-l1"><i data-hf-id="hf-wt6k"></i>The web app <small data-hf-id="hf-6fxo">NEXT.JS · LIVE ON CLOUD RUN</small></div>
+  <div data-hf-id="hf-fj65" class="chip" id="s06-l2"><i data-hf-id="hf-zeb8"></i>Talk to Quipu <small data-hf-id="hf-9zjv">WHISPER HEARS · LISTENING</small></div>
+  <div data-hf-id="hf-akif" class="chip" id="s06-l3"><i data-hf-id="hf-y7e5"></i>…and it talks back <small data-hf-id="hf-jkaz">KOKORO · REAL ANSWER FROM POSTGRES</small></div>
+  <div data-hf-id="hf-e67j" class="chip" id="s06-l4"><i data-hf-id="hf-ylp6"></i>Mis finanzas <small data-hf-id="hf-proy">SPENDING · DUPLICATE ALERT</small></div>
+  <div data-hf-id="hf-9yyj" class="chip" id="s06-l5"><i data-hf-id="hf-0l8b"></i>khipear <small data-hf-id="hf-dsqs">TRANSFER PREPARED · ONLY CONFIRMAR MOVES MONEY</small></div>
+  <div data-hf-id="hf-ah2z" class="chip" id="s06-l6"><i data-hf-id="hf-0zjc"></i>Português too <small data-hf-id="hf-f7v7">PHOTO OF THE STATEMENT · CHAT MEMORY</small></div>
+  <div data-hf-id="hf-w41w" class="chip" id="s06-l7"><i data-hf-id="hf-zsm9"></i>Operator console <small data-hf-id="hf-ojco">TAKE OVER · CASE FILE, NOT A TRANSCRIPT</small></div>
+  <div data-hf-id="hf-3jth" class="chip" id="s06-l8"><i data-hf-id="hf-06xa"></i>Management dashboard <small data-hf-id="hf-0w7j">WHO RESOLVED WHAT · FIRST ANSWER 3.8 S</small></div>
+</div>
+<script>(function(){var tl=gsap.timeline({paused:true});
+var cuts=[["#s06-l1",0,3.2],["#s06-l2",3,3.2],["#s06-l3",6,3.2],["#s06-l4",9,3.2],["#s06-l5",12,5.2],["#s06-l6",17,3.2],["#s06-l7",20,3.7],["#s06-l8",23.5,5.5]];
+cuts.forEach(function(c){tl.fromTo(c[0],{opacity:0,y:24},{opacity:1,y:0,duration:0.35,ease:"power3.out"},c[1]+0.15);tl.to(c[0],{opacity:0,duration:0.2,ease:"power2.in"},c[1]+c[2]-0.25);});
+[["#s06-k4",9,3.2],["#s06-k6",17,3.2],["#s06-k7",20,3.7],["#s06-k8",23.5,5.5]].forEach(function(k){tl.fromTo(k[0],{scale:1.0},{scale:1.08,duration:k[2],ease:"none"},k[1]);});
+window.__timelines["s06-tour"]=tl;})();</script>
+</template></body></html>

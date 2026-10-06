@@ -1,0 +1,26 @@
+/* quipu · design tokens para slides (1920×1080) */
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap');
+:root{
+  /* Color */
+  --q-ink:#071316;        /* fondo base: azul petróleo casi negro */
+  --q-ink-2:#0D1D21;      /* superficies, tarjetas */
+  --q-ink-3:#12302F;      /* superficie destacada / núcleo del quipu */
+  --q-line:#1F3A3D;       /* bordes y retícula */
+  --q-dot:#16292C;        /* puntos de la retícula de fondo */
+  --q-text:#EAF4F0;       /* texto principal (blanco menta) */
+  --q-muted:#9DB3AF;      /* texto secundario */
+  --q-faint:#5E7A77;      /* metadatos, ejes */
+  --q-teal:#5CC8B4;       /* acento principal: acción, Quipu */
+  --q-teal-deep:#3E9B8A;  /* acento secundario */
+  --q-blue:#6D9EE6;       /* acento de datos / comparación */
+  --q-knot:#F2F7F5;       /* nudos claros */
+  --q-alert:#E8846B;      /* solo para riesgo / dolor (uso mínimo) */
+  /* Tipografía */
+  --q-sans:'Geist','Inter',system-ui,sans-serif;
+  --q-mono:'Geist Mono','JetBrains Mono',ui-monospace,monospace;
+  --q-display:168px; --q-h1:96px; --q-h2:64px; --q-h3:40px;
+  --q-body-l:34px; --q-body:28px; --q-small:22px; --q-micro:18px;
+  /* Espacio y forma */
+  --q-pad:120px; --q-gap:48px;
+  --q-r-pill:999px; --q-r-card:32px; --q-r-btn:20px; --q-r-tag:12px;
+}

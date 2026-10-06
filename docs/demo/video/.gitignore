@@ -1,0 +1,10 @@
+node_modules/
+.hyperframes/
+snapshots/
+public/screens/*.webm
+public/screens/tmp/
+audio_meta.json
+out/
+.thumbnails/
+.waveform-cache/
+assets/bgm/*.log

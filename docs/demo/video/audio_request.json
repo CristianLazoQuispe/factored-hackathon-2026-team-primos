@@ -1,0 +1,3 @@
+{ "provider": "kokoro", "lang": "en", "lines": [],
+  "bgm": { "mode": "generate", "query": "fintech bank confident calm",
+           "prompt": "calm confident cinematic electronic underscore for a fintech product demo, soft synth pads, subtle piano, restrained percussion, 92 bpm, no vocals, modern and warm" } }
