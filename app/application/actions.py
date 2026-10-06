@@ -42,7 +42,12 @@ from app.domain.actions import (
     sla_due,
     utcnow,
 )
-from app.domain.email_content import EmailContent, balances_content, content_text
+from app.domain.email_content import (
+    EmailContent,
+    balances_content,
+    case_receipt_content,
+    content_text,
+)
 
 log = logging.getLogger(__name__)
 MAX_ATTEMPTS = 3
@@ -504,6 +509,7 @@ class ActionGateway:
                 "case": run.results["open_payment_inquiry"],
                 "tx": {k: charge.get(k) for k in ("merchant", "amount", "currency", "date")},
             }
+            content = case_receipt_content(record.language, data["case"], data["tx"])
         if content is not None:
             subject, body = content.subject, content_text(content)
         else:

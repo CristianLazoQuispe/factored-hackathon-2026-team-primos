@@ -24,12 +24,13 @@ The e-mail has two parts, `text/html` and `text/plain`, built from the same Mark
 
 ## Where the code uses it
 
-Two kinds of message are connected to the code; the others still go as plain text.
+Three kinds of message are connected to the code; the others still go as plain text.
 
 | Message | Content (pure, `app/domain/email_content.py`) | Sent by |
 |---|---|---|
 | Summary of balances | `balances_content` | the `send_summary_email` action, topic `balances` |
 | Receipt of a transfer or a payment | `transfer_receipt_content` | `app/adapters/inbound/confirmation_mail.py`, after the button |
+| Receipt of an inquiry | `case_receipt_content` | the `send_summary_email` action, topic `case_receipt`, in the batch that opens the inquiry |
 
 The content is a small structure (title, intro, a big figure, sections of rows, a notice). The domain writes
 the plain-text part from it (`content_text`, which is also what the outbox keeps); `compose.py` fills
@@ -37,7 +38,7 @@ the plain-text part from it (`content_text`, which is also what the outbox keeps
 (`multipart/alternative` with a `multipart/related` that holds the page and `cid:quipu-logo`). If the page
 cannot be made, the message goes as plain text.
 
-To connect another message (the payment status, the case receipt): write its `*_content` function in
+To connect another message (the payment status): write its `*_content` function in
 `email_content.py`, make the action or the route pass it as `content` in the `EmailDraft`, and add it to
 `tests/test_email_connected.py`. Nothing in `compose.py` or the mailer changes.
 
