@@ -28,10 +28,10 @@
   <text class="group-title" x="866" y="214">TOOLS · MCP SERVERS</text>
   <rect class="group" x="1170" y="190" width="280" height="416" rx="6"/>
   <text class="group-title" x="1186" y="214">DATA</text>
-  <rect class="group" x="310" y="660" width="700" height="130" rx="6"/>
+  <rect class="group" x="310" y="660" width="680" height="130" rx="6"/>
   <text class="group-title" x="326" y="684">AI MODELS</text>
-  <rect class="group" x="1030" y="660" width="420" height="130" rx="6"/>
-  <text class="group-title" x="1046" y="684">PLATFORM · GOOGLE CLOUD</text>
+  <rect class="group" x="1010" y="660" width="440" height="130" rx="6"/>
+  <text class="group-title" x="1026" y="684">PLATFORM · GOOGLE CLOUD</text>
 
   <!-- Edges: channels → backend -->
   <path class="edge" d="M230,281 H329" marker-end="url(#arrow)"/>
@@ -58,12 +58,11 @@
   <path class="edge" d="M1310,500 V440" marker-end="url(#arrow)"/>
   <!-- backend → models -->
   <path class="edge" d="M420,546 V704" marker-end="url(#arrow)"/>
-  <path class="edge" d="M420,640 H524 V704" marker-end="url(#arrow)"/>
-  <path class="edge" d="M589,400 H570 V625 H923 V704" marker-end="url(#arrow)"/>
-  <path class="edge" d="M666,625 V704" marker-end="url(#arrow)"/>
-  <path class="edge" d="M796,625 V704" marker-end="url(#arrow)"/>
+  <path class="edge" d="M420,640 H565 V704" marker-end="url(#arrow)"/>
+  <path class="edge" d="M589,400 H570 V625 H915 V704" marker-end="url(#arrow)"/>
+  <path class="edge" d="M750,625 V704" marker-end="url(#arrow)"/>
   <!-- CI → Cloud Run -->
-  <path class="edge" d="M1250,740 H1232" marker-end="url(#arrow)"/>
+  <path class="edge" d="M1250,740 H1212" marker-end="url(#arrow)"/>
 
   <!-- Observability -->
   <rect class="built" x="620" y="74" width="140" height="62" rx="4"/>
@@ -131,27 +130,24 @@
   <text class="note" x="1310" y="558">dedup · contracts · load</text>
 
   <!-- AI models -->
-  <rect class="built" x="330" y="705" width="120" height="62" rx="4"/>
-  <text class="name" x="390" y="732">Speech-to-text</text>
-  <text class="note" x="390" y="750">Whisper · ES &amp; PT</text>
-  <rect class="built" x="462" y="705" width="125" height="62" rx="4"/>
-  <text class="name" x="524" y="732">Text-to-speech</text>
-  <text class="note" x="524" y="750">Kokoro · ES &amp; PT</text>
-  <rect class="built" x="599" y="705" width="135" height="62" rx="4"/>
-  <text class="name" x="666" y="732">LLM · Gemini 2.5</text>
-  <text class="note" x="666" y="750">Vertex AI · text, image</text>
-  <rect class="built" x="746" y="705" width="100" height="62" rx="4"/>
-  <text class="name" x="796" y="732">LLM · Ollama</text>
-  <text class="note" x="796" y="750">local dev</text>
-  <rect class="built" x="858" y="705" width="130" height="62" rx="4"/>
-  <text class="name" x="923" y="732">OCR · images</text>
-  <text class="note" x="923" y="750">statements, via Gemini</text>
+  <rect class="built" x="330" y="705" width="140" height="62" rx="4"/>
+  <text class="name" x="400" y="732">Speech-to-text</text>
+  <text class="note" x="400" y="750">Whisper · ES &amp; PT</text>
+  <rect class="built" x="485" y="705" width="160" height="62" rx="4"/>
+  <text class="name" x="565" y="732">Text-to-speech</text>
+  <text class="note" x="565" y="750">Kokoro · ES &amp; PT</text>
+  <rect class="built" x="660" y="705" width="180" height="62" rx="4"/>
+  <text class="name" x="750" y="732">LLM · Gemini 2.5</text>
+  <text class="note" x="750" y="750">Vertex AI · text and image</text>
+  <rect class="built" x="855" y="705" width="120" height="62" rx="4"/>
+  <text class="name" x="915" y="732">LLM · Ollama</text>
+  <text class="note" x="915" y="750">local dev</text>
 
   <!-- Platform -->
-  <rect class="built" x="1050" y="705" width="180" height="70" rx="4"/>
-  <text class="name" x="1140" y="727">Cloud Run</text>
-  <text class="note" x="1140" y="745">factored-api · factored-web</text>
-  <text class="note" x="1140" y="760">Cloud SQL · Postgres 16</text>
+  <rect class="built" x="1030" y="705" width="180" height="70" rx="4"/>
+  <text class="name" x="1120" y="727">Cloud Run</text>
+  <text class="note" x="1120" y="745">factored-api · factored-web</text>
+  <text class="note" x="1120" y="760">Cloud SQL · Postgres 16</text>
   <rect class="built" x="1250" y="705" width="180" height="70" rx="4"/>
   <text class="name" x="1340" y="727">GitHub Actions</text>
   <text class="note" x="1340" y="745">lint · 990 tests · eval gate</text>
