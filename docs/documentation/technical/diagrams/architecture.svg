@@ -39,7 +39,6 @@
   <path class="edge" d="M280,415 V515"/>
   <path class="edge" d="M280,437 H329" marker-end="url(#arrow)"/>
   <path class="edge" d="M280,515 H329" marker-end="url(#arrow)"/>
-  <path class="edge" d="M230,515 H280"/>
   <!-- backend internals -->
   <path class="edge" d="M510,359 H589" marker-end="url(#arrow)"/>
   <path class="edge" d="M650,328 V281 H511" marker-end="url(#arrow)"/>
@@ -78,9 +77,6 @@
   <text class="name" x="140" y="400">Web app · Next.js</text>
   <text class="note" x="140" y="419">chat · text, voice, image</text>
   <text class="note" x="140" y="435">my finances · sign-in</text>
-  <rect class="built" x="50" y="484" width="180" height="62" rx="4"/>
-  <text class="name" x="140" y="511">Telegram</text>
-  <text class="note" x="140" y="529">same agent, same locks</text>
 
   <!-- Backend -->
   <rect class="built" x="330" y="250" width="180" height="62" rx="4"/>
