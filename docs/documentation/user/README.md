@@ -5,7 +5,7 @@ A customer-service assistant for a Latin American bank. You chat with it in **Sp
 ## Open it
 
 - **Local:** `cp .env.example .env && make up`, then open http://localhost:3000 and press **Hablar con Quipu**, or go straight to http://localhost:3000/chat (see the [root README](../../../README.md)).
-- **Sign in:** at the top of the chat, a customer ID from the list the field offers (the password is the same ID), or one of the eight demo emails from the [root README](../../../README.md). To try khipear, sign in as `DEMO-MX-KHIPU`: it has two accounts, a credit card and a loan. The eight email customers have one savings account and a card, enough to pay the card. That starts the session. **Salir** ends it.
+- **Sign in:** at the top of the chat, a customer ID from the list the field offers (the password is the same ID), or one of the eight demo emails from the [demo guide](demo_guide.md). To try khipear, sign in as `DEMO-MX-KHIPU`: it has two accounts, a credit card and a loan. The eight email customers have one savings account and a card, enough to pay the card. That starts the session. **Salir** ends it.
 
 ## What you can ask today
 
