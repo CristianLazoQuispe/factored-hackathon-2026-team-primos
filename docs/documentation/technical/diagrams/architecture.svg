@@ -28,8 +28,10 @@
   <text class="group-title" x="866" y="214">TOOLS · MCP SERVERS</text>
   <rect class="group" x="1170" y="190" width="280" height="416" rx="6"/>
   <text class="group-title" x="1186" y="214">DATA</text>
-  <rect class="group" x="310" y="660" width="870" height="130" rx="6"/>
+  <rect class="group" x="310" y="660" width="680" height="130" rx="6"/>
   <text class="group-title" x="326" y="684">AI MODELS</text>
+  <rect class="group" x="1010" y="660" width="440" height="130" rx="6"/>
+  <text class="group-title" x="1026" y="684">PLATFORM · GOOGLE CLOUD</text>
 
   <!-- Edges: channels → backend -->
   <path class="edge" d="M230,281 H329" marker-end="url(#arrow)"/>
@@ -37,6 +39,7 @@
   <path class="edge" d="M280,415 V515"/>
   <path class="edge" d="M280,437 H329" marker-end="url(#arrow)"/>
   <path class="edge" d="M280,515 H329" marker-end="url(#arrow)"/>
+  <path class="edge" d="M230,515 H280"/>
   <!-- backend internals -->
   <path class="edge" d="M510,359 H589" marker-end="url(#arrow)"/>
   <path class="edge" d="M650,328 V281 H511" marker-end="url(#arrow)"/>
@@ -47,19 +50,20 @@
   <path class="edge" d="M820,376 V261 H869" marker-end="url(#arrow)"/>
   <path class="edge" d="M820,335 H869" marker-end="url(#arrow)"/>
   <path class="edge" d="M820,376 H869" marker-end="url(#arrow)"/>
-  <path class="edge" d="M820,376 V483 H869" marker-end="url(#arrow)"/>
+  <path class="edge" d="M820,376 V490 H869" marker-end="url(#arrow)"/>
   <!-- tools → Postgres -->
   <path class="edge" d="M1090,261 H1140 V335"/>
   <path class="edge" d="M1090,335 H1189" marker-end="url(#arrow)"/>
   <path class="edge" d="M1090,409 H1140 V335"/>
-  <path class="edge" d="M1090,483 H1140 V409"/>
+  <path class="edge" d="M1090,490 H1140 V409"/>
   <path class="edge" d="M1310,500 V440" marker-end="url(#arrow)"/>
   <!-- backend → models -->
   <path class="edge" d="M420,546 V704" marker-end="url(#arrow)"/>
-  <path class="edge" d="M420,640 H585 V704" marker-end="url(#arrow)"/>
-  <path class="edge" d="M589,400 H570 V625 H1070 V704" marker-end="url(#arrow)"/>
-  <path class="edge" d="M760,625 V704" marker-end="url(#arrow)"/>
-  <path class="edge" d="M915,625 V704" marker-end="url(#arrow)"/>
+  <path class="edge" d="M420,640 H565 V704" marker-end="url(#arrow)"/>
+  <path class="edge" d="M589,400 H570 V625 H915 V704" marker-end="url(#arrow)"/>
+  <path class="edge" d="M750,625 V704" marker-end="url(#arrow)"/>
+  <!-- CI → Cloud Run -->
+  <path class="edge" d="M1250,740 H1212" marker-end="url(#arrow)"/>
 
   <!-- Observability -->
   <rect class="built" x="620" y="74" width="140" height="62" rx="4"/>
@@ -69,11 +73,14 @@
   <!-- Channels -->
   <rect class="built" x="50" y="250" width="180" height="62" rx="4"/>
   <text class="name" x="140" y="277">Operator console</text>
-  <text class="note" x="140" y="295">/consola · chats and case files</text>
+  <text class="note" x="140" y="295">/consola · case files · take over</text>
   <rect class="built" x="50" y="367" width="180" height="96" rx="4"/>
   <text class="name" x="140" y="400">Web app · Next.js</text>
   <text class="note" x="140" y="419">chat · text, voice, image</text>
   <text class="note" x="140" y="435">my finances · sign-in</text>
+  <rect class="built" x="50" y="484" width="180" height="62" rx="4"/>
+  <text class="name" x="140" y="511">Telegram</text>
+  <text class="note" x="140" y="529">same agent, same locks</text>
 
   <!-- Backend -->
   <rect class="built" x="330" y="250" width="180" height="62" rx="4"/>
@@ -81,7 +88,7 @@
   <text class="note" x="420" y="295">case file · operator replies</text>
   <rect class="built" x="330" y="328" width="180" height="62" rx="4"/>
   <text class="name" x="420" y="355">Chat API</text>
-  <text class="note" x="420" y="373">JWT session · memory</text>
+  <text class="note" x="420" y="373">JWT session · chat memory</text>
   <rect class="built" x="330" y="406" width="180" height="62" rx="4"/>
   <text class="name" x="420" y="433">Finances API</text>
   <text class="note" x="420" y="451">spending · duplicate charges</text>
@@ -89,9 +96,9 @@
   <text class="name" x="420" y="511">Speech API</text>
   <text class="note" x="420" y="529">transcribe · synthesize</text>
   <rect class="built" x="590" y="328" width="180" height="96" rx="4"/>
-  <text class="name" x="680" y="364">Agent</text>
-  <text class="note" x="680" y="383">LangGraph · guard · router</text>
-  <text class="note" x="680" y="399">skills (SKILL.md)</text>
+  <text class="name" x="680" y="364">Agent · LangGraph</text>
+  <text class="note" x="680" y="383">guard → router → skills</text>
+  <text class="note" x="680" y="399">SKILL.md · identity from the JWT</text>
   <rect class="built" x="590" y="500" width="180" height="62" rx="4"/>
   <text class="name" x="680" y="522">E-mail</text>
   <text class="note" x="680" y="539">receipts · balance summaries</text>
@@ -104,13 +111,14 @@
   <rect class="built" x="870" y="304" width="220" height="62" rx="4"/>
   <text class="name" x="980" y="325">Data warehouse lookup</text>
   <text class="note" x="980" y="342">movements · spending · complaints</text>
-  <text class="note" x="980" y="357">exchange rate · text-to-SQL</text>
+  <text class="note" x="980" y="357">read-only SQL, scoped to one customer</text>
   <rect class="built" x="870" y="378" width="220" height="62" rx="4"/>
   <text class="name" x="980" y="405">Charge investigation</text>
-  <text class="note" x="980" y="423">unrecognized or duplicate charges</text>
-  <rect class="built" x="870" y="452" width="220" height="62" rx="4"/>
-  <text class="name" x="980" y="479">Actions · khipear</text>
-  <text class="note" x="980" y="497">cards · disputes · transfers · bills</text>
+  <text class="note" x="980" y="423">duplicate · pending · FX · fraud</text>
+  <rect class="built" x="870" y="452" width="220" height="76" rx="4"/>
+  <text class="name" x="980" y="475">Actions · khipear</text>
+  <text class="note" x="980" y="493">cards · disputes · transfers · bills</text>
+  <text class="note" x="980" y="509">propose → confirm → execute → verify</text>
 
   <!-- Data -->
   <path class="built" d="M1190,264 a120,14 0 0 1 240,0 v160 a120,14 0 0 1 -240,0 z"/>
@@ -126,19 +134,26 @@
   <text class="note" x="1310" y="558">dedup · contracts · load</text>
 
   <!-- AI models -->
-  <rect class="built" x="350" y="705" width="140" height="62" rx="4"/>
-  <text class="name" x="420" y="732">Speech-to-text</text>
-  <text class="note" x="420" y="750">Whisper · ES &amp; PT</text>
-  <rect class="built" x="505" y="705" width="160" height="62" rx="4"/>
-  <text class="name" x="585" y="732">Text-to-speech</text>
-  <text class="note" x="585" y="750">Kokoro · ES &amp; PT</text>
-  <rect class="built" x="680" y="705" width="160" height="62" rx="4"/>
-  <text class="name" x="760" y="732">LLM · Gemini</text>
-  <text class="note" x="760" y="750">cloud · text and image</text>
+  <rect class="built" x="330" y="705" width="140" height="62" rx="4"/>
+  <text class="name" x="400" y="732">Speech-to-text</text>
+  <text class="note" x="400" y="750">Whisper · ES &amp; PT</text>
+  <rect class="built" x="485" y="705" width="160" height="62" rx="4"/>
+  <text class="name" x="565" y="732">Text-to-speech</text>
+  <text class="note" x="565" y="750">Kokoro · ES &amp; PT</text>
+  <rect class="built" x="660" y="705" width="180" height="62" rx="4"/>
+  <text class="name" x="750" y="732">LLM · Gemini 2.5</text>
+  <text class="note" x="750" y="750">Vertex AI · text, image, OCR</text>
   <rect class="built" x="855" y="705" width="120" height="62" rx="4"/>
   <text class="name" x="915" y="732">LLM · Ollama</text>
   <text class="note" x="915" y="750">local dev</text>
-  <rect class="built" x="990" y="705" width="160" height="62" rx="4"/>
-  <text class="name" x="1070" y="732">OCR · images</text>
-  <text class="note" x="1070" y="750">screenshots, via Gemini</text>
+
+  <!-- Platform -->
+  <rect class="built" x="1030" y="705" width="180" height="70" rx="4"/>
+  <text class="name" x="1120" y="727">Cloud Run</text>
+  <text class="note" x="1120" y="745">factored-api · factored-web</text>
+  <text class="note" x="1120" y="760">Cloud SQL · Postgres 16</text>
+  <rect class="built" x="1250" y="705" width="180" height="70" rx="4"/>
+  <text class="name" x="1340" y="727">GitHub Actions</text>
+  <text class="note" x="1340" y="745">lint · 990 tests · eval gate</text>
+  <text class="note" x="1340" y="760">push to main → deploy</text>
 </svg>
